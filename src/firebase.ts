@@ -23,8 +23,8 @@ import {
   where,
   type Unsubscribe,
 } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
 import type {
+  ArchivistChestArchetype,
   CairnTag,
   CollectedSpecimen,
   ExplorationCategory,
@@ -32,19 +32,67 @@ import type {
   ExplorerAvatarPreset,
   ExplorerCairn,
   ExplorerGender,
+  ExplorerGeocacheRecord,
   ExplorerHeadgearId,
   ExplorerOutfitId,
   ExplorerPackId,
   ExplorerProgress,
   ExplorerSkinTone,
   ExplorerToolId,
+  GeocacheGiftDomain,
+  GeocacheGiftKind,
+  GeocacheLogRecord,
+  GeocachePlacementMode,
   LithologyAffinity,
+  OpenedArchivistChestRecord,
   SpecimenDomain,
   UnlockedEntry,
 } from './types';
 
+interface FirebaseAppletConfig {
+  projectId: string;
+  appId: string;
+  apiKey: string;
+  authDomain: string;
+  firestoreDatabaseId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  measurementId?: string;
+  oAuthClientId?: string;
+  recaptchaSiteKey?: string;
+}
+
+const localFirebaseConfigModules = import.meta.glob<{ default: FirebaseAppletConfig }>(
+  '../firebase-applet-config.json',
+  { eager: true }
+);
+const localFirebaseConfig: Partial<FirebaseAppletConfig> =
+  localFirebaseConfigModules['../firebase-applet-config.json']?.default ?? {};
+
+const firebaseConfig: FirebaseAppletConfig = {
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || localFirebaseConfig.projectId || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || localFirebaseConfig.appId || '',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || localFirebaseConfig.apiKey || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || localFirebaseConfig.authDomain || '',
+  firestoreDatabaseId:
+    import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID ||
+    localFirebaseConfig.firestoreDatabaseId,
+  storageBucket:
+    import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || localFirebaseConfig.storageBucket,
+  messagingSenderId:
+    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || localFirebaseConfig.messagingSenderId,
+  measurementId:
+    import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || localFirebaseConfig.measurementId,
+  oAuthClientId:
+    import.meta.env.VITE_FIREBASE_OAUTH_CLIENT_ID || localFirebaseConfig.oAuthClientId,
+  recaptchaSiteKey:
+    import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY || localFirebaseConfig.recaptchaSiteKey,
+};
+
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = firebaseConfig.firestoreDatabaseId
+  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+  : getFirestore(app);
 export const auth = getAuth(app);
 
 export enum OperationType {
@@ -99,8 +147,121 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
+export function isTransientCloudOfflineError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    msg.includes('CLOUD_OFFLINE') ||
+    msg.includes('the client is offline') ||
+    msg.includes('unavailable') ||
+    msg.includes('network-request-failed') ||
+    msg.includes('Fetching auth token failed') ||
+    msg.includes('token-service-api-has-not-been-used') ||
+    msg.includes('securetoken.googleapis.com') ||
+    msg.includes('api-not-enabled')
+  );
+}
+
+export function formatFirebaseAuthErrorFr(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (raw.includes('popup-closed-by-user') || raw.includes('cancelled-popup-request')) {
+    return 'La fenêtre de connexion Google a été refermée avant validation.';
+  }
+  if (raw.includes('popup-blocked')) {
+    return 'Le navigateur a bloqué la fenêtre de connexion Google. Autorisez les pop-ups pour ce site.';
+  }
+  if (
+    raw.includes('token-service-api-has-not-been-used') ||
+    raw.includes('securetoken.googleapis.com') ||
+    raw.includes('api-not-enabled')
+  ) {
+    return 'Mode Sauvegarde Locale actif : l’API Google Cloud « Token Service API » (securetoken.googleapis.com) est désactivée ou en cours d’activation sur le projet Firebase. Vos découvertes restent intégralement sauvegardées sur cet appareil.';
+  }
+  if (raw.includes('network-request-failed') || raw.includes('the client is offline')) {
+    return 'Réseau indisponible : votre Grimoire continue de sauvegarder toutes vos découvertes localement.';
+  }
+  return 'Synchronisation Cloud momentanément indisponible. Vos découvertes restent sauvegardées sur cet appareil.';
+}
+
+export interface AuthSessionPreflightResult {
+  validUser: User | null;
+  cloudReachable: boolean;
+  warningMessage: string;
+}
+
+const inflightAuthChecks = new Map<string, Promise<AuthSessionPreflightResult>>();
+
+export async function validateExplorerAuthSession(
+  candidateUser?: User | null
+): Promise<AuthSessionPreflightResult> {
+  if (candidateUser === undefined) {
+    try {
+      await auth.authStateReady();
+    } catch {
+      // Ignore authStateReady errors and fall back to auth.currentUser
+    }
+  }
+
+  const activeUser = candidateUser !== undefined ? candidateUser : auth.currentUser;
+  const browserOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
+
+  if (!activeUser) {
+    return { validUser: null, cloudReachable: browserOnline, warningMessage: '' };
+  }
+
+  if (!browserOnline) {
+    return { validUser: activeUser, cloudReachable: false, warningMessage: '' };
+  }
+
+  const existingCheck = inflightAuthChecks.get(activeUser.uid);
+  if (existingCheck) return existingCheck;
+
+  const checkPromise = (async (): Promise<AuthSessionPreflightResult> => {
+    try {
+      await activeUser.getIdToken(true);
+      return { validUser: activeUser, cloudReachable: true, warningMessage: '' };
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      if (raw.includes('network-request-failed')) {
+        return { validUser: activeUser, cloudReachable: false, warningMessage: '' };
+      }
+      await firebaseSignOut(auth).catch(() => {});
+      return {
+        validUser: null,
+        cloudReachable: browserOnline,
+        warningMessage: formatFirebaseAuthErrorFr(err),
+      };
+    } finally {
+      inflightAuthChecks.delete(activeUser.uid);
+    }
+  })();
+
+  inflightAuthChecks.set(activeUser.uid, checkPromise);
+  return checkPromise;
+}
+
+async function assertCloudSessionHealthy(): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('CLOUD_OFFLINE');
+  }
+  const current = auth.currentUser;
+  if (!current) {
+    throw new Error('CLOUD_OFFLINE');
+  }
+  try {
+    await current.getIdToken(false);
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (!raw.includes('network-request-failed')) {
+      await firebaseSignOut(auth).catch(() => {});
+    }
+    throw new Error('CLOUD_OFFLINE');
+  }
+}
+
 async function testConnection() {
   try {
+    const preflight = await validateExplorerAuthSession();
+    if (!preflight.cloudReachable) return;
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
@@ -218,6 +379,12 @@ function sanitizeStringArray(arr: string[], maxItems: number): string[] {
 export async function signInExplorerWithGoogle(): Promise<User> {
   const provider = new GoogleAuthProvider();
   const cred = await signInWithPopup(auth, provider);
+  try {
+    await cred.user.getIdToken(true);
+  } catch (tokenErr) {
+    await firebaseSignOut(auth).catch(() => {});
+    throw new Error(formatFirebaseAuthErrorFr(tokenErr));
+  }
   return cred.user;
 }
 
@@ -229,6 +396,7 @@ export async function ensureExplorerProfileInCloud(
   user: User,
   localProgress: ExplorerProgress
 ): Promise<void> {
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(user.uid);
   const profilePath = `explorers/${uid}`;
   const profileRef = doc(db, 'explorers', uid);
@@ -351,6 +519,7 @@ export async function syncProgressToCloud(
   uidRaw: string,
   progress: ExplorerProgress
 ): Promise<void> {
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(uidRaw);
   const profilePath = `explorers/${uid}`;
   const profileRef = doc(db, 'explorers', uid);
@@ -384,6 +553,7 @@ export async function updateExplorerIdentityInCloud(
   displayName: string,
   appearance?: Partial<ExplorerAppearance>
 ): Promise<void> {
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(uidRaw);
   const profilePath = `explorers/${uid}`;
   const profileRef = doc(db, 'explorers', uid);
@@ -453,6 +623,7 @@ export async function createDiscoveryInCloud(
   uidRaw: string,
   entry: UnlockedEntry
 ): Promise<void> {
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(uidRaw);
   const poiId = sanitizeFirestoreId(entry.poiId);
   const docPath = `explorers/${uid}/discoveries/${poiId}`;
@@ -474,6 +645,7 @@ export async function syncMissingDiscoveriesToCloud(
   localEntries: UnlockedEntry[]
 ): Promise<void> {
   if (localEntries.length === 0) return;
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(uidRaw);
   const discoveriesPath = `explorers/${uid}/discoveries`;
   const q = query(collection(db, 'explorers', uid, 'discoveries'), where('ownerId', '==', uid));
@@ -502,6 +674,7 @@ export async function updateDiscoveryJournalInCloud(
   personalNote: string,
   photoCount: number
 ): Promise<void> {
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(uidRaw);
   const poiId = sanitizeFirestoreId(poiIdRaw);
   const docPath = `explorers/${uid}/discoveries/${poiId}`;
@@ -522,6 +695,7 @@ export async function upsertSpecimenInCloud(
   uidRaw: string,
   specimen: CollectedSpecimen
 ): Promise<void> {
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(uidRaw);
   const specId = sanitizeFirestoreId(specimen.specimenId).slice(0, 64);
   const docPath = `explorers/${uid}/specimens/${specId}`;
@@ -615,6 +789,7 @@ export async function syncMissingSpecimensToCloud(
   localSpecimens: CollectedSpecimen[]
 ): Promise<void> {
   if (localSpecimens.length === 0) return;
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(uidRaw);
   const specimensPath = `explorers/${uid}/specimens`;
   let existingIds = new Set<string>();
@@ -638,16 +813,115 @@ export async function syncMissingSpecimensToCloud(
   }
 }
 
+const VALID_CHEST_ARCHETYPES: ArchivistChestArchetype[] = [
+  'sommet_colline',
+  'confluence_eaux',
+  'cul_de_sac_forestier',
+  'clairiere_sylvestre',
+  'bouche_souterraine',
+];
+
+export async function recordOpenedArchivistChestInCloud(
+  uidRaw: string,
+  chest: OpenedArchivistChestRecord
+): Promise<void> {
+  await assertCloudSessionHealthy();
+  const uid = sanitizeFirestoreId(uidRaw);
+  const chestId = sanitizeFirestoreId(chest.chestId).slice(0, 80);
+  const docPath = `explorers/${uid}/archivistChests/${chestId}`;
+  const docRef = doc(db, 'explorers', uid, 'archivistChests', chestId);
+
+  let snap;
+  try {
+    snap = await getDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, docPath);
+  }
+
+  // Opened Archivist Chests are immutable once unlocked (allow update: if false)
+  if (snap.exists()) return;
+
+  const safeArchetype: ArchivistChestArchetype = VALID_CHEST_ARCHETYPES.includes(chest.archetype)
+    ? chest.archetype
+    : 'clairiere_sylvestre';
+  const safeCat: ExplorationCategory = (
+    ['histoire', 'geographie', 'ecosysteme', 'etrange', 'legende'] as ExplorationCategory[]
+  ).includes(chest.category)
+    ? chest.category
+    : 'geographie';
+
+  const payload: Record<string, unknown> = {
+    ownerId: uid,
+    chestId,
+    archetype: safeArchetype,
+    title: clampStr(chest.title, 1, 160, "Coffre d'Archiviste"),
+    placeNote: clampStr(chest.placeNote, 1, 240, 'Point topographique remarquable.'),
+    relicId: sanitizeFirestoreId(chest.relicId).slice(0, 64),
+    relicName: clampStr(chest.relicName, 1, 160, "Relique d'Archiviste"),
+    category: safeCat,
+    regionLabel: clampStr(chest.regionLabel || 'Secteur local', 1, 140, 'Secteur local'),
+    lat: clampNum(chest.lat, -90, 90),
+    lng: clampNum(chest.lng, -180, 180),
+    isSubterranean: Boolean(chest.isSubterranean),
+    xpAwarded: Math.round(clampNum(chest.xpAwarded, 0, 5000)),
+    openedAt: serverTimestamp(),
+  };
+  if (typeof chest.altitudeMeters === 'number' && Number.isFinite(chest.altitudeMeters)) {
+    payload.altitudeMeters = Math.round(clampNum(chest.altitudeMeters, -500, 9000));
+  }
+
+  try {
+    await setDoc(docRef, payload);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, docPath);
+  }
+}
+
+export async function syncMissingArchivistChestsToCloud(
+  uidRaw: string,
+  localChests: OpenedArchivistChestRecord[]
+): Promise<void> {
+  if (localChests.length === 0) return;
+  await assertCloudSessionHealthy();
+  const uid = sanitizeFirestoreId(uidRaw);
+  const chestsPath = `explorers/${uid}/archivistChests`;
+
+  let existingIds = new Set<string>();
+  try {
+    const q = query(
+      collection(db, 'explorers', uid, 'archivistChests'),
+      where('ownerId', '==', uid)
+    );
+    const snap = await getDocs(q);
+    existingIds = new Set(snap.docs.map((d) => d.id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, chestsPath);
+  }
+
+  const missing = localChests.filter(
+    (c) => !existingIds.has(sanitizeFirestoreId(c.chestId).slice(0, 80))
+  );
+  if (missing.length === 0) return;
+
+  const BATCH_SIZE = 8;
+  for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+    const slice = missing.slice(i, i + BATCH_SIZE);
+    await Promise.all(slice.map((ch) => recordOpenedArchivistChestInCloud(uid, ch)));
+  }
+}
+
 export function subscribeToCloudExplorer(
   uidRaw: string,
   onProfile: (p: ExplorerProgress) => void,
   onDiscoveries: (entries: UnlockedEntry[]) => void,
-  onSpecimens?: (specimens: CollectedSpecimen[]) => void
+  onSpecimens?: (specimens: CollectedSpecimen[]) => void,
+  onArchivistChests?: (chests: OpenedArchivistChestRecord[]) => void
 ): Unsubscribe {
   const uid = sanitizeFirestoreId(uidRaw);
   const profilePath = `explorers/${uid}`;
   const discoveriesPath = `explorers/${uid}/discoveries`;
   const specimensPath = `explorers/${uid}/specimens`;
+  const chestsPath = `explorers/${uid}/archivistChests`;
 
   const unsubProfile = onSnapshot(
     doc(db, 'explorers', uid),
@@ -787,10 +1061,62 @@ export function subscribeToCloudExplorer(
     );
   }
 
+  let unsubChests: Unsubscribe | null = null;
+  if (onArchivistChests) {
+    const qChests = query(
+      collection(db, 'explorers', uid, 'archivistChests'),
+      where('ownerId', '==', uid)
+    );
+    unsubChests = onSnapshot(
+      qChests,
+      (snap) => {
+        const list: OpenedArchivistChestRecord[] = snap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          const ts = d.openedAt as { toDate?: () => Date } | undefined;
+          const openedIso =
+            ts && typeof ts.toDate === 'function'
+              ? ts.toDate().toISOString()
+              : new Date().toISOString();
+          return {
+            chestId: String(d.chestId || docSnap.id),
+            archetype: VALID_CHEST_ARCHETYPES.includes(d.archetype as ArchivistChestArchetype)
+              ? (d.archetype as ArchivistChestArchetype)
+              : 'clairiere_sylvestre',
+            title: String(d.title || "Coffre d'Archiviste"),
+            placeNote: String(d.placeNote || ''),
+            relicId: String(d.relicId || 'astrolabe_laiton'),
+            relicName: String(d.relicName || 'Relique'),
+            category: (['histoire', 'geographie', 'ecosysteme', 'etrange', 'legende'].includes(
+              String(d.category)
+            )
+              ? d.category
+              : 'geographie') as ExplorationCategory,
+            regionLabel: String(d.regionLabel || 'Secteur local'),
+            lat: Number(d.lat || 0),
+            lng: Number(d.lng || 0),
+            altitudeMeters:
+              typeof d.altitudeMeters === 'number' && Number.isFinite(d.altitudeMeters)
+                ? d.altitudeMeters
+                : null,
+            isSubterranean: Boolean(d.isSubterranean),
+            xpAwarded: Number(d.xpAwarded || 0),
+            openedAtIso: openedIso,
+          };
+        });
+        list.sort((a, b) => b.openedAtIso.localeCompare(a.openedAtIso));
+        onArchivistChests(list);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, chestsPath);
+      }
+    );
+  }
+
   return () => {
     unsubProfile();
     unsubDiscoveries();
     if (unsubSpecimens) unsubSpecimens();
+    if (unsubChests) unsubChests();
   };
 }
 
@@ -861,6 +1187,7 @@ export async function upsertPoiCairnInCloud(params: {
   tag: CairnTag;
   message: string;
 }): Promise<void> {
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(params.uidRaw);
   const poiId = sanitizeFirestoreId(params.poiEntry.poiId);
   const cairnId = buildCairnDocId(uid, poiId);
@@ -923,6 +1250,7 @@ export async function upsertPoiCairnInCloud(params: {
 }
 
 export async function deletePoiCairnInCloud(uidRaw: string, poiIdRaw: string): Promise<void> {
+  await assertCloudSessionHealthy();
   const cairnId = buildCairnDocId(uidRaw, poiIdRaw);
   const docPath = `cairns/${cairnId}`;
   try {
@@ -932,10 +1260,352 @@ export async function deletePoiCairnInCloud(uidRaw: string, poiIdRaw: string): P
   }
 }
 
+export function buildGeocacheDocId(uidRaw: string, lat: number, lng: number): string {
+  const uidPart = sanitizeFirestoreId(uidRaw).slice(0, 44);
+  const latTag = `${lat >= 0 ? 'N' : 'S'}${Math.abs(Math.round(lat * 10000))}`;
+  const lngTag = `${lng >= 0 ? 'E' : 'W'}${Math.abs(Math.round(lng * 10000))}`;
+  return sanitizeFirestoreId(`gc_${uidPart}_${latTag}_${lngTag}`).slice(0, 110);
+}
+
+export function subscribeToNearbyGeocaches(
+  sectorKeys: string[],
+  onCaches: (caches: ExplorerGeocacheRecord[]) => void
+): Unsubscribe {
+  const cleanSectors = Array.from(
+    new Set(
+      sectorKeys
+        .map((k) => sanitizeFirestoreId(k).slice(0, 32))
+        .filter((k) => k.length >= 3)
+    )
+  ).slice(0, 10);
+
+  if (cleanSectors.length === 0) {
+    onCaches([]);
+    return () => {};
+  }
+
+  const q = query(
+    collection(db, 'geocaches'),
+    where('sectorKey', 'in', cleanSectors),
+    where('visibility', '==', 'public'),
+    limit(40)
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list: ExplorerGeocacheRecord[] = snap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        const ts = d.createdAt as { toDate?: () => Date } | undefined;
+        const createdIso =
+          ts && typeof ts.toDate === 'function'
+            ? ts.toDate().toISOString()
+            : new Date().toISOString();
+        const mode: GeocachePlacementMode =
+          d.placementMode === 'unlocked_poi' ? 'unlocked_poi' : 'gps_live';
+        const gKind: GeocacheGiftKind = d.giftKind === 'specimen' ? 'specimen' : 'relic';
+        const gDom: GeocacheGiftDomain = (
+          ['relique', 'botanique', 'geologie'] as GeocacheGiftDomain[]
+        ).includes(d.giftDomain as GeocacheGiftDomain)
+          ? (d.giftDomain as GeocacheGiftDomain)
+          : 'relique';
+
+        return {
+          id: docSnap.id,
+          authorId: String(d.authorId || ''),
+          authorCallsign: String(d.authorCallsign || 'Éclaireur'),
+          authorGender: d.authorGender ? sanitizeGender(String(d.authorGender)) : undefined,
+          authorAvatarPreset: d.authorAvatarPreset
+            ? sanitizeAvatarPreset(String(d.authorAvatarPreset))
+            : undefined,
+          authorSkinTone: d.authorSkinTone ? sanitizeSkinTone(String(d.authorSkinTone)) : undefined,
+          authorHeadgearId: d.authorHeadgearId
+            ? sanitizeHeadgear(String(d.authorHeadgearId))
+            : undefined,
+          authorOutfitId: d.authorOutfitId ? sanitizeOutfit(String(d.authorOutfitId)) : undefined,
+          sectorKey: String(d.sectorKey || ''),
+          placementMode: mode,
+          anchorPoiId: d.anchorPoiId ? String(d.anchorPoiId) : undefined,
+          lat: Number(d.lat || 0),
+          lng: Number(d.lng || 0),
+          isSubterranean: Boolean(d.isSubterranean),
+          regionLabel: String(d.regionLabel || 'Secteur local'),
+          title: String(d.title || "Capsule d'Explorateur"),
+          riddleHint: String(d.riddleHint || ''),
+          giftKind: gKind,
+          giftId: String(d.giftId || 'jeton_arpenteur'),
+          giftName: String(d.giftName || 'Jeton de Guilde'),
+          giftDomain: gDom,
+          createdAtIso: createdIso,
+        };
+      });
+      list.sort((a, b) => b.createdAtIso.localeCompare(a.createdAtIso));
+      onCaches(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'geocaches');
+    }
+  );
+}
+
+export async function upsertExplorerGeocacheInCloud(params: {
+  uidRaw: string;
+  authorCallsign: string;
+  authorAppearance?: ExplorerAppearance;
+  sectorKey: string;
+  placementMode: GeocachePlacementMode;
+  anchorEntry?: UnlockedEntry | null;
+  lat: number;
+  lng: number;
+  isSubterranean: boolean;
+  regionLabel: string;
+  title: string;
+  riddleHint: string;
+  giftKind: GeocacheGiftKind;
+  giftId: string;
+  giftName: string;
+  giftDomain: GeocacheGiftDomain;
+  specimenToSync?: CollectedSpecimen | null;
+}): Promise<string> {
+  await assertCloudSessionHealthy();
+  const uid = sanitizeFirestoreId(params.uidRaw);
+  const cacheId = buildGeocacheDocId(uid, params.lat, params.lng);
+  const docPath = `geocaches/${cacheId}`;
+  const docRef = doc(db, 'geocaches', cacheId);
+
+  // Ensure parent relational prerequisites exist in Firestore before create
+  if (params.placementMode === 'unlocked_poi' && params.anchorEntry) {
+    await createDiscoveryInCloud(uid, params.anchorEntry);
+  }
+  if (params.giftKind === 'specimen' && params.specimenToSync) {
+    await upsertSpecimenInCloud(uid, params.specimenToSync);
+  }
+
+  const safeSector = clampStr(sanitizeFirestoreId(params.sectorKey), 3, 32, 'S_0_0');
+  const safeCallsign = clampStr(params.authorCallsign.trim(), 1, 60, 'Éclaireur');
+  const safeTitle = clampStr(params.title.trim(), 3, 100, "Capsule d'Éclaireur");
+  const safeRiddle = clampStr(
+    params.riddleHint.trim(),
+    5,
+    320,
+    'Cherchez au pied du repère topographique le plus proche.'
+  );
+  const safeRegion = clampStr(params.regionLabel.trim(), 1, 140, 'Secteur local');
+  const safeGiftId = sanitizeFirestoreId(params.giftId).slice(0, 64);
+  const safeGiftName = clampStr(params.giftName.trim(), 1, 160, 'Souvenir de Guilde');
+  const safeGiftKind: GeocacheGiftKind = params.giftKind === 'specimen' ? 'specimen' : 'relic';
+  const safeGiftDomain: GeocacheGiftDomain = (
+    ['relique', 'botanique', 'geologie'] as GeocacheGiftDomain[]
+  ).includes(params.giftDomain)
+    ? params.giftDomain
+    : 'relique';
+
+  const avatarFields = params.authorAppearance
+    ? {
+        authorGender: sanitizeGender(params.authorAppearance.gender),
+        authorAvatarPreset: sanitizeAvatarPreset(params.authorAppearance.avatarPreset),
+        authorSkinTone: sanitizeSkinTone(params.authorAppearance.skinTone),
+        authorHeadgearId: sanitizeHeadgear(params.authorAppearance.headgearId),
+        authorOutfitId: sanitizeOutfit(params.authorAppearance.outfitId),
+      }
+    : {};
+
+  let snap;
+  try {
+    snap = await getDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, docPath);
+  }
+
+  if (!snap.exists()) {
+    const createPayload: Record<string, unknown> = {
+      authorId: uid,
+      authorCallsign: safeCallsign,
+      ...avatarFields,
+      sectorKey: safeSector,
+      placementMode: params.placementMode === 'unlocked_poi' ? 'unlocked_poi' : 'gps_live',
+      lat: clampNum(params.lat, -90, 90),
+      lng: clampNum(params.lng, -180, 180),
+      isSubterranean: Boolean(params.isSubterranean),
+      regionLabel: safeRegion,
+      title: safeTitle,
+      riddleHint: safeRiddle,
+      giftKind: safeGiftKind,
+      giftId: safeGiftId,
+      giftName: safeGiftName,
+      giftDomain: safeGiftDomain,
+      visibility: 'public',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    if (params.placementMode === 'unlocked_poi' && params.anchorEntry) {
+      createPayload.anchorPoiId = sanitizeFirestoreId(params.anchorEntry.poiId);
+    }
+    try {
+      await setDoc(docRef, createPayload);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, docPath);
+    }
+  } else {
+    try {
+      await updateDoc(docRef, {
+        authorCallsign: safeCallsign,
+        ...avatarFields,
+        title: safeTitle,
+        riddleHint: safeRiddle,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, docPath);
+    }
+  }
+
+  return cacheId;
+}
+
+export async function deleteExplorerGeocacheInCloud(
+  _uidRaw: string,
+  cacheIdRaw: string
+): Promise<void> {
+  await assertCloudSessionHealthy();
+  const cacheId = sanitizeFirestoreId(cacheIdRaw);
+  const docPath = `geocaches/${cacheId}`;
+  try {
+    await deleteDoc(doc(db, 'geocaches', cacheId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, docPath);
+  }
+}
+
+export function subscribeToGeocacheLogs(
+  cacheIdRaw: string,
+  onLogs: (logs: GeocacheLogRecord[]) => void
+): Unsubscribe {
+  const cacheId = sanitizeFirestoreId(cacheIdRaw);
+  const logsPath = `geocaches/${cacheId}/logs`;
+  const q = query(
+    collection(db, 'geocaches', cacheId, 'logs'),
+    where('cacheId', '==', cacheId),
+    where('visibility', '==', 'public'),
+    limit(30)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list: GeocacheLogRecord[] = snap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        const ts = d.foundAt as { toDate?: () => Date } | undefined;
+        return {
+          id: docSnap.id,
+          cacheId: String(d.cacheId || cacheId),
+          finderId: String(d.finderId || docSnap.id),
+          finderCallsign: String(d.finderCallsign || 'Explorateur'),
+          finderGender: d.finderGender ? sanitizeGender(String(d.finderGender)) : undefined,
+          finderAvatarPreset: d.finderAvatarPreset
+            ? sanitizeAvatarPreset(String(d.finderAvatarPreset))
+            : undefined,
+          finderSkinTone: d.finderSkinTone ? sanitizeSkinTone(String(d.finderSkinTone)) : undefined,
+          finderHeadgearId: d.finderHeadgearId
+            ? sanitizeHeadgear(String(d.finderHeadgearId))
+            : undefined,
+          finderOutfitId: d.finderOutfitId ? sanitizeOutfit(String(d.finderOutfitId)) : undefined,
+          note: String(d.note || ''),
+          foundAtIso:
+            ts && typeof ts.toDate === 'function'
+              ? ts.toDate().toISOString()
+              : new Date().toISOString(),
+        };
+      });
+      list.sort((a, b) => b.foundAtIso.localeCompare(a.foundAtIso));
+      onLogs(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, logsPath);
+    }
+  );
+}
+
+export async function signGeocacheLogbookInCloud(params: {
+  uidRaw: string;
+  cacheIdRaw: string;
+  finderCallsign: string;
+  finderAppearance?: ExplorerAppearance;
+  note: string;
+}): Promise<void> {
+  await assertCloudSessionHealthy();
+  const uid = sanitizeFirestoreId(params.uidRaw);
+  const cacheId = sanitizeFirestoreId(params.cacheIdRaw);
+  const docPath = `geocaches/${cacheId}/logs/${uid}`;
+  const docRef = doc(db, 'geocaches', cacheId, 'logs', uid);
+
+  const safeCallsign = clampStr(params.finderCallsign.trim(), 1, 60, 'Explorateur');
+  const safeNote = clampStr(params.note.trim(), 3, 240, 'Capsule repérée et saluée sur le terrain !');
+  const avatarFields = params.finderAppearance
+    ? {
+        finderGender: sanitizeGender(params.finderAppearance.gender),
+        finderAvatarPreset: sanitizeAvatarPreset(params.finderAppearance.avatarPreset),
+        finderSkinTone: sanitizeSkinTone(params.finderAppearance.skinTone),
+        finderHeadgearId: sanitizeHeadgear(params.finderAppearance.headgearId),
+        finderOutfitId: sanitizeOutfit(params.finderAppearance.outfitId),
+      }
+    : {};
+
+  let snap;
+  try {
+    snap = await getDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, docPath);
+  }
+
+  if (!snap.exists()) {
+    try {
+      await setDoc(docRef, {
+        cacheId,
+        finderId: uid,
+        finderCallsign: safeCallsign,
+        ...avatarFields,
+        note: safeNote,
+        visibility: 'public',
+        foundAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, docPath);
+    }
+  } else {
+    try {
+      await updateDoc(docRef, {
+        finderCallsign: safeCallsign,
+        ...avatarFields,
+        note: safeNote,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, docPath);
+    }
+  }
+}
+
+export async function deleteGeocacheLogInCloud(
+  uidRaw: string,
+  cacheIdRaw: string
+): Promise<void> {
+  await assertCloudSessionHealthy();
+  const uid = sanitizeFirestoreId(uidRaw);
+  const cacheId = sanitizeFirestoreId(cacheIdRaw);
+  const docPath = `geocaches/${cacheId}/logs/${uid}`;
+  try {
+    await deleteDoc(doc(db, 'geocaches', cacheId, 'logs', uid));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, docPath);
+  }
+}
+
 export async function resetExplorerCharacterInCloud(
   uidRaw: string,
   initialProgress: ExplorerProgress
 ): Promise<void> {
+  await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(uidRaw);
   const profilePath = `explorers/${uid}`;
   const profileRef = doc(db, 'explorers', uid);
@@ -1013,6 +1683,56 @@ export async function resetExplorerCharacterInCloud(
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, specimensPath);
+  }
+
+  // 2c. Delete all opened Archivist Chests in /explorers/{uid}/archivistChests
+  const chestsPath = `explorers/${uid}/archivistChests`;
+  try {
+    const chestQuery = query(
+      collection(db, 'explorers', uid, 'archivistChests'),
+      where('ownerId', '==', uid)
+    );
+    const chestSnap = await getDocs(chestQuery);
+    const BATCH = 10;
+    for (let i = 0; i < chestSnap.docs.length; i += BATCH) {
+      const slice = chestSnap.docs.slice(i, i + BATCH);
+      await Promise.all(
+        slice.map(async (d) => {
+          try {
+            await deleteDoc(d.ref);
+          } catch (err) {
+            handleFirestoreError(err, OperationType.DELETE, `${chestsPath}/${d.id}`);
+          }
+        })
+      );
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, chestsPath);
+  }
+
+  // 2d. Delete all public Explorer Geocaches authored by this explorer
+  try {
+    const geoQuery = query(
+      collection(db, 'geocaches'),
+      where('authorId', '==', uid),
+      where('visibility', '==', 'public')
+    );
+    const geoSnap = await getDocs(geoQuery);
+    const BATCH = 10;
+    for (let i = 0; i < geoSnap.docs.length; i += BATCH) {
+      const slice = geoSnap.docs.slice(i, i + BATCH);
+      await Promise.all(
+        slice.map(async (d) => {
+          try {
+            await deleteDoc(d.ref);
+          } catch (err) {
+            handleFirestoreError(err, OperationType.DELETE, `geocaches/${d.id}`);
+          }
+        })
+      );
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'geocaches');
   }
 
   // 3. Reset master /explorers/{uid} profile to Level 1 / zero progression (Action 3)

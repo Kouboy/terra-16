@@ -20,6 +20,7 @@ export type CarnetViewMode =
   | 'liste'
   | 'bestiaire'
   | 'herbier'
+  | 'tresors'
   | 'frise'
   | 'constellation'
   | 'besace';
@@ -228,6 +229,73 @@ export const CAIRN_TAG_META: Record<CairnTag, { label: string; badgeClass: strin
   },
 };
 
+export type ArchivistChestArchetype =
+  | 'sommet_colline'
+  | 'confluence_eaux'
+  | 'cul_de_sac_forestier'
+  | 'clairiere_sylvestre'
+  | 'bouche_souterraine';
+
+export interface OpenedArchivistChestRecord {
+  chestId: string;
+  archetype: ArchivistChestArchetype;
+  title: string;
+  placeNote: string;
+  relicId: string;
+  relicName: string;
+  category: ExplorationCategory;
+  regionLabel: string;
+  lat: number;
+  lng: number;
+  altitudeMeters: number | null;
+  isSubterranean: boolean;
+  xpAwarded: number;
+  openedAtIso: string;
+}
+
+export type GeocachePlacementMode = 'gps_live' | 'unlocked_poi';
+export type GeocacheGiftKind = 'relic' | 'specimen';
+export type GeocacheGiftDomain = 'relique' | 'botanique' | 'geologie';
+
+export interface ExplorerGeocacheRecord {
+  id: string;
+  authorId: string;
+  authorCallsign: string;
+  authorGender?: ExplorerGender;
+  authorAvatarPreset?: ExplorerAvatarPreset;
+  authorSkinTone?: ExplorerSkinTone;
+  authorHeadgearId?: ExplorerHeadgearId;
+  authorOutfitId?: ExplorerOutfitId;
+  sectorKey: string;
+  placementMode: GeocachePlacementMode;
+  anchorPoiId?: string;
+  lat: number;
+  lng: number;
+  isSubterranean: boolean;
+  regionLabel: string;
+  title: string;
+  riddleHint: string;
+  giftKind: GeocacheGiftKind;
+  giftId: string;
+  giftName: string;
+  giftDomain: GeocacheGiftDomain;
+  createdAtIso: string;
+}
+
+export interface GeocacheLogRecord {
+  id: string;
+  cacheId: string;
+  finderId: string;
+  finderCallsign: string;
+  finderGender?: ExplorerGender;
+  finderAvatarPreset?: ExplorerAvatarPreset;
+  finderSkinTone?: ExplorerSkinTone;
+  finderHeadgearId?: ExplorerHeadgearId;
+  finderOutfitId?: ExplorerOutfitId;
+  note: string;
+  foundAtIso: string;
+}
+
 export interface ZoomMeta {
   level: ZoomLevel;
   scaleTag: string;
@@ -298,6 +366,10 @@ export type TerrainKind =
   | 'cemetery'
   | 'plaza'
   | 'pier'
+  | 'sand'
+  | 'scrub'
+  | 'wetland'
+  | 'scree'
   | 'building'
   | 'major_road'
   | 'minor_road'
@@ -364,6 +436,9 @@ export type SubterraneanKind =
   | 'tunnel_road'
   | 'subway'
   | 'underground_water'
+  | 'culvert'
+  | 'aqueduct'
+  | 'fault_line'
   | 'quarry'
   | 'cave_cellar'
   | 'natural_cave'
@@ -608,13 +683,17 @@ export const STRATUM_META: Record<HistoricalStratum, { label: string; short: str
 };
 
 export const PRESET_LOCATIONS: Array<{ label: string; region: string; lat: number; lng: number }> = [
-  { label: 'Paris — Lutèce & Ste-Geneviève', region: 'Butte antique, arènes & Seine', lat: 48.8503, lng: 2.3435 },
+  { label: 'Paris — Lutèce & Ste-Geneviève', region: 'Butte antique, arènes & carrières', lat: 48.8503, lng: 2.3435 },
   { label: 'Paris — Butte Montmartre', region: 'Escaliers, vignes & coteaux escarpés', lat: 48.8867, lng: 2.3431 },
+  { label: 'Saint-Malo — Cité Corsaire', region: 'Granit, ardoise, plages & remparts', lat: 48.6493, lng: -2.0257 },
+  { label: 'Roussillon — Ocres du Luberon', region: 'Tuiles canal, falaises ocres & garrigue', lat: 43.9023, lng: 5.2931 },
+  { label: 'Arras — Grand-Place & Boves', region: 'Brique flamande, pignons & carrières de craie', lat: 50.2910, lng: 2.7775 },
+  { label: 'Riquewihr — Alsace & Vignoble', region: 'Colombages, grès rose & coteaux', lat: 48.1667, lng: 7.2972 },
+  { label: 'Chamonix — Aiguilles & Alpages', region: 'Chalets de mélèze, lauzes & torrents', lat: 45.9237, lng: 6.8694 },
   { label: 'Vallée de la Vézère (Les Eyzies)', region: 'Falaises calcaires, grottes & préhistoire', lat: 44.9364, lng: 1.0136 },
-  { label: 'Lyon — Croix-Rousse & Fourvière', region: 'Collines, traboules, ruines & Saône', lat: 45.7672, lng: 4.8318 },
+  { label: 'Lyon — Croix-Rousse & Fourvière', region: 'Collines, traboules, arêtes & Saône', lat: 45.7672, lng: 4.8318 },
   { label: 'Rocamadour — Cité & Canyon', region: 'Vertige calcaire, sanctuaires & Alzou', lat: 44.7994, lng: 1.6178 },
-  { label: 'Brocéliande (Paimpont)', region: 'Val sans Retour, mégalithes & forêt', lat: 48.0195, lng: -2.1742 },
-  { label: 'Fontainebleau — Chaos & Platières', region: 'Grès de l’Oligocène, gorges & forêt', lat: 48.4047, lng: 2.7016 },
+  { label: 'Brocéliande (Paimpont)', region: 'Val sans Retour, schiste pourpre & landes', lat: 48.0195, lng: -2.1742 },
 ];
 
 export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -694,7 +773,7 @@ export function getCategoryXp(progress: ExplorerProgress, category: ExplorationC
 }
 
 const SUBTERRANEAN_POI_REGEX =
-  /\b(cavit[ée]s?|grotte|gouffre|aven|doline|souterrains?|catacombes?|cryptes?|carri[èe]res?\s+souterrain|galeries?\s+souterrain|mines?\s+de|anciennes?\s+mines?|puits\s+de\s+mine|nappes?\s+phr[ée]atiques?|aquif[èe]res?|pi[ée]zom[èe]tres?|casemates?|abris?\s+souterrains?|bunkers?|tunnels?\s+|stations?\s+souterraines?|[ée]gouts?|r[ée]surgences?|pertes?\s+karstiques?|caves?\s+vo[ûu]t[ée]es?|hypog[ée]es?)\b/i;
+  /\b(cavit[ée]s?|grotte|gouffre|aven|doline|souterrains?|catacombes?|cryptes?|boves?|carri[èe]res?\s+souterrain|galeries?\s+souterrain|mines?\s+de|anciennes?\s+mines?|puits\s+de\s+mine|travers-bancs?|nappes?\s+phr[ée]atiques?|aquif[èe]res?|pi[ée]zom[èe]tres?|casemates?|abris?\s+souterrains?|bunkers?|tunnels?\s+|stations?\s+souterraines?|[ée]gouts?|rivi[èe]res?\s+enterr[ée]es?|ruisseaux?\s+bus[ée]s?|aqueducs?\s+souterrains?|failles?\s+g[ée]ologiques?|filons?\s+min[ée]ra|r[ée]surgences?|pertes?\s+karstiques?|caves?\s+vo[ûu]t[ée]es?|hypog[ée]es?)\b/i;
 
 export function isPoiSubterranean(
   poi: Pick<PoiItem, 'id' | 'name' | 'subType' | 'source' | 'isSubterranean'>
@@ -782,21 +861,47 @@ export function partitionSurfaceAndSubterraneanPois(params: {
         }${bedNote}`;
         break;
       case 'underground_water':
+      case 'culvert':
+      case 'aqueduct':
       case 'well_aquifer':
-        category = 'geographie';
-        stratum = 'temps_profond';
-        subType = sf.kind === 'underground_water' ? 'Cours d’eau souterrain voûté' : 'Veine phréatique & puits';
-        mysteryTitle = 'Murmure d’eau souterraine';
-        eraLabel = 'Hydrogéologie enfouie';
+        category = sf.kind === 'aqueduct' ? 'histoire' : 'geographie';
+        stratum = sf.kind === 'aqueduct' ? 'antiquite' : 'temps_profond';
+        subType =
+          sf.kind === 'culvert'
+            ? 'Rivière enterrée & collecteur voûté'
+            : sf.kind === 'aqueduct'
+            ? 'Aqueduc & galerie d’adduction'
+            : sf.kind === 'underground_water'
+            ? 'Cours d’eau souterrain voûté'
+            : 'Veine phréatique & puits';
+        mysteryTitle =
+          sf.kind === 'aqueduct' ? 'Galerie des Fontainiers' : 'Murmure d’eau souterraine';
+        eraLabel = sf.kind === 'aqueduct' ? 'Génie hydraulique ancien' : 'Hydrogéologie enfouie';
         if (!name) {
           name =
-            sf.kind === 'underground_water'
+            sf.kind === 'culvert'
+              ? 'Ruisseau busé & canalisation voûtée'
+              : sf.kind === 'aqueduct'
+              ? 'Galerie d’aqueduc souterrain'
+              : sf.kind === 'underground_water'
               ? 'Galerie hydraulique & ruisseau voûté'
               : 'Puits & nappe phréatique locale';
-        } else if (sf.kind === 'underground_water' && !/souterrain|vo[ûu]t|canalisation/i.test(name)) {
-          name = `Cours souterrain : ${name}`;
+        } else if (
+          (sf.kind === 'underground_water' || sf.kind === 'culvert') &&
+          !/souterrain|vo[ûu]t|canalisation|bus[ée]|enterr[ée]/i.test(name)
+        ) {
+          name = `Cours enterré : ${name}`;
         }
-        summary = `Écoulement souterrain dissimulé sous la surface, témoin du réseau hydrologique canalisé ou infiltré dans la roche.${bedNote}`;
+        summary = `Écoulement souterrain ou galerie hydraulique dissimulée sous la surface, témoin des rivières recouvertes par l’urbanisme ou des infiltrations dans la roche.${bedNote}`;
+        break;
+      case 'fault_line':
+        category = 'geographie';
+        stratum = 'temps_profond';
+        subType = 'Faille géologique & filon minéral';
+        mysteryTitle = 'Fracture du Socle';
+        eraLabel = bedrock ? bedrock.period : 'Tectonique & Temps profond';
+        if (!name) name = 'Faille tectonique & veine cristalline';
+        summary = `Discontinuité géologique et zone de fracture dans le socle rocheux favorisant la circulation des eaux profondes et la cristallisation de filons minéraux.${bedNote}`;
         break;
       case 'crypt':
       case 'military':
@@ -845,8 +950,13 @@ export function partitionSurfaceAndSubterraneanPois(params: {
       lat: anchor.lat,
       lng: anchor.lng,
       summary,
-      nearWaterway: sf.kind === 'underground_water' || sf.kind === 'well_aquifer',
-      waterwayName: sf.kind === 'underground_water' ? sf.name || '' : '',
+      nearWaterway:
+        sf.kind === 'underground_water' ||
+        sf.kind === 'culvert' ||
+        sf.kind === 'aqueduct' ||
+        sf.kind === 'well_aquifer',
+      waterwayName:
+        sf.kind === 'underground_water' || sf.kind === 'culvert' ? sf.name || '' : '',
       safetyNotice: 'Accès souterrain réglementé ou non ouvert au public : observation cartographique uniquement.',
       externalUrl: '',
       xpReward: 55,

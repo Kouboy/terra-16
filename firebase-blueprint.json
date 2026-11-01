@@ -181,7 +181,7 @@
         },
         "eraLabel": {
           "type": "string",
-          "description": "Historical or geological stratum label (e.g., Moyen Age, Lutetien -45 Ma).",
+          "description": "Historical or geological stratum label.",
           "minLength": 0,
           "maxLength": 100
         },
@@ -408,13 +408,15 @@
           "type": "string",
           "description": "Firebase Auth UID of the explorer.",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
         "specimenId": {
           "type": "string",
-          "description": "Catalog identifier of the specimen (e.g. bot_ophrys_abeille, geo_calcaire_fossile).",
+          "description": "Catalog identifier of the specimen.",
           "minLength": 1,
-          "maxLength": 64
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
         "domain": {
           "type": "string",
@@ -463,6 +465,7 @@
         "bedrockAgeMa": {
           "type": "string",
           "description": "Age range in millions of years.",
+          "minLength": 0,
           "maxLength": 60
         },
         "regionLabel": {
@@ -479,21 +482,15 @@
         },
         "lat": {
           "type": "number",
-          "description": "Latitude of harvest.",
-          "minimum": -90,
-          "maximum": 90
+          "description": "Latitude of harvest."
         },
         "lng": {
           "type": "number",
-          "description": "Longitude of harvest.",
-          "minimum": -180,
-          "maximum": 180
+          "description": "Longitude of harvest."
         },
         "altitudeMeters": {
           "type": "number",
-          "description": "Optional altitude in meters NGF.",
-          "minimum": -500,
-          "maximum": 9000
+          "description": "Optional altitude in meters NGF."
         },
         "isSubterranean": {
           "type": "boolean",
@@ -501,9 +498,7 @@
         },
         "harvestCount": {
           "type": "number",
-          "description": "Number of times this specimen type was harvested.",
-          "minimum": 1,
-          "maximum": 100000
+          "description": "Number of times this specimen type was harvested."
         },
         "description": {
           "type": "string",
@@ -543,6 +538,396 @@
         "firstCollectedAt",
         "updatedAt"
       ]
+    },
+    "OpenedArchivistChest": {
+      "title": "OpenedArchivistChest",
+      "description": "Record of a deterministic world-generated Archivist Chest unlocked by the explorer on a remarkable geographical feature.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the explorer.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "chestId": {
+          "type": "string",
+          "description": "Deterministic identifier of the world chest.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "archetype": {
+          "type": "string",
+          "description": "Geographical feature archetype where the chest spawned.",
+          "enum": [
+            "sommet_colline",
+            "confluence_eaux",
+            "cul_de_sac_forestier",
+            "clairiere_sylvestre",
+            "bouche_souterraine"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "title": {
+          "type": "string",
+          "description": "Display title of the Archivist Chest.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "placeNote": {
+          "type": "string",
+          "description": "Topographical description of the chest placement.",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "relicId": {
+          "type": "string",
+          "description": "Identifier of the 16-bit Archivist Relic inside.",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "relicName": {
+          "type": "string",
+          "description": "French display name of the Archivist Relic.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "category": {
+          "type": "string",
+          "description": "Guild category associated with the chest XP.",
+          "enum": ["histoire", "geographie", "ecosysteme", "etrange", "legende"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "regionLabel": {
+          "type": "string",
+          "description": "Locality or regional biome label.",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "lat": {
+          "type": "number",
+          "description": "Latitude of the chest."
+        },
+        "lng": {
+          "type": "number",
+          "description": "Longitude of the chest."
+        },
+        "altitudeMeters": {
+          "type": "number",
+          "description": "Optional altitude in meters NGF."
+        },
+        "isSubterranean": {
+          "type": "boolean",
+          "description": "Whether the chest was found underground."
+        },
+        "xpAwarded": {
+          "type": "number",
+          "description": "XP granted upon opening the chest."
+        },
+        "openedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when unlocked."
+        }
+      },
+      "required": [
+        "ownerId",
+        "chestId",
+        "archetype",
+        "title",
+        "placeNote",
+        "relicId",
+        "relicName",
+        "category",
+        "regionLabel",
+        "lat",
+        "lng",
+        "isSubterranean",
+        "xpAwarded",
+        "openedAt"
+      ]
+    },
+    "ExplorerGeocache": {
+      "title": "ExplorerGeocache",
+      "description": "16-bit time-capsule geocache buried by a verified explorer at exact coordinates with a riddle and enclosed relic or specimen.",
+      "type": "object",
+      "properties": {
+        "authorId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the explorer who buried the capsule.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorCallsign": {
+          "type": "string",
+          "description": "Public explorer callsign (non-PII).",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "authorGender": {
+          "type": "string",
+          "description": "Optional 16-bit silhouette gender of the author.",
+          "enum": ["feminin", "masculin", "neutre"],
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "authorAvatarPreset": {
+          "type": "string",
+          "description": "Optional 16-bit avatar preset of the author.",
+          "enum": ["cartographe", "eclaireur", "archiviste", "forgeron", "oracle", "botaniste"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "authorSkinTone": {
+          "type": "string",
+          "description": "Optional 16-bit skin tone of the author.",
+          "enum": ["clair", "hale", "ambre", "ebene", "porcelaine"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "authorHeadgearId": {
+          "type": "string",
+          "description": "Optional 16-bit headgear of the author.",
+          "enum": [
+            "tricorne_fauve",
+            "beret_chroniqueur",
+            "casque_mineur",
+            "capuche_sylvestre",
+            "couronne_menhir",
+            "lunettes_astro"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "authorOutfitId": {
+          "type": "string",
+          "description": "Optional 16-bit outfit of the author.",
+          "enum": ["arpenteur", "chroniqueur", "geomancien", "sylvestre", "ombres", "barde"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "sectorKey": {
+          "type": "string",
+          "description": "Quantized 0.04-degree geographical tile key for regional detector queries.",
+          "minLength": 3,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "placementMode": {
+          "type": "string",
+          "description": "Presence verification mode ('gps_live' or 'unlocked_poi').",
+          "enum": ["gps_live", "unlocked_poi"],
+          "minLength": 8,
+          "maxLength": 16
+        },
+        "anchorPoiId": {
+          "type": "string",
+          "description": "Optional unlocked POI ID when buried on a discovered landmark.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "lat": {
+          "type": "number",
+          "description": "Exact burial latitude."
+        },
+        "lng": {
+          "type": "number",
+          "description": "Exact burial longitude."
+        },
+        "isSubterranean": {
+          "type": "boolean",
+          "description": "Whether the capsule is buried in the subterranean layer."
+        },
+        "regionLabel": {
+          "type": "string",
+          "description": "Locality or regional label.",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "title": {
+          "type": "string",
+          "description": "Title given to the hidden capsule.",
+          "minLength": 3,
+          "maxLength": 100
+        },
+        "riddleHint": {
+          "type": "string",
+          "description": "Clue or riddle broadcast within the 200m detector radius.",
+          "minLength": 5,
+          "maxLength": 320
+        },
+        "giftKind": {
+          "type": "string",
+          "description": "Type of treasure enclosed ('relic' or 'specimen').",
+          "enum": ["relic", "specimen"],
+          "minLength": 5,
+          "maxLength": 16
+        },
+        "giftId": {
+          "type": "string",
+          "description": "Catalog ID of the enclosed relic or specimen.",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "giftName": {
+          "type": "string",
+          "description": "Display name of the enclosed relic or specimen.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "giftDomain": {
+          "type": "string",
+          "description": "Domain of the enclosed gift ('relique', 'botanique', or 'geologie').",
+          "enum": ["relique", "botanique", "geologie"],
+          "minLength": 7,
+          "maxLength": 16
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Visibility scope for query-enforced listing.",
+          "enum": ["public"],
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of burial."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        }
+      },
+      "required": [
+        "authorId",
+        "authorCallsign",
+        "sectorKey",
+        "placementMode",
+        "lat",
+        "lng",
+        "isSubterranean",
+        "regionLabel",
+        "title",
+        "riddleHint",
+        "giftKind",
+        "giftId",
+        "giftName",
+        "giftDomain",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GeocacheLogEntry": {
+      "title": "GeocacheLogEntry",
+      "description": "Discoverer signature in the logbook of a player-buried 16-bit geocache without PII.",
+      "type": "object",
+      "properties": {
+        "cacheId": {
+          "type": "string",
+          "description": "Parent geocache document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "finderId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the discoverer.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "finderCallsign": {
+          "type": "string",
+          "description": "Public callsign of the discoverer (non-PII).",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "finderGender": {
+          "type": "string",
+          "description": "Optional 16-bit silhouette gender of the discoverer.",
+          "enum": ["feminin", "masculin", "neutre"],
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "finderAvatarPreset": {
+          "type": "string",
+          "description": "Optional 16-bit avatar preset of the discoverer.",
+          "enum": ["cartographe", "eclaireur", "archiviste", "forgeron", "oracle", "botaniste"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "finderSkinTone": {
+          "type": "string",
+          "description": "Optional 16-bit skin tone of the discoverer.",
+          "enum": ["clair", "hale", "ambre", "ebene", "porcelaine"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "finderHeadgearId": {
+          "type": "string",
+          "description": "Optional 16-bit headgear of the discoverer.",
+          "enum": [
+            "tricorne_fauve",
+            "beret_chroniqueur",
+            "casque_mineur",
+            "capuche_sylvestre",
+            "couronne_menhir",
+            "lunettes_astro"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "finderOutfitId": {
+          "type": "string",
+          "description": "Optional 16-bit outfit of the discoverer.",
+          "enum": ["arpenteur", "chroniqueur", "geomancien", "sylvestre", "ombres", "barde"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "note": {
+          "type": "string",
+          "description": "Discoverer logbook note.",
+          "minLength": 3,
+          "maxLength": 240
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Visibility scope for query-enforced listing.",
+          "enum": ["public"],
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "foundAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of discovery signature."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of signature update."
+        }
+      },
+      "required": [
+        "cacheId",
+        "finderId",
+        "finderCallsign",
+        "note",
+        "visibility",
+        "foundAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -558,9 +943,21 @@
       "schema": "ExplorerSpecimen",
       "description": "Subcollection of botanical herbarium sketches and geological rock specimens belonging to the explorer."
     },
+    "/explorers/{userId}/archivistChests/{chestId}": {
+      "schema": "OpenedArchivistChest",
+      "description": "Subcollection of deterministic world-generated Archivist Chests unlocked by the explorer."
+    },
     "/cairns/{cairnId}": {
       "schema": "ExplorerCairn",
       "description": "Shared field cairns placed on unlocked points of interest by verified explorers."
+    },
+    "/geocaches/{cacheId}": {
+      "schema": "ExplorerGeocache",
+      "description": "Shared 16-bit time-capsule geocaches buried by verified explorers on physical or unlocked coordinates."
+    },
+    "/geocaches/{cacheId}/logs/{finderId}": {
+      "schema": "GeocacheLogEntry",
+      "description": "Subcollection of discoverer signatures in a geocache's logbook."
     }
   }
 }

@@ -31,6 +31,10 @@ type TerrainKind =
   | 'park'
   | 'cemetery'
   | 'farmland'
+  | 'sand'
+  | 'scrub'
+  | 'wetland'
+  | 'scree'
   | 'residential'
   | 'industrial'
   | 'commercial'
@@ -131,6 +135,9 @@ type SubterraneanKind =
   | 'tunnel_road'
   | 'subway'
   | 'underground_water'
+  | 'culvert'
+  | 'aqueduct'
+  | 'fault_line'
   | 'quarry'
   | 'cave_cellar'
   | 'natural_cave'
@@ -1033,13 +1040,32 @@ async function queryVectorTileTopology(
         }
 
         if (feat.type !== 3) continue;
-        if (layerName === 'earth' && rawKind !== 'cliff') continue;
-        if (layerName === 'earth') continue;
+        if (layerName === 'earth' && !/^(cliff|beach|sand|dune|scree|bare_rock|glacier)$/.test(rawKind)) continue;
 
         let mappedKind: TerrainKind | null = null;
         if (
-          /^(forest|wood|nature_reserve|scrub|national_park|protected_area|tree_row|wetland|heath)$/.test(rawKind) ||
-          /^(forest|wood|scrub|nature_reserve)$/.test(detailKind)
+          /^(beach|sand|dune|tidalflat|shoal)$/.test(rawKind) ||
+          /^(beach|sand|dune|tidalflat)$/.test(detailKind)
+        ) {
+          mappedKind = 'sand';
+        } else if (
+          /^(wetland|marsh|bog|saltmarsh|reedbed|mud|swamp)$/.test(rawKind) ||
+          /^(wetland|marsh|bog|saltmarsh|reedbed|mud)$/.test(detailKind)
+        ) {
+          mappedKind = 'wetland';
+        } else if (
+          /^(scree|bare_rock|shingle|glacier|fell|moraine)$/.test(rawKind) ||
+          /^(scree|bare_rock|shingle|glacier|fell)$/.test(detailKind)
+        ) {
+          mappedKind = 'scree';
+        } else if (
+          /^(scrub|heath|moor|shrubbery|garrigue|maquis|chaparral)$/.test(rawKind) ||
+          /^(scrub|heath|moor|garrigue|maquis)$/.test(detailKind)
+        ) {
+          mappedKind = 'scrub';
+        } else if (
+          /^(forest|wood|nature_reserve|national_park|protected_area|tree_row)$/.test(rawKind) ||
+          /^(forest|wood|nature_reserve)$/.test(detailKind)
         ) {
           mappedKind = 'forest';
         } else if (
@@ -1108,7 +1134,11 @@ async function queryVectorTileTopology(
             mappedKind === 'park' ||
             mappedKind === 'forest' ||
             mappedKind === 'farmland' ||
-            mappedKind === 'cemetery'
+            mappedKind === 'cemetery' ||
+            mappedKind === 'sand' ||
+            mappedKind === 'scrub' ||
+            mappedKind === 'wetland' ||
+            mappedKind === 'scree'
           ) {
             greenBucket.push(item);
           } else {
@@ -1139,9 +1169,32 @@ async function queryVectorTileTopology(
 
         const waterName = String(props['name:fr'] || props.name || '');
 
-        if (props.is_tunnel === true || props.brunnel === 'tunnel') {
+        if (
+          props.is_tunnel === true ||
+          props.brunnel === 'tunnel' ||
+          props.brunnel === 'culvert' ||
+          detailKind === 'culvert'
+        ) {
           if (feat.type === 2) {
             const geom = feat.loadGeometry();
+            const isAqueduct = /aqueduc|aqueduct/i.test(`${waterName} ${rawKind} ${detailKind}`);
+            const isCulvert =
+              !isAqueduct &&
+              (props.brunnel === 'culvert' ||
+                detailKind === 'culvert' ||
+                rawKind === 'stream' ||
+                rawKind === 'drain' ||
+                rawKind === 'ditch');
+            const subKind: SubterraneanKind = isAqueduct
+              ? 'aqueduct'
+              : isCulvert
+              ? 'culvert'
+              : 'underground_water';
+            const fallbackLabel = isAqueduct
+              ? 'Galerie d’aqueduc souterrain'
+              : isCulvert
+              ? 'Ruisseau busé & pertuis voûté'
+              : 'Cours d’eau ou canal voûté';
             for (const line of geom) {
               if (line.length < 2) continue;
               const geoPts = line.map((pt) => tilePixelToLatLng(tx, ty, z, pt.x, pt.y, extent));
@@ -1151,9 +1204,9 @@ async function queryVectorTileTopology(
                 dist: minDistanceMetersToPlayer(simplified, lat, lng),
                 feat: {
                   id: `vt_subw_${seq++}`,
-                  kind: 'underground_water',
+                  kind: subKind,
                   isLine: true,
-                  name: waterName || 'Cours d’eau ou canal voûté',
+                  name: waterName || fallbackLabel,
                   points: simplified,
                   source: 'OpenStreetMap (Z15)',
                 },
@@ -1518,13 +1571,42 @@ async function queryVectorTileTopology(
             mysteryTitle: 'Sceau Patrimonial',
             xp: 110,
           };
-        } else if (/^(ruins|quarry|mine|bunker|cave_entrance|cemetery)$/.test(kind)) {
+        } else if (/^(lavoir|bakehouse|baking_oven|wayside_cross|wayside_shrine|dovecote)$/.test(kind)) {
+          poiMeta = {
+            category: 'histoire',
+            subType:
+              kind === 'lavoir'
+                ? 'Lavoir communal ancien'
+                : kind === 'bakehouse' || kind === 'baking_oven'
+                ? 'Four banal & fournil rural'
+                : kind === 'dovecote'
+                ? 'Pigeonnier ou colombier'
+                : 'Calvaire ou oratoire de chemin',
+            mysteryTitle: 'Témoin Vernaculaire',
+            xp: 120,
+          };
+        } else if (/^(ruins|quarry|mine|adit|mineshaft|bunker|cave_entrance|cemetery)$/.test(kind)) {
           if (!rawName && kind === 'cemetery') continue;
           poiMeta = {
             category: 'etrange',
-            subType: kind === 'cemetery' ? 'Nécropole / cimetière ancien' : 'Ruine ou cavité recensée',
+            subType:
+              kind === 'cemetery'
+                ? 'Nécropole / cimetière ancien'
+                : kind === 'adit' || kind === 'mineshaft' || kind === 'mine'
+                ? 'Travers-banc ou puits minier'
+                : 'Ruine ou cavité recensée',
             mysteryTitle: 'Silhouette Silencieuse',
             xp: 125,
+          };
+        } else if (/^(survey_point|lighthouse)$/.test(kind)) {
+          poiMeta = {
+            category: 'geographie',
+            subType:
+              kind === 'survey_point'
+                ? 'Borne géodésique & repère IGN'
+                : 'Phare ou amer maritime',
+            mysteryTitle: kind === 'survey_point' ? 'Clou de Triangulation' : 'Sentinelle Côtière',
+            xp: 130,
           };
         } else if (/^(fountain|spring|waterfall|peak|viewpoint|watermill|windmill|rock)$/.test(kind)) {
           if (!rawName && kind === 'viewpoint') continue;
@@ -1549,7 +1631,7 @@ async function queryVectorTileTopology(
           };
         }
 
-        if (/^(subway_entrance|cave_entrance|quarry|mine|bunker)$/.test(kind)) {
+        if (/^(subway_entrance|cave_entrance|quarry|mine|adit|mineshaft|bunker)$/.test(kind)) {
           const geomSub = feat.loadGeometry();
           const ptSub = geomSub[0]?.[0];
           if (ptSub) {
@@ -1563,7 +1645,7 @@ async function queryVectorTileTopology(
                   ? 'natural_cave'
                   : kind === 'quarry'
                   ? 'quarry'
-                  : kind === 'mine'
+                  : kind === 'mine' || kind === 'adit' || kind === 'mineshaft'
                   ? 'mine'
                   : 'military';
               subterraneanBucket.push({
@@ -1579,6 +1661,10 @@ async function queryVectorTileTopology(
                       ? 'Porche de grotte'
                       : kind === 'quarry'
                       ? 'Carrière'
+                      : kind === 'adit'
+                      ? 'Travers-banc minier'
+                      : kind === 'mineshaft'
+                      ? 'Puits de mine'
                       : kind === 'mine'
                       ? 'Galerie minière'
                       : 'Casemate / abri'),
@@ -4158,6 +4244,280 @@ async function queryGeorisquesCavites(
   }
 }
 
+const geodesicMicroCache = new Map<
+  string,
+  { expires: number; pois: RawPoi[]; subFeatures: SubterraneanFeature[] }
+>();
+
+/**
+ * 18. IGN Geodesic Benchmarks (Bornes géodésiques & repères de nivellement),
+ * Rural Vernacular Micro-Heritage (Lavoirs, Fours banaux, Calvaires, Pigeonniers, Moulins)
+ * & Subterranean Mine Adits / Geological Faults / Historic Aqueducts via Overpass Open Data
+ */
+async function queryGeodesicAndRuralMicroHeritage(
+  lat: number,
+  lng: number,
+  radiusMeters: number
+): Promise<{ pois: RawPoi[]; subFeatures: SubterraneanFeature[] }> {
+  const cellKey = `${(Math.round(lat * 100) / 100).toFixed(2)}_${(Math.round(lng * 100) / 100).toFixed(2)}`;
+  const hit = geodesicMicroCache.get(cellKey);
+  if (hit && hit.expires > Date.now()) {
+    return { pois: hit.pois, subFeatures: hit.subFeatures };
+  }
+
+  const r = Math.min(2200, Math.max(950, Math.round(radiusMeters * 0.95)));
+  const overpassQuery = `[out:json][timeout:3];(
+    node["man_made"="survey_point"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    nwr["amenity"~"^(lavoir|baking_oven)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    nwr["building"~"^(bakehouse|dovecote)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    nwr["historic"~"^(lavoir|bakehouse|wayside_cross|wayside_shrine|aqueduct)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    nwr["man_made"~"^(dovecote|watermill|windmill|adit|mineshaft)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    way["geological"="fault"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+  );out center geom 42;`;
+
+  try {
+    const resp = await fetchWithTimeout(
+      'https://overpass-api.de/api/interpreter',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: `data=${encodeURIComponent(overpassQuery)}`,
+      },
+      3600
+    );
+    if (!resp.ok) return { pois: [], subFeatures: [] };
+    const json = (await resp.json()) as {
+      elements?: Array<{
+        type: string;
+        id: number;
+        lat?: number;
+        lon?: number;
+        center?: { lat: number; lon: number };
+        geometry?: Array<{ lat: number; lon: number }>;
+        tags?: Record<string, string>;
+      }>;
+    };
+    const elements = json.elements || [];
+    const pois: RawPoi[] = [];
+    const subFeatures: SubterraneanFeature[] = [];
+
+    for (const el of elements) {
+      const tags = el.tags || {};
+      const pLat = el.lat ?? el.center?.lat ?? el.geometry?.[0]?.lat;
+      const pLng = el.lon ?? el.center?.lon ?? el.geometry?.[0]?.lon;
+      if (typeof pLat !== 'number' || typeof pLng !== 'number') continue;
+
+      const rawName = String(tags['name:fr'] || tags.name || '').trim();
+      const manMade = (tags.man_made || '').toLowerCase();
+      const amenity = (tags.amenity || '').toLowerCase();
+      const historic = (tags.historic || '').toLowerCase();
+      const building = (tags.building || '').toLowerCase();
+      const geological = (tags.geological || '').toLowerCase();
+
+      // 1. Geological Fault Lines -> Subterranean Tectonic Vein
+      if (geological === 'fault' && el.geometry && el.geometry.length >= 2) {
+        const pts = el.geometry.map((g) => ({ lat: g.lat, lng: g.lon }));
+        subFeatures.push({
+          id: `ov_fault_${el.id}`,
+          kind: 'fault_line',
+          isLine: true,
+          name: rawName || 'Faille géologique & filon minéral',
+          points: pts.slice(0, 36),
+          source: 'Géologie OpenStreetMap / BRGM',
+        });
+        continue;
+      }
+
+      // 2. Mine Adits (Travers-bancs) & Mineshafts
+      if (manMade === 'adit' || manMade === 'mineshaft') {
+        const label =
+          rawName || (manMade === 'adit' ? 'Galerie de travers-banc minier' : 'Puits d’extraction ancien');
+        subFeatures.push({
+          id: `ov_mine_${el.id}`,
+          kind: 'mine',
+          name: label,
+          points: [{ lat: pLat, lng: pLng }],
+          source: 'Inventaire Minier OSM',
+        });
+        pois.push({
+          id: `ov_poi_mine_${el.id}`,
+          name: label,
+          mysteryTitle: 'Bouche de Travers-Banc',
+          category: 'etrange',
+          subType: manMade === 'adit' ? 'Travers-banc minier' : 'Ancien puits de mine',
+          stratum: 'moderne',
+          eraLabel: 'XIXe – XXe siècle',
+          source: 'Inventaire Minier & Topographie OSM',
+          lat: pLat,
+          lng: pLng,
+          summary:
+            manMade === 'adit'
+              ? 'Entrée horizontale de galerie minière (travers-banc) taillée à flanc de coteau pour rejoindre un filon métallifère ou houiller.'
+              : 'Ancien puits vertical foncé dans la roche-mère pour l’aérage ou l’extraction du minerai.',
+          nearWaterway: false,
+          waterwayName: '',
+          safetyNotice:
+            'Ouvrage minier recensé : observer uniquement depuis le chemin public sans jamais pénétrer en galerie.',
+          externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+          xpReward: 145,
+          unlockRadiusMeters: 65,
+          relatedPoiIds: [],
+          relatedPoiTitles: [],
+        });
+        continue;
+      }
+
+      // 3. IGN Geodesic Benchmarks & Triangulation Pillars
+      if (manMade === 'survey_point') {
+        const ele = tags.ele ? `${Math.round(Number(tags.ele))} m` : '';
+        const refCode = tags.ref ? ` (${tags.ref})` : '';
+        const surveyName =
+          rawName ||
+          `Borne Géodésique IGN${refCode}${ele ? ` · ${ele}` : ''}`;
+        const desc = tags.description || tags.note || '';
+        pois.push({
+          id: `ov_ign_surv_${el.id}`,
+          name: surveyName,
+          mysteryTitle: 'Clou de Triangulation',
+          category: 'geographie',
+          subType: 'Borne géodésique & repère IGN',
+          stratum: 'contemporain',
+          eraLabel: 'Réseau Géodésique Français',
+          source: 'Réseau Géodésique IGN / OSM',
+          lat: pLat,
+          lng: pLng,
+          summary:
+            desc ||
+            `Repère officiel de triangulation et de nivellement${
+              ele ? ` scellé à ${ele} d’altitude` : ''
+            }. Ces médaillons de bronze et bornes de granit ont servi à arpenter la carte de France au millimètre près.`,
+          nearWaterway: false,
+          waterwayName: '',
+          safetyNotice: 'Repère géodésique patrimonial protégé : ne pas déplacer ni altérer le médaillon.',
+          externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+          xpReward: 135,
+          unlockRadiusMeters: 55,
+          relatedPoiIds: [],
+          relatedPoiTitles: [],
+        });
+        continue;
+      }
+
+      // 4. Historic Aqueducts (Surface + Subterranean trace)
+      if (historic === 'aqueduct') {
+        const aqName = rawName || 'Vestige d’aqueduc ancien';
+        if (el.geometry && el.geometry.length >= 2) {
+          subFeatures.push({
+            id: `ov_aq_${el.id}`,
+            kind: 'aqueduct',
+            isLine: true,
+            name: aqName,
+            points: el.geometry.slice(0, 36).map((g) => ({ lat: g.lat, lng: g.lon })),
+            source: 'Patrimoine Hydraulique OSM',
+          });
+        }
+        pois.push({
+          id: `ov_poi_aq_${el.id}`,
+          name: aqName,
+          mysteryTitle: 'Arche d’Eau Ancienne',
+          category: 'histoire',
+          subType: 'Aqueduc & conduite voûtée',
+          stratum: /romain|gallo/i.test(aqName) ? 'antiquite' : 'moderne',
+          eraLabel: /romain|gallo/i.test(aqName) ? 'Antiquité gallo-romaine' : 'Époque moderne',
+          source: 'Patrimoine Hydraulique OSM',
+          lat: pLat,
+          lng: pLng,
+          summary:
+            'Ouvrage d’adduction d’eau acheminant par gravité le captage des sources vers le bourg ou la cité.',
+          nearWaterway: true,
+          waterwayName: '',
+          safetyNotice: '',
+          externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+          xpReward: 135,
+          unlockRadiusMeters: 60,
+          relatedPoiIds: [],
+          relatedPoiTitles: [],
+        });
+        continue;
+      }
+
+      // 5. Rural Vernacular Micro-Heritage: Lavoirs, Fours banaux, Pigeonniers, Moulins, Calvaires
+      let vernSubType = 'Petit patrimoine vernaculaire';
+      let vernDefaultName = 'Témoin du bourg ancien';
+      let vernSummary =
+        'Édifice vernaculaire témoignant de la vie quotidienne, des savoir-faire bâtis et des usages communautaires d’autrefois.';
+      let vernCategory: CategoryKey = 'histoire';
+
+      if (amenity === 'lavoir' || historic === 'lavoir') {
+        vernSubType = 'Lavoir communal à impluvium';
+        vernDefaultName = 'Ancien Lavoir Communal';
+        vernSummary =
+          'Bassin de pierre alimenté par une source ou un ru dérivé, jadis cœur battant des nouvelles et de l’entraide villageoise.';
+      } else if (amenity === 'baking_oven' || building === 'bakehouse' || historic === 'bakehouse') {
+        vernSubType = 'Four banal & fournil de hameau';
+        vernDefaultName = 'Four à Pain Communal';
+        vernSummary =
+          'Ancien four maçonné en pierre réfractaire ou brique où les familles du hameau venaient cuire leurs tourtes lors des fournées collectives.';
+      } else if (building === 'dovecote' || manMade === 'dovecote') {
+        vernSubType = 'Pigeonnier & colombier patrimonial';
+        vernDefaultName = 'Colombier Ancien';
+        vernSummary =
+          'Tour ou tourelle à boulins dont la colombine fertilisait jadis les terres agricoles alentour, marque d’un domaine rural historique.';
+      } else if (manMade === 'watermill' || manMade === 'windmill') {
+        vernCategory = 'geographie';
+        vernSubType = manMade === 'watermill' ? 'Moulin à eau & bief' : 'Moulin à vent historique';
+        vernDefaultName = manMade === 'watermill' ? 'Ancien Moulin à Eau' : 'Moulin à Vent';
+        vernSummary =
+          manMade === 'watermill'
+            ? 'Ouvrage hydraulique établi sur un bief dérivé pour capter la force vive du courant et entraîner les meules de pierre.'
+            : 'Tour meunière dressée sur une éminence ventilée pour capter les vents dominants du pays.';
+      } else if (historic === 'wayside_cross' || historic === 'wayside_shrine') {
+        vernSubType =
+          historic === 'wayside_cross'
+            ? 'Calvaire ou croix de chemin'
+            : 'Oratoire rural de croisée';
+        vernDefaultName =
+          historic === 'wayside_cross' ? 'Croix de Chemin Ancienne' : 'Oratoire Champêtre';
+        vernSummary =
+          'Repère immémorial planté à la croisée des vieux chemins vicinaux, guidant pèlerins, colporteurs et bergers.';
+      }
+
+      pois.push({
+        id: `ov_vern_${el.id}`,
+        name: rawName || vernDefaultName,
+        mysteryTitle: 'Témoin Vernaculaire',
+        category: vernCategory,
+        subType: vernSubType,
+        stratum: 'moderne',
+        eraLabel: 'Patrimoine vernaculaire',
+        source: 'Petit Patrimoine Rural & IGN / OSM',
+        lat: pLat,
+        lng: pLng,
+        summary: vernSummary,
+        nearWaterway: amenity === 'lavoir' || historic === 'lavoir' || manMade === 'watermill',
+        waterwayName: '',
+        safetyNotice: '',
+        externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+        xpReward: 125,
+        unlockRadiusMeters: 55,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+    }
+
+    const trimmedPois = pois.slice(0, 14);
+    const trimmedSub = subFeatures.slice(0, 24);
+    geodesicMicroCache.set(cellKey, {
+      expires: Date.now() + 20 * 60 * 1000,
+      pois: trimmedPois,
+      subFeatures: trimmedSub,
+    });
+    return { pois: trimmedPois, subFeatures: trimmedSub };
+  } catch {
+    return { pois: [], subFeatures: [] };
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -4175,7 +4535,7 @@ async function startServer() {
     // Snap cache key to ~245m cells so backtracking & adjacent walks share warm sector payloads
     const snapLat = Math.round(lat * 450) / 450;
     const snapLng = Math.round(lng * 450) / 450;
-    const cacheKey = `v15_${snapLat.toFixed(4)}_${snapLng.toFixed(4)}_${Math.round(radius / 200)}`;
+    const cacheKey = `v16_${snapLat.toFixed(4)}_${snapLng.toFixed(4)}_${Math.round(radius / 200)}`;
     const cached = sectorCache.get(cacheKey);
     if (cached) {
       res.setHeader('Cache-Control', 'private, max-age=120, stale-while-revalidate=300');
@@ -4271,6 +4631,7 @@ async function startServer() {
       toponymRailRes,
       cultMemRes,
       cavitesRes,
+      geodesicVernRes,
     ] = await Promise.allSettled([
       queryVectorTileTopology(lat, lng),
       querySectorElevationGrid(lat, lng),
@@ -4289,6 +4650,7 @@ async function startServer() {
       queryHistoricalToponymyAndLostRails(lat, lng, radius),
       queryCulturalAndLiteraryMemory(lat, lng, radius),
       queryGeorisquesCavites(lat, lng, radius),
+      queryGeodesicAndRuralMicroHeritage(lat, lng, radius),
     ]);
 
     const topoData =
@@ -4323,6 +4685,10 @@ async function startServer() {
       cavitesRes.status === 'fulfilled'
         ? cavitesRes.value
         : { cavitePois: [], caviteFeatures: [] };
+    const geodesicVernData =
+      geodesicVernRes.status === 'fulfilled'
+        ? geodesicVernRes.value
+        : { pois: [], subFeatures: [] };
 
     const sourcesActive: string[] = [];
     if (
@@ -4337,6 +4703,9 @@ async function startServer() {
     }
     if (cavitesData.caviteFeatures.length > 0) {
       sourcesActive.push('BRGM Géorisques · BDCavités');
+    }
+    if (geodesicVernData.pois.length > 0 || geodesicVernData.subFeatures.length > 0) {
+      sourcesActive.push('Bornes Géodésiques & Petit Patrimoine (IGN / OSM)');
     }
     if (ignPois.length > 0) sourcesActive.push('IGN BD TOPO');
     if (toponymRailPois.length > 0) sourcesActive.push('Toponymie & Voies Disparues (IGN)');
@@ -4365,6 +4734,7 @@ async function startServer() {
     const pois = enrichAndLinkPois(
       [
         ...cavitesData.cavitePois,
+        ...geodesicVernData.pois,
         ...inpnTreeData.inpnGeoEco,
         ...inpnTreeData.remarkableTrees,
         ...archeoPois,
@@ -4388,9 +4758,10 @@ async function startServer() {
       lng
     );
 
-    // Assemble unified subterranean cartography (MVT tunnels/metro/culverts + BRGM BDCavités + BSS aquifers + IGN/heritage caves/crypts)
+    // Assemble unified subterranean cartography (MVT tunnels/metro/culverts + BRGM BDCavités + Overpass faults/adits + BSS aquifers + IGN/heritage caves/crypts)
     const combinedSubterranean: SubterraneanFeature[] = [
       ...topoData.subterranean,
+      ...geodesicVernData.subFeatures,
       ...cavitesData.caviteFeatures,
     ];
     const seenSubNodes = new Set<string>();
@@ -4416,7 +4787,7 @@ async function startServer() {
     for (const hPoi of [...ignPois, ...pois]) {
       const hay = `${hPoi.name} ${hPoi.subType}`.toLowerCase();
       if (
-        !/catacomb|crypte|carri[èe]re|souterrain|traboule|grotte|gouffre|aven|doline|mine|casemate|abri|bunker|aqueduc|[ée]gout|puits|r[ée]surgence|perte/.test(
+        !/catacomb|crypte|carri[èe]re|souterrain|traboule|grotte|gouffre|aven|doline|mine|travers-banc|bove|troglodyt|casemate|abri|bunker|aqueduc|pertuis|[ée]gout|puits|r[ée]surgence|perte/.test(
           hay
         )
       ) {
@@ -4425,15 +4796,19 @@ async function startServer() {
       const k = `${hPoi.lat.toFixed(4)}_${hPoi.lng.toFixed(4)}`;
       if (seenSubNodes.has(k)) continue;
       seenSubNodes.add(k);
-      const inferredKind: SubterraneanKind = /carri[èe]re|catacomb/.test(hay)
+      const inferredKind: SubterraneanKind = /carri[èe]re|catacomb|bove|troglodyt/.test(hay)
         ? 'quarry'
         : /grotte|gouffre|aven|doline|r[ée]surgence|perte/.test(hay)
         ? 'natural_cave'
-        : /mine/.test(hay)
+        : /mine|travers-banc/.test(hay)
         ? 'mine'
         : /casemate|bunker|abri/.test(hay)
         ? 'military'
-        : /puits|aqueduc|[ée]gout/.test(hay)
+        : /aqueduc/.test(hay)
+        ? 'aqueduct'
+        : /pertuis|[ée]gout/.test(hay)
+        ? 'culvert'
+        : /puits/.test(hay)
         ? 'well_aquifer'
         : 'crypt';
       combinedSubterranean.push({

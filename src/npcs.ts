@@ -70,6 +70,10 @@ const T_PIER = 13;
 const T_INDUSTRIAL = 14;
 const T_COMMERCIAL = 15;
 const T_CEMETERY = 16;
+const T_SAND = 17;
+const T_SCRUB = 18;
+const T_WETLAND = 19;
+const T_SCREE = 20;
 
 const SETTLE_RURAL = 0;
 const SETTLE_CITY_CENTER = 1;
@@ -86,6 +90,9 @@ const D_QUARRY_HALL = 5;
 const D_NATURAL_CAVERN = 6;
 const D_CRYPT = 7;
 const D_STAIRS = 8;
+const D_CULVERT = 9;
+const D_AQUEDUCT = 10;
+const D_FAULT_VEIN = 11;
 
 function npcHash(a: number, b: number): number {
   let h = (Math.imul(a, 374761393) + Math.imul(b, 668265263)) ^ 0x5bf03635;
@@ -1393,7 +1400,39 @@ export function spawnWorldNpcs(params: SpawnWorldNpcsParams): WorldNpc[] {
       }
       return { kind, score: 56 + hashBonus, allowsCompanion: false };
     }
-    if (t === T_MEADOW) {
+    if (t === T_WETLAND) {
+      if (h % 3 !== 0) return null;
+      const wPick = (h >>> 5) % 4;
+      const kind: NpcKind = isDuskOrNight
+        ? canFirefly && wPick <= 1
+          ? 'luciole'
+          : 'grenouille'
+        : wPick === 0
+        ? 'martin_pecheur'
+        : wPick === 1 && canPollinate
+        ? 'libellule'
+        : 'grenouille';
+      return {
+        kind,
+        score: 79 + hashBonus,
+        allowsCompanion: kind === 'grenouille' || kind === 'libellule' || kind === 'luciole',
+      };
+    }
+
+    if (t === T_SCREE) {
+      if (h % 4 !== 0) return null;
+      const kind: NpcKind = (h >>> 4) % 3 === 0 ? 'randonneur' : 'chamois';
+      return { kind, score: 80 + hashBonus, allowsCompanion: kind === 'chamois' };
+    }
+
+    if (t === T_SAND) {
+      if (h % 5 !== 0) return null;
+      const sPick = (h >>> 4) % 3;
+      const kind: NpcKind = sPick === 0 ? 'martin_pecheur' : sPick === 1 ? 'colporteur' : 'randonneur';
+      return { kind, score: 68 + hashBonus, allowsCompanion: kind === 'martin_pecheur' };
+    }
+
+    if (t === T_MEADOW || t === T_SCRUB) {
       if (isHighSlopeOrCrest && h % 3 === 0) {
         return {
           kind: (h >>> 4) % 3 === 0 ? 'randonneur' : 'chamois',
@@ -1433,12 +1472,14 @@ export function spawnWorldNpcs(params: SpawnWorldNpcsParams): WorldNpc[] {
             : mPick === 2
             ? 'renard'
             : mPick === 3
-            ? 'cerf'
+            ? t === T_SCRUB
+              ? 'randonneur'
+              : 'cerf'
             : 'lucane';
       }
       return {
         kind,
-        score: 60 + (isDuskOrNight ? 6 : 0) + hashBonus,
+        score: 60 + (t === T_SCRUB ? 5 : 0) + (isDuskOrNight ? 6 : 0) + hashBonus,
         allowsCompanion: kind === 'papillon' || kind === 'abeille' || kind === 'luciole',
       };
     }
@@ -1463,12 +1504,13 @@ export function spawnWorldNpcs(params: SpawnWorldNpcsParams): WorldNpc[] {
       const kind: NpcKind = cPick === 0 ? 'erudit' : cPick === 1 ? 'puisatier' : 'chauve_souris';
       return { kind, score: 90 + hashBonus };
     }
-    if (dt === D_NATURAL_CAVERN) {
+    if (dt === D_NATURAL_CAVERN || dt === D_FAULT_VEIN) {
       const kind: NpcKind = (h >>> 4) % 2 === 0 ? 'chauve_souris' : 'salamandre';
       return { kind, score: 86 + hashBonus };
     }
-    if (dt === D_SUB_WATER) {
-      return { kind: 'salamandre', score: 88 + hashBonus };
+    if (dt === D_SUB_WATER || dt === D_CULVERT || dt === D_AQUEDUCT) {
+      const kind: NpcKind = dt === D_AQUEDUCT && h % 3 === 0 ? 'puisatier' : 'salamandre';
+      return { kind, score: 87 + hashBonus };
     }
     if (dt === D_QUARRY_HALL || dt === D_STAIRS) {
       const kind: NpcKind = (h >>> 4) % 2 === 0 ? 'puisatier' : 'chauve_souris';

@@ -13,16 +13,30 @@ import {
 } from '../npcs';
 import { playNpcVoiceSfx, playPortalSfx, playRumorPinSfx } from '../sound';
 import {
+  RegionalStyleId,
+  RegionalTheme,
+  resolveRegionalTheme,
+  resolveSubterraneanLithoProfile,
+} from '../regionalBiomes';
+import {
   drawSpecimenSprite16Bit,
   spawnWorldSpecimens,
   WorldSpecimenNode,
 } from '../specimens';
+import {
+  drawArchivistChestSprite16Bit,
+  drawDetectorRadarPulse16Bit,
+  drawExplorerCapsuleSprite16Bit,
+  spawnWorldArchivistChests,
+  WorldArchivistChestNode,
+} from '../treasures';
 import {
   BedrockInfo,
   BuildingArchetype,
   ElevationGrid,
   ExplorationCategory,
   ExplorerAppearance,
+  ExplorerGeocacheRecord,
   ExplorerOutfitId,
   haversineMeters,
   HistoricalStratum,
@@ -98,6 +112,13 @@ interface PixelMapCanvasProps {
   harvestedNodeIds?: Set<string>;
   onHarvestSpecimen?: (node: WorldSpecimenNode) => void;
   onOpenNpcPostcard?: (npc: WorldNpc) => void;
+  worldChests?: WorldArchivistChestNode[];
+  openedChestIds?: Set<string>;
+  onOpenArchivistChest?: (chest: WorldArchivistChestNode) => void;
+  nearbyGeocaches?: ExplorerGeocacheRecord[];
+  foundGeocacheIds?: Set<string>;
+  currentUserId?: string | null;
+  onInspectGeocache?: (cache: ExplorerGeocacheRecord) => void;
 }
 
 // Tile IDs in the World Topological Ground Grid
@@ -119,6 +140,10 @@ const T_PIER = 13;
 const T_INDUSTRIAL = 14;
 const T_COMMERCIAL = 15;
 const T_CEMETERY = 16;
+const T_SAND = 17;
+const T_SCRUB = 18;
+const T_WETLAND = 19;
+const T_SCREE = 20;
 
 // Settlement morphological tissue codes (scale-invariant via physical-meter integral windows)
 const SETTLE_RURAL = 0;
@@ -182,6 +207,9 @@ const D_QUARRY_HALL = 5;
 const D_NATURAL_CAVERN = 6;
 const D_CRYPT = 7;
 const D_STAIRS = 8;
+const D_CULVERT = 9;
+const D_AQUEDUCT = 10;
+const D_FAULT_VEIN = 11;
 
 // Bridge vector axes
 const AXIS_HORIZ = 0; // East-West
@@ -263,12 +291,15 @@ function isProtectedFromBuilding(t: number): boolean {
     t === T_RAIL ||
     t === T_PARK ||
     t === T_CEMETERY ||
-    t === T_PLAZA
+    t === T_PLAZA ||
+    t === T_WETLAND ||
+    t === T_SAND ||
+    t === T_SCREE
   );
 }
 
 // ============================================================================
-// PRE-BAKED 16-BIT SNES / GBA TILE ATLAS (16x16 MULTI-SHADE DITHERED TILES)
+// PRE-BAKED 16-BIT SNES / GBA REGIONAL TILE ATLAS (16x16 MULTI-SHADE TILES)
 // ============================================================================
 const ATLAS_TILE = 16;
 const ATLAS_ROW_MEADOW = 0; // 4 cols: 0..3
@@ -277,21 +308,26 @@ const ATLAS_ROW_COURTYARD = 2; // 0..3: suburban / village residential garden tu
 const ATLAS_ROW_PARK = 3; // 0..3: lush manicured garden lawn + flowerbeds
 const ATLAS_ROW_FOREST = 4; // 0..3: mossy woodland floor + ferns + mushrooms
 const ATLAS_ROW_FARMLAND = 5; // 0..1: golden wheat, 2..3: French vineyard rows
-const ATLAS_ROW_MAIN_ROAD = 6; // 0..3: arched limestone Haussmannian pavés
-const ATLAS_ROW_STREET = 7; // 0..3: warm ochre village cobblestones
+const ATLAS_ROW_MAIN_ROAD = 6; // 0..3: regional cut-stone pavés
+const ATLAS_ROW_STREET = 7; // 0..3: regional village cobblestones
 const ATLAS_ROW_PLAZA = 8; // 0..3: cut ashlar parvis flagstones
 const ATLAS_ROW_HILLSHADE = 9; // 0: gentle NW sun, 1: strong NW sun, 2: gentle SE shade, 3: deep gorge shade
 const ATLAS_ROW_URBAN_STONE = 10; // 0..3: mineral city-center inner courtyards & retail forecourts
 const ATLAS_ROW_INDUSTRIAL = 11; // 0..3: tarmac & poured-concrete freight yard with safety markings
-const ATLAS_ROW_VILLAGE_EARTH = 12; // 0..3: warm ochre rural hamlet / farmyard beaten earth & cobbles
+const ATLAS_ROW_VILLAGE_EARTH = 12; // 0..3: warm rural hamlet / farmyard beaten earth & cobbles
+const ATLAS_ROW_SAND = 13; // 0..3: golden coastal beaches, dunes & river sandbars
+const ATLAS_ROW_SCRUB = 14; // 0..3: regional garrigue, maquis, heathland & moor
+const ATLAS_ROW_WETLAND = 15; // 0..3: marshes, reedbeds, peat bogs & salt-meadows
+const ATLAS_ROW_SCREE = 16; // 0..3: alpine talus, moraines, rocky chaos & scree
 
-let cachedSnesAtlas: HTMLCanvasElement | null = null;
+const cachedRegionalAtlases = new Map<RegionalStyleId, HTMLCanvasElement>();
 
-function getOrCreateSnesAtlas(): HTMLCanvasElement {
-  if (cachedSnesAtlas) return cachedSnesAtlas;
+function getOrCreateSnesAtlas(theme: RegionalTheme): HTMLCanvasElement {
+  const cached = cachedRegionalAtlases.get(theme.id);
+  if (cached) return cached;
   const atlas = document.createElement('canvas');
   atlas.width = ATLAS_TILE * 4;
-  atlas.height = ATLAS_TILE * 13;
+  atlas.height = ATLAS_TILE * 17;
   const g = atlas.getContext('2d');
   if (!g) return atlas;
   g.imageSmoothingEnabled = false;
@@ -334,25 +370,45 @@ function getOrCreateSnesAtlas(): HTMLCanvasElement {
   };
 
   for (let v = 0; v < 4; v++) {
-    // Row 0: Standard Lush Meadow
+    // Row 0: Regional Meadow / Pasture
     const mx = v * 16;
     const my = ATLAS_ROW_MEADOW * 16;
-    paintRichGrassBase(mx, my, '#3a8238', '#4da142', '#64ba4c', '#98e063', v + 1);
+    paintRichGrassBase(
+      mx,
+      my,
+      theme.meadow[0],
+      theme.meadow[1],
+      theme.meadow[2],
+      theme.meadow[3],
+      v + 1
+    );
     if (v === 1) {
-      // Wild daisy + buttercup cluster
-      dot(mx, my, 10, 10, '#2e6b2d', 3, 2);
-      dot(mx, my, 10, 9, '#ffffff', 3, 2);
+      // Regional wildflower cluster (lavender/thyme in Midi, gentian/daisy in Alps, daisy/buttercup elsewhere)
+      dot(mx, my, 10, 10, theme.meadow[0], 3, 2);
+      dot(
+        mx,
+        my,
+        10,
+        9,
+        theme.id === 'midi_ocre'
+          ? '#c084fc'
+          : theme.id === 'alpin_montagne'
+          ? '#60a5fa'
+          : '#ffffff',
+        3,
+        2
+      );
       dot(mx, my, 11, 9, '#facc15', 1, 1);
     } else if (v === 2) {
-      // Clover patch + warm limestone pebble
-      dot(mx, my, 4, 11, '#2d6e32', 3, 2);
-      dot(mx, my, 5, 10, '#86efac', 2, 2);
-      dot(mx, my, 12, 5, '#a8a29e', 2, 1);
-      dot(mx, my, 12, 4, '#e7e5e4', 1, 1);
+      // Clover patch + regional bedrock pebble
+      dot(mx, my, 4, 11, theme.meadow[0], 3, 2);
+      dot(mx, my, 5, 10, theme.meadow[3], 2, 2);
+      dot(mx, my, 12, 5, theme.cliff[0], 2, 1);
+      dot(mx, my, 12, 4, theme.cliff[1], 1, 1);
     } else if (v === 3) {
-      // Poppy + golden wildflower
-      dot(mx, my, 11, 12, '#dc2626', 2, 2);
-      dot(mx, my, 11, 11, '#fca5a5', 1, 1);
+      // Poppy / heather / golden wildflower
+      dot(mx, my, 11, 12, theme.id === 'armorique_granit' ? '#db2777' : '#dc2626', 2, 2);
+      dot(mx, my, 11, 11, '#fbcfe8', 1, 1);
       dot(mx, my, 4, 4, '#fde047', 2, 1);
     }
 
@@ -360,18 +416,42 @@ function getOrCreateSnesAtlas(): HTMLCanvasElement {
     const ex = v * 16;
     const ey = ATLAS_ROW_ELEVATED * 16;
     if (v < 2) {
-      paintRichGrassBase(ex, ey, '#49993f', '#5eb548', '#78cc54', '#bef264', v + 10);
+      paintRichGrassBase(
+        ex,
+        ey,
+        theme.elevatedHigh[0],
+        theme.elevatedHigh[1],
+        theme.elevatedHigh[2],
+        theme.elevatedHigh[3],
+        v + 10
+      );
     } else {
-      paintRichGrassBase(ex, ey, '#2d6b34', '#3c853d', '#4fa148', '#7ad15e', v + 20);
+      paintRichGrassBase(
+        ex,
+        ey,
+        theme.elevatedLow[0],
+        theme.elevatedLow[1],
+        theme.elevatedLow[2],
+        theme.elevatedLow[3],
+        v + 20
+      );
     }
 
-    // Row 2: Village Courtyard / Residential Green
+    // Row 2: Regional Village Courtyard / Residential Green
     const cx = v * 16;
     const cy = ATLAS_ROW_COURTYARD * 16;
-    paintRichGrassBase(cx, cy, '#5f8f49', '#74a659', '#88ba6a', '#add685', v + 30);
+    paintRichGrassBase(
+      cx,
+      cy,
+      theme.courtyard[0],
+      theme.courtyard[1],
+      theme.courtyard[2],
+      theme.courtyard[3],
+      v + 30
+    );
     if (v % 2 === 0) {
-      dot(cx, cy, 9, 11, '#b8a68e', 2, 1);
-      dot(cx, cy, 9, 10, '#dfd3c0', 1, 1);
+      dot(cx, cy, 9, 11, theme.street[1], 2, 1);
+      dot(cx, cy, 9, 10, theme.street[4], 1, 1);
     }
 
     // Row 3: Manicured French Park Lawn & Flowerbeds
@@ -379,36 +459,40 @@ function getOrCreateSnesAtlas(): HTMLCanvasElement {
     const py = ATLAS_ROW_PARK * 16;
     paintRichGrassBase(px, py, '#2f8c3d', '#43b049', '#59c956', '#9ef07a', v + 40);
     if (v === 0 || v === 2) {
-      // Ornamental rose / tulip parterre
       dot(px, py, 5, 6, '#166534', 6, 4);
       dot(px, py, 6, 5, v === 0 ? '#f43f5e' : '#facc15', 2, 2);
       dot(px, py, 9, 6, '#ffffff', 2, 2);
       dot(px, py, 7, 7, '#fb7185', 2, 1);
     }
 
-    // Row 4: Deep Woodland Moss Floor
+    // Row 4: Regional Woodland Moss / Pine-Needle Floor
     const fx = v * 16;
     const fy = ATLAS_ROW_FOREST * 16;
-    paintRichGrassBase(fx, fy, '#14381d', '#1d4d27', '#296633', '#499449', v + 50);
+    paintRichGrassBase(
+      fx,
+      fy,
+      theme.forestFloor[0],
+      theme.forestFloor[1],
+      theme.forestFloor[2],
+      theme.forestFloor[3],
+      v + 50
+    );
     if (v === 1) {
-      // 16-bit red spotted mushroom
       dot(fx, fy, 9, 12, '#fef3c7', 2, 2);
       dot(fx, fy, 8, 10, '#dc2626', 4, 2);
       dot(fx, fy, 9, 10, '#ffffff', 1, 1);
     } else if (v === 3) {
-      // Fallen autumn oak leaves & fern frond
       dot(fx, fy, 4, 11, '#d97706', 2, 1);
       dot(fx, fy, 6, 12, '#f59e0b', 1, 1);
       dot(fx, fy, 11, 5, '#4ade80', 3, 1);
       dot(fx, fy, 12, 4, '#86efac', 1, 3);
     }
 
-    // Row 5: French Farmland (v=0,1 Golden Wheat; v=2,3 Vineyard Rows)
+    // Row 5: French Farmland (v=0,1 Golden Wheat; v=2,3 Vineyard / Lavandin Rows)
     const agx = v * 16;
     const agy = ATLAS_ROW_FARMLAND * 16;
-    dot(agx, agy, 0, 0, '#784f2b', 16, 16);
+    dot(agx, agy, 0, 0, theme.id === 'midi_ocre' ? '#8c5332' : '#784f2b', 16, 16);
     if (v < 2) {
-      // Rich golden wheat furrows
       for (let ry = 1; ry < 16; ry += 4) {
         dot(agx, agy, 0, ry, '#5c3a1d', 16, 1);
         dot(agx, agy, 0, ry + 1, '#ca8a04', 16, 2);
@@ -418,23 +502,29 @@ function getOrCreateSnesAtlas(): HTMLCanvasElement {
         }
       }
     } else {
-      // French vineyard trellises on plowed warm earth
       for (let rx = 2; rx < 15; rx += 5) {
         dot(agx, agy, rx, 0, '#4a2e16', 2, 16);
         for (let ry = 1; ry < 15; ry += 4) {
-          dot(agx, agy, rx - 1, ry, '#166534', 4, 3);
-          dot(agx, agy, rx, ry, '#4ade80', 2, 2);
-          if ((rx + ry + v) % 2 === 0) {
-            dot(agx, agy, rx + 1, ry + 2, '#7e22ce', 1, 1);
+          if (theme.id === 'midi_ocre' && v === 3) {
+            // Fragrant Provençal lavender / vine rows
+            dot(agx, agy, rx - 1, ry, '#4c1d95', 4, 3);
+            dot(agx, agy, rx, ry, '#a855f7', 2, 2);
+            dot(agx, agy, rx + 1, ry + 1, '#d8b4fe', 1, 1);
+          } else {
+            dot(agx, agy, rx - 1, ry, '#166534', 4, 3);
+            dot(agx, agy, rx, ry, '#4ade80', 2, 2);
+            if ((rx + ry + v) % 2 === 0) {
+              dot(agx, agy, rx + 1, ry + 2, '#7e22ce', 1, 1);
+            }
           }
         }
       }
     }
 
-    // Row 6: Haussmannian / Main Road Fan-Pattern Limestone Cobblestones (Pavés)
+    // Row 6: Regional Main Road Pavés (Blonde limestone, Blue granite, Pink sandstone, Dark basalt, Ochre)
     const mrx = v * 16;
     const mry = ATLAS_ROW_MAIN_ROAD * 16;
-    dot(mrx, mry, 0, 0, '#9c8669', 16, 16); // warm mortar base
+    dot(mrx, mry, 0, 0, theme.mainRoad[0], 16, 16);
     for (let row = 0; row < 4; row++) {
       const yy = row * 4;
       const shift = (row % 2) * 2 + (v % 2);
@@ -442,79 +532,84 @@ function getOrCreateSnesAtlas(): HTMLCanvasElement {
         const xx = col * 5 + shift;
         const stoneShade =
           (row + col + v) % 3 === 0
-            ? '#eadbc2'
+            ? theme.mainRoad[1]
             : (row + col + v) % 3 === 1
-            ? '#dfd0b4'
-            : '#d2c0a1';
+            ? theme.mainRoad[2]
+            : theme.mainRoad[3];
         if (xx + 4 > 0 && xx < 16) {
           const sx0 = Math.max(0, xx);
           const sw = Math.min(16, xx + 4) - sx0;
           dot(mrx, mry, sx0, yy, stoneShade, sw, 3);
-          dot(mrx, mry, sx0, yy, '#f7efe0', Math.max(1, sw - 1), 1);
+          dot(mrx, mry, sx0, yy, theme.mainRoad[4], Math.max(1, sw - 1), 1);
         }
       }
     }
 
-    // Row 7: Charming Village Cobblestone Lane (Irregular Warm Ochre Stones)
+    // Row 7: Regional Village Cobblestone Lane
     const stx = v * 16;
     const sty = ATLAS_ROW_STREET * 16;
-    dot(stx, sty, 0, 0, '#856a4b', 16, 16);
+    dot(stx, sty, 0, 0, theme.street[0], 16, 16);
     const cobbles = [
-      [1, 1, 4, 3, '#d9c3a3'],
-      [6, 1, 5, 3, '#cbb28e'],
-      [12, 1, 3, 3, '#e3d1b6'],
-      [0, 5, 3, 3, '#cbb28e'],
-      [4, 5, 5, 3, '#e3d1b6'],
-      [10, 5, 5, 3, '#d4bc99'],
-      [1, 9, 5, 3, '#dfccb0'],
-      [7, 9, 4, 3, '#c7ad88'],
-      [12, 9, 3, 3, '#d9c3a3'],
-      [0, 13, 4, 2, '#d4bc99'],
-      [5, 13, 5, 2, '#e5d4ba'],
-      [11, 13, 4, 2, '#cbb28e'],
+      [1, 1, 4, 3, theme.street[1]],
+      [6, 1, 5, 3, theme.street[2]],
+      [12, 1, 3, 3, theme.street[3]],
+      [0, 5, 3, 3, theme.street[2]],
+      [4, 5, 5, 3, theme.street[3]],
+      [10, 5, 5, 3, theme.street[1]],
+      [1, 9, 5, 3, theme.street[3]],
+      [7, 9, 4, 3, theme.street[2]],
+      [12, 9, 3, 3, theme.street[1]],
+      [0, 13, 4, 2, theme.street[1]],
+      [5, 13, 5, 2, theme.street[3]],
+      [11, 13, 4, 2, theme.street[2]],
     ] as const;
     for (const [cx0, cy0, cw, ch, col] of cobbles) {
       const jx = (cx0 + v * 4) % 13;
       dot(stx, sty, jx, cy0, col, cw, ch);
-      dot(stx, sty, jx, cy0, '#f3e7d3', Math.max(1, cw - 1), 1);
+      dot(stx, sty, jx, cy0, theme.street[4], Math.max(1, cw - 1), 1);
     }
     if (v === 2) {
-      // Tiny moss tuft between cobbles
-      dot(stx, sty, 6, 8, '#4d9c42', 2, 1);
+      dot(stx, sty, 6, 8, theme.meadow[1], 2, 1);
     }
 
-    // Row 8: Ornate Limestone Parvis Flagstones (Plazas & Squares)
+    // Row 8: Regional Parvis Flagstones (Plazas & Grand'Places)
     const plx = v * 16;
     const ply = ATLAS_ROW_PLAZA * 16;
-    dot(plx, ply, 0, 0, '#bba889', 16, 16);
-    dot(plx, ply, 1, 1, '#efe4ce', 6, 6);
-    dot(plx, ply, 1, 1, '#fbf6ea', 5, 1);
-    dot(plx, ply, 9, 1, '#e6d8be', 6, 6);
-    dot(plx, ply, 9, 1, '#f7efe0', 5, 1);
-    dot(plx, ply, 1, 9, '#e6d8be', 6, 6);
-    dot(plx, ply, 1, 9, '#f7efe0', 5, 1);
-    dot(plx, ply, 9, 9, '#efe4ce', 6, 6);
-    dot(plx, ply, 9, 9, '#fbf6ea', 5, 1);
-    // Ornamental diamond medallion at center joint
-    dot(plx, ply, 7, 7, '#9c7c54', 2, 2);
+    dot(plx, ply, 0, 0, theme.plaza[0], 16, 16);
+    dot(plx, ply, 1, 1, theme.plaza[1], 6, 6);
+    dot(plx, ply, 1, 1, theme.plaza[3], 5, 1);
+    dot(plx, ply, 9, 1, theme.plaza[2], 6, 6);
+    dot(plx, ply, 9, 1, theme.plaza[3], 5, 1);
+    dot(plx, ply, 1, 9, theme.plaza[2], 6, 6);
+    dot(plx, ply, 1, 9, theme.plaza[3], 5, 1);
+    dot(plx, ply, 9, 9, theme.plaza[1], 6, 6);
+    dot(plx, ply, 9, 9, theme.plaza[3], 5, 1);
+    dot(plx, ply, 7, 7, theme.street[0], 2, 2);
 
     // Row 10: Mineral City-Center Courtyard & Retail Forecourt Flagstones
     const usx = v * 16;
     const usy = ATLAS_ROW_URBAN_STONE * 16;
-    dot(usx, usy, 0, 0, '#9e9585', 16, 16);
+    dot(usx, usy, 0, 0, theme.plaza[0], 16, 16);
     for (let ry = 0; ry < 16; ry += 4) {
       const off = ((ry >> 2) + v) % 2 === 0 ? 0 : 3;
       for (let rx = -2; rx < 16; rx += 6) {
         const x0 = Math.max(0, rx + off);
         const w0 = Math.min(16, rx + off + 5) - x0;
         if (w0 > 0) {
-          dot(usx, usy, x0, ry, (rx + ry + v) % 2 === 0 ? '#cfc5b4' : '#c2b7a3', w0, 3);
-          dot(usx, usy, x0, ry, '#dfd7c8', Math.max(1, w0 - 1), 1);
+          dot(
+            usx,
+            usy,
+            x0,
+            ry,
+            (rx + ry + v) % 2 === 0 ? theme.plaza[1] : theme.plaza[2],
+            w0,
+            3
+          );
+          dot(usx, usy, x0, ry, theme.plaza[3], Math.max(1, w0 - 1), 1);
         }
       }
     }
     if (v === 3) {
-      // Cast-iron courtyard drain grate
       dot(usx, usy, 6, 6, '#334155', 4, 4);
       dot(usx, usy, 7, 7, '#64748b', 1, 2);
       dot(usx, usy, 9, 7, '#64748b', 1, 2);
@@ -531,12 +626,10 @@ function getOrCreateSnesAtlas(): HTMLCanvasElement {
         else if (n === 4) dot(inx, iny, x, y, '#4a5462');
       }
     }
-    // Concrete slab expansion joints
     dot(inx, iny, 0, 7, '#434c59', 16, 1);
     dot(inx, iny, 8, 0, '#434c59', 1, 16);
     dot(inx, iny, 0, 8, '#778496', 16, 1);
     if (v === 1) {
-      // Yellow safety logistics bay line
       dot(inx, iny, 2, 13, '#eab308', 5, 1);
       dot(inx, iny, 9, 13, '#eab308', 5, 1);
     }
@@ -551,13 +644,120 @@ function getOrCreateSnesAtlas(): HTMLCanvasElement {
         if (n < 3) dot(vex, vey, x, y, '#b3966f');
         else if (n === 4 || n === 5) dot(vex, vey, x, y, '#826847');
         else if (n === 14 && (x < 3 || x > 12 || y < 3 || y > 12)) {
-          dot(vex, vey, x, y, '#5c9642');
+          dot(vex, vey, x, y, theme.meadow[1]);
         }
       }
     }
     if (v % 2 === 0) {
-      dot(vex, vey, 5 + v, 9, '#cbb597', 3, 2);
-      dot(vex, vey, 10 - v, 4, '#5c9642', 2, 2);
+      dot(vex, vey, 5 + v, 9, theme.street[1], 3, 2);
+      dot(vex, vey, 10 - v, 4, theme.meadow[1], 2, 2);
+    }
+
+    // Row 13: Coastal Beaches, Dunes & River Sandbars (T_SAND)
+    const sdx = v * 16;
+    const sdy = ATLAS_ROW_SAND * 16;
+    const sandBase = theme.id === 'auvergne_volcan' ? '#b8a99a' : '#ebd59b';
+    const sandLight = theme.id === 'auvergne_volcan' ? '#d6ccc2' : '#f7e8be';
+    const sandShade = theme.id === 'auvergne_volcan' ? '#8c7d70' : '#cfa86b';
+    dot(sdx, sdy, 0, 0, sandBase, 16, 16);
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        const n = tileHash(x + v * 13, y + v * 29) % 16;
+        if ((y + (x >> 2) + v) % 5 === 0) {
+          dot(sdx, sdy, x, y, sandLight);
+        } else if ((y + (x >> 2) + v) % 5 === 1 && x % 2 === 0) {
+          dot(sdx, sdy, x, y, sandShade);
+        } else if (n === 0) {
+          dot(sdx, sdy, x, y, '#fffbeb');
+        }
+      }
+    }
+    if (v === 1) {
+      // Tiny 16-bit seashell
+      dot(sdx, sdy, 10, 10, '#b45309', 3, 2);
+      dot(sdx, sdy, 10, 9, '#fff1f2', 3, 2);
+      dot(sdx, sdy, 11, 9, '#fda4af', 1, 1);
+    } else if (v === 3) {
+      // Marram dune grass tuft (oyat)
+      dot(sdx, sdy, 5, 11, '#4d7c0f', 3, 1);
+      dot(sdx, sdy, 4, 9, '#84cc16', 1, 2);
+      dot(sdx, sdy, 6, 8, '#a3e635', 1, 3);
+      dot(sdx, sdy, 8, 9, '#84cc16', 1, 2);
+    }
+
+    // Row 14: Regional Scrub / Garrigue / Maquis / Armorican Gorse & Heather (T_SCRUB)
+    const scx = v * 16;
+    const scy = ATLAS_ROW_SCRUB * 16;
+    paintRichGrassBase(
+      scx,
+      scy,
+      theme.scrub[0],
+      theme.scrub[1],
+      theme.scrub[2],
+      theme.meadow[3],
+      v + 70
+    );
+    // Exposed dry rocky soil patch + low aromatic / heather shrub cushion
+    dot(scx, scy, 2 + v * 2, 11, theme.cliff[1], 3, 2);
+    dot(scx, scy, 3 + v * 2, 12, theme.cliff[0], 2, 1);
+    dot(scx, scy, 8 - v, 5, theme.scrub[0], 5, 3);
+    dot(scx, scy, 9 - v, 4, theme.scrub[2], 3, 3);
+    if (v % 2 === 0) {
+      dot(scx, scy, 9 - v, 4, theme.scrub[3], 2, 1);
+    } else {
+      dot(scx, scy, 10 - v, 5, theme.scrub[4], 2, 1);
+    }
+
+    // Row 15: Wetland, Marshes, Peat Bogs & Salt-Meadows (T_WETLAND)
+    const wlx = v * 16;
+    const wly = ATLAS_ROW_WETLAND * 16;
+    dot(wlx, wly, 0, 0, '#1e4d3b', 16, 16);
+    // Shallow reflective marsh water channels + mossy sedge tussocks
+    dot(wlx, wly, 1 + (v % 2) * 2, 3, '#0e7490', 11, 4);
+    dot(wlx, wly, 2 + (v % 2) * 2, 4, '#38bdf8', 5, 1);
+    dot(wlx, wly, 3, 10, '#155e75', 10, 4);
+    dot(wlx, wly, 5, 11, '#7dd3fc', 4, 1);
+    // Lush sedge & sphagnum hummocks
+    dot(wlx, wly, 1, 7, '#2d6a4f', 7, 3);
+    dot(wlx, wly, 2, 6, '#52b788', 5, 2);
+    dot(wlx, wly, 9, 8, '#2d6a4f', 6, 3);
+    dot(wlx, wly, 10, 7, '#74c69d', 4, 2);
+    if (v === 0 || v === 2) {
+      // Cattail / reed stalks (roseaux / massettes)
+      dot(wlx, wly, 11, 2, '#166534', 1, 6);
+      dot(wlx, wly, 11, 1, '#78350f', 1, 2);
+      dot(wlx, wly, 13, 3, '#4ade80', 1, 5);
+    }
+
+    // Row 16: Scree, Alpine Talus, Moraines & Rocky Chaos (T_SCREE)
+    const srx = v * 16;
+    const sry = ATLAS_ROW_SCREE * 16;
+    dot(srx, sry, 0, 0, theme.cliff[3], 16, 16);
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        const n = tileHash(x + v * 31, y + v * 17) % 8;
+        if (n < 3) dot(srx, sry, x, y, theme.cliff[0]);
+        else if (n === 3) dot(srx, sry, x, y, theme.cliff[2]);
+      }
+    }
+    // Angular fractured rock boulders with crisp NW sunlit facets
+    const rocks = [
+      [1, 2, 5, 4],
+      [8, 1, 6, 4],
+      [3, 8, 6, 4],
+      [10, 9, 5, 5],
+    ] as const;
+    for (let r = 0; r < rocks.length; r++) {
+      const [rx0, ry0, rw, rh] = rocks[r];
+      const jx = (rx0 + v * 3) % 11;
+      dot(srx, sry, jx, ry0 + 1, theme.cliff[4], rw, rh);
+      dot(srx, sry, jx, ry0, theme.cliff[2], rw, rh - 1);
+      dot(srx, sry, jx, ry0, theme.cliff[1], Math.max(2, rw - 2), 1);
+    }
+    if (v === 2 && theme.id === 'alpin_montagne') {
+      // Tiny lingering névé snow patch in sheltered alpine scree hollow
+      dot(srx, sry, 2, 12, '#bae6fd', 4, 2);
+      dot(srx, sry, 2, 12, '#ffffff', 3, 1);
     }
   }
 
@@ -567,26 +767,22 @@ function getOrCreateSnesAtlas(): HTMLCanvasElement {
     for (let px = 0; px < 16; px++) {
       const check50 = (px + py) % 2 === 0;
       const bayer25 = (px & 1) === 0 && (py & 1) === (px & 2 ? 1 : 0);
-      // Col 0: Gentle NW Sunlit Slope (25% warm ivory-gold pixel dither)
       if (bayer25) {
         dot(0, hsy, px, py, 'rgba(254, 249, 195, 0.24)');
       }
-      // Col 1: Strong NW Sunlit Crest (50% checkerboard sunlit gold dither)
       if (check50) {
         dot(16, hsy, px, py, 'rgba(254, 240, 138, 0.26)');
       }
-      // Col 2: Gentle SE Shaded Slope / Hollow (25% cool slate-indigo pixel dither)
       if (bayer25) {
         dot(32, hsy, px, py, 'rgba(15, 29, 52, 0.22)');
       }
-      // Col 3: Deep Gorge / North-East Escarpment Shadow (50% checkerboard indigo-forest dither)
       if (check50) {
         dot(48, hsy, px, py, 'rgba(11, 22, 42, 0.30)');
       }
     }
   }
 
-  cachedSnesAtlas = atlas;
+  cachedRegionalAtlases.set(theme.id, atlas);
   return atlas;
 }
 
@@ -1367,7 +1563,11 @@ function stampDryLinearChain(
             existing === T_MEADOW ||
             existing === T_PARK ||
             existing === T_FOREST ||
-            existing === T_FARMLAND;
+            existing === T_FARMLAND ||
+            existing === T_SAND ||
+            existing === T_SCRUB ||
+            existing === T_WETLAND ||
+            existing === T_SCREE;
           if (!isOpenNatural || isDenseUrban) continue;
         }
         if (
@@ -1452,21 +1652,88 @@ function detectImplicitTransverseBridges(
 }
 
 /**
- * Lush 16-bit Multi-Cluster SNES Tree Sprite (Oak, Cypress/Poplar, or Forest Pine)
+ * Lush 16-bit Multi-Cluster SNES Regional Tree Sprite
+ * Adapts species mix to regional floraMode (Mediterranean umbrella pines/cypresses/olives,
+ * Alpine/Vosges conifers & larches, Atlantic windswept oaks & maritime pines, or Temperate broadleaf)
  */
 function draw16BitTreeCanopy(
   ctx: CanvasRenderingContext2D,
   sx: number,
   sy: number,
   variant: number,
-  sway: number
+  sway: number,
+  floraMode: RegionalTheme['floraMode'] = 'temperate'
 ) {
-  const species = variant % 5; // 0,1,2 = Majestic Oak; 3 = Cypress/Poplar; 4 = Pine
-
   // Soft dappled ground shadow
   ctx.fillStyle = 'rgba(14, 28, 15, 0.38)';
   ctx.fillRect(sx - 2, sy + 11, 20, 5);
   ctx.fillRect(sx, sy + 10, 16, 6);
+
+  if (floraMode === 'mediterranean') {
+    const medKind = variant % 5; // 0,1 = Pin parasol; 2 = Cyprès de Provence; 3,4 = Olivier argenté
+    if (medKind <= 1) {
+      // Iconic Mediterranean Umbrella Pine (Pin parasol — tall warm reddish-bark trunk + wide flat parasol crown!)
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(sx + 7, sy + 3, 3, 11);
+      ctx.fillStyle = '#9a3412';
+      ctx.fillRect(sx + 7, sy + 3, 2, 10);
+      ctx.fillStyle = '#ea580c';
+      ctx.fillRect(sx + 7, sy + 5, 1, 6);
+      // Forked upper boughs
+      ctx.fillStyle = '#5c2409';
+      ctx.fillRect(sx + 4, sy + 2, 9, 2);
+      // Wide flat-bottomed emerald parasol canopy
+      ctx.fillStyle = '#0e3622';
+      ctx.fillRect(sx - 3, sy - 3, 22, 6);
+      ctx.fillRect(sx, sy - 6, 16, 4);
+      ctx.fillStyle = '#1b5e36';
+      ctx.fillRect(sx - 2, sy - 4, 20, 5);
+      ctx.fillRect(sx + 1, sy - 6, 14, 3);
+      ctx.fillStyle = '#389c53';
+      ctx.fillRect(sx - 1 + sway, sy - 5, 16, 3);
+      ctx.fillStyle = '#86efac';
+      ctx.fillRect(sx + 2 + sway, sy - 6, 10, 2);
+      return;
+    }
+    if (medKind === 2) {
+      // Tall slender Provençal Cypress (Cyprès de Florence)
+      ctx.fillStyle = '#3b1f0e';
+      ctx.fillRect(sx + 7, sy + 10, 3, 4);
+      ctx.fillStyle = '#0f331d';
+      ctx.fillRect(sx + 4, sy - 6, 8, 17);
+      ctx.fillRect(sx + 5, sy - 9, 6, 20);
+      ctx.fillStyle = '#1b5730';
+      ctx.fillRect(sx + 5, sy - 8, 5, 17);
+      ctx.fillStyle = '#388e48';
+      ctx.fillRect(sx + 5 + sway, sy - 7, 3, 12);
+      ctx.fillStyle = '#86efac';
+      ctx.fillRect(sx + 6 + sway, sy - 9, 2, 4);
+      return;
+    }
+    // Gnarled Silvery-Sage Mediterranean Olive Tree (Olivier)
+    ctx.fillStyle = '#3f2e21';
+    ctx.fillRect(sx + 5, sy + 8, 6, 6);
+    ctx.fillStyle = '#786350';
+    ctx.fillRect(sx + 6, sy + 8, 3, 5);
+    ctx.fillStyle = '#243b2b';
+    ctx.fillRect(sx - 1, sy, 18, 9);
+    ctx.fillRect(sx + 2, sy - 3, 12, 10);
+    ctx.fillStyle = '#496e53';
+    ctx.fillRect(sx, sy - 1, 16, 7);
+    ctx.fillStyle = '#7ea384';
+    ctx.fillRect(sx + 1 + sway, sy - 2, 12, 5);
+    ctx.fillStyle = '#cbd5c0';
+    ctx.fillRect(sx + 3 + sway, sy - 3, 7, 2);
+    return;
+  }
+
+  let species = variant % 5; // 0,1,2 = Majestic Oak; 3 = Cypress/Poplar; 4 = Conifer/Fir
+  if (floraMode === 'alpine' || floraMode === 'vosges_fir') {
+    // High-altitude & Vosges forests are dominated by dark firs, spruces, and golden/emerald larches
+    species = variant % 5 <= 3 ? 4 : 0;
+  } else if (floraMode === 'atlantic_bocage') {
+    species = variant % 4 === 0 ? 4 : variant % 5 === 3 ? 3 : 0;
+  }
 
   // Gnarled 16-bit shaded trunk & roots
   ctx.fillStyle = '#3b1f0e';
@@ -1478,25 +1745,33 @@ function draw16BitTreeCanopy(
   ctx.fillRect(sx + 6, sy + 9, 1, 4);
 
   if (species === 4) {
-    // 16-bit Layered Mountain Pine / Conifer
-    ctx.fillStyle = '#0e3622';
+    const calMonth = new Date().getMonth();
+    const isAutumnLarch =
+      floraMode === 'alpine' && variant % 4 === 1 && (calMonth >= 8 && calMonth <= 10);
+    const isSnowTipped = floraMode === 'alpine' && (calMonth === 11 || calMonth <= 2 || variant % 6 === 0);
+
+    // 16-bit Layered Mountain Pine / Vosges Silver Fir / Alpine Larch
+    ctx.fillStyle = isAutumnLarch ? '#78350f' : '#0e3622';
     ctx.fillRect(sx + 1, sy + 4, 14, 6);
     ctx.fillRect(sx + 3, sy - 1, 10, 6);
     ctx.fillRect(sx + 5, sy - 5, 6, 5);
 
-    ctx.fillStyle = '#1b5e36';
+    ctx.fillStyle = isAutumnLarch ? '#b45309' : floraMode === 'vosges_fir' ? '#134e3a' : '#1b5e36';
     ctx.fillRect(sx + 2, sy + 3, 12, 5);
     ctx.fillRect(sx + 4, sy - 2, 8, 5);
     ctx.fillRect(sx + 6, sy - 6 + sway, 4, 4);
 
-    ctx.fillStyle = '#389c53';
+    ctx.fillStyle = isAutumnLarch ? '#f59e0b' : floraMode === 'vosges_fir' ? '#2d7a5e' : '#389c53';
     ctx.fillRect(sx + 3, sy + 3, 7, 3);
     ctx.fillRect(sx + 5, sy - 2, 5, 3);
     ctx.fillRect(sx + 6, sy - 5 + sway, 3, 2);
 
-    ctx.fillStyle = '#86efac';
+    ctx.fillStyle = isSnowTipped ? '#f8fafc' : isAutumnLarch ? '#fde047' : '#86efac';
     ctx.fillRect(sx + 6, sy - 6 + sway, 2, 2);
     ctx.fillRect(sx + 4, sy + 3, 3, 1);
+    if (isSnowTipped) {
+      ctx.fillRect(sx + 5, sy - 2, 3, 1);
+    }
     return;
   }
 
@@ -1527,44 +1802,37 @@ function draw16BitTreeCanopy(
   const cBright = autumnTint ? '#f59e0b' : '#4fb346';
   const cSun = autumnTint ? '#fde047' : '#9be858';
 
-  // Outer pixel silhouette (3 overlapping foliage spheres: left, right, crown)
   ctx.fillStyle = cOutline;
   ctx.fillRect(sx - 2, sy - 1, 20, 10);
   ctx.fillRect(sx, sy - 5, 16, 14);
   ctx.fillRect(sx + 2, sy - 7, 12, 13);
 
-  // Deep underside leaf shadow
   ctx.fillStyle = cDeep;
   ctx.fillRect(sx - 1, sy, 18, 8);
   ctx.fillRect(sx + 1, sy - 4, 14, 12);
 
-  // Mid leaf clusters
   ctx.fillStyle = cMid;
   ctx.fillRect(sx - 1, sy - 1, 17, 6);
   ctx.fillRect(sx + 1, sy - 5, 14, 9);
   ctx.fillRect(sx + 3, sy - 6, 10, 8);
 
-  // Sunlit upper-left & crown leaf puffs (sways gently in breeze!)
   ctx.fillStyle = cBright;
   ctx.fillRect(sx + sway, sy - 2, 9, 5);
   ctx.fillRect(sx + 3 + sway, sy - 6, 9, 6);
   ctx.fillRect(sx + 8, sy - 1, 6, 4);
 
-  // Crisp golden-green rim highlights + individual leaf pixels
   ctx.fillStyle = cSun;
   ctx.fillRect(sx + 4 + sway, sy - 6, 6, 2);
   ctx.fillRect(sx + 1 + sway, sy - 2, 4, 2);
   ctx.fillRect(sx + 9, sy, 3, 1);
 
   if (isSpring && !autumnTint && variant % 4 === 0) {
-    // Delicate spring blossom clusters (cherry/apple pink & ivory)
     ctx.fillStyle = '#fbcfe8';
     ctx.fillRect(sx + 2 + sway, sy - 4, 2, 2);
     ctx.fillRect(sx + 9 + sway, sy - 3, 2, 2);
     ctx.fillStyle = '#fff1f2';
     ctx.fillRect(sx + 6 + sway, sy - 6, 2, 1);
   } else if (isWinter && variant % 3 === 0) {
-    // Subtle winter rime/frost glint along upper canopy crown
     ctx.fillStyle = '#e0f2fe';
     ctx.fillRect(sx + 4 + sway, sy - 6, 5, 1);
     ctx.fillRect(sx + 1 + sway, sy - 2, 3, 1);
@@ -1627,7 +1895,8 @@ function draw16BitTypedBuildingTile(
   onCliffEdge: boolean,
   facesStreetSouth: boolean,
   h: number,
-  envTick: number
+  envTick: number,
+  theme: RegionalTheme
 ) {
   // Grounded drop shadows & cliff foundations
   if (!sB) {
@@ -1939,42 +2208,7 @@ function draw16BitTypedBuildingTile(
     // Multi-story City-Center Haussmannian / Historic Townhouse (2 window rows + mansard + optional street shopfront!)
     const topLift = blockedNorth || (!nB && rawNB) ? -1 : -5;
     const urbanStyle = tileHash(wx >> 1, wy >> 1) % 3;
-    const pal =
-      urbanStyle === 0
-        ? {
-            // Parisian Haussmannian Limestone & Zinc Mansard
-            outline: '#17202e',
-            roofShadow: '#1e293b',
-            roofMid: '#3b4c63',
-            roofLight: '#64748b',
-            roofRidge: '#cbd5e1',
-            wall: '#f6eedc',
-            wallShade: '#dfd1b4',
-            cornice: '#ffffff',
-          }
-        : urbanStyle === 1
-        ? {
-            // Historic Rose-Brick & Slate Townhouse (Toulouse / Lille / Place Royale)
-            outline: '#291512',
-            roofShadow: '#262f40',
-            roofMid: '#3f4d63',
-            roofLight: '#64748b',
-            roofRidge: '#cbd5e1',
-            wall: '#cf6a53',
-            wallShade: '#ab4e3a',
-            cornice: '#f5ebd6',
-          }
-        : {
-            // Golden Ochre & Roman Tile Historic Quarter (Lyon / Bordeaux / Aix)
-            outline: '#2b180e',
-            roofShadow: '#6e2c1e',
-            roofMid: '#9e432e',
-            roofLight: '#c96044',
-            roofRidge: '#f2a384',
-            wall: '#f2ddb6',
-            wallShade: '#d4b887',
-            cornice: '#fbf6ea',
-          };
+    const pal = theme.urbanPalettes[urbanStyle];
 
     const hasGroundShop =
       archCode === BC_COMMERCIAL || (facesStreetSouth && (wx + wy * 3) % 3 === 0);
@@ -1984,17 +2218,27 @@ function draw16BitTypedBuildingTile(
       pctx.fillStyle = pal.roofMid;
       pctx.fillRect(sx, sy + topLift, 16, roofH);
 
-      for (let ry = sy + topLift + 2; ry < sy + 4; ry += 2) {
-        pctx.fillStyle = pal.roofLight;
-        for (let rx = (ry & 2) ? 1 : 0; rx < 15; rx += 4) {
-          pctx.fillRect(sx + rx, ry, 3, 1);
+      if (theme.isCanalTile) {
+        // Curved Roman canal tiles (vertical warm barrel-tile ribs)
+        for (let rx = 1; rx < 15; rx += 3) {
+          pctx.fillStyle = pal.roofLight;
+          pctx.fillRect(sx + rx, sy + topLift + 1, 1, roofH - 1);
+          pctx.fillStyle = pal.roofShadow;
+          pctx.fillRect(sx + rx + 1, sy + topLift + 1, 1, roofH - 1);
         }
-        pctx.fillStyle = pal.roofShadow;
-        pctx.fillRect(sx, ry + 1, 16, 1);
+      } else {
+        for (let ry = sy + topLift + 2; ry < sy + 4; ry += 2) {
+          pctx.fillStyle = pal.roofLight;
+          for (let rx = (ry & 2) ? 1 : 0; rx < 15; rx += 4) {
+            pctx.fillRect(sx + rx, ry, 3, 1);
+          }
+          pctx.fillStyle = pal.roofShadow;
+          pctx.fillRect(sx, ry + 1, 16, 1);
+        }
       }
 
       // Mansard dormer window (lucarne) on tall roof
-      if (topLift <= -4) {
+      if (topLift <= -4 && !theme.isCanalTile) {
         pctx.fillStyle = pal.outline;
         pctx.fillRect(sx + 6, sy, 4, 4);
         pctx.fillStyle = pal.cornice;
@@ -2010,7 +2254,18 @@ function draw16BitTypedBuildingTile(
         pctx.fillRect(sx + 1, sy + topLift + 1, 14, 1);
       }
 
-      // Multi-story cut-stone/brick facade (sy + 5 .. sy + 15 = 11px tall!)
+      // Flemish Stepped Gables (Pignons à pas de moineaux) on Grand'Place townhouses!
+      if (theme.hasSteppedGables && !sameW && !sameE) {
+        pctx.fillStyle = pal.wall;
+        pctx.fillRect(sx + 2, sy + topLift + 2, 12, 2);
+        pctx.fillRect(sx + 4, sy + topLift, 8, 2);
+        pctx.fillStyle = pal.cornice;
+        pctx.fillRect(sx + 2, sy + topLift + 2, 2, 1);
+        pctx.fillRect(sx + 12, sy + topLift + 2, 2, 1);
+        pctx.fillRect(sx + 5, sy + topLift, 6, 1);
+      }
+
+      // Multi-story cut-stone/brick/timber facade (sy + 5 .. sy + 15 = 11px tall!)
       pctx.fillStyle = pal.outline;
       pctx.fillRect(sx, sy + 4, 16, 1);
       pctx.fillStyle = pal.cornice;
@@ -2018,12 +2273,34 @@ function draw16BitTypedBuildingTile(
       pctx.fillStyle = pal.wall;
       pctx.fillRect(sx, sy + 6, 16, 9);
       pctx.fillStyle = pal.wallShade;
-      pctx.fillRect(sx, sy + 10, 16, 1); // Haussmannian balcony belt course!
+      pctx.fillRect(sx, sy + 10, 16, 1);
       pctx.fillRect(sx, sy + 14, 16, 1);
       pctx.fillStyle = pal.outline;
       pctx.fillRect(sx, sy + 15, 16, 1);
 
-      // Upper story windows + wrought-iron balcony railing
+      // Regional vernacular facade signatures on urban houses
+      if (theme.colombageStyle === 'alsace_rich' && urbanStyle !== 2) {
+        pctx.fillStyle = pal.timber;
+        pctx.fillRect(sx + 1, sy + 6, 1, 8);
+        pctx.fillRect(sx + 6, sy + 6, 1, 8);
+        pctx.fillRect(sx + 10, sy + 6, 1, 8);
+        pctx.fillRect(sx + 14, sy + 6, 1, 8);
+        pctx.fillRect(sx, sy + 10, 16, 1);
+      } else if (theme.isGraniteQuoins) {
+        pctx.fillStyle = pal.cornice;
+        for (let qy = 6; qy <= 13; qy += 2) {
+          pctx.fillRect(sx + 1, sy + qy, 1, 1);
+          pctx.fillRect(sx + 14, sy + qy, 1, 1);
+        }
+      } else if (theme.hasSteppedGables) {
+        // White chalk keystones/lintels over Flemish brick windows
+        pctx.fillStyle = pal.cornice;
+        pctx.fillRect(sx + 2, sy + 6, 3, 1);
+        pctx.fillRect(sx + 7, sy + 6, 2, 1);
+        pctx.fillRect(sx + 11, sy + 6, 3, 1);
+      }
+
+      // Upper story windows + wrought-iron or wooden alpine balcony railing
       const upperGlow = h % 3 === 0 ? '#fef08a' : '#fbbf24';
       pctx.fillStyle = '#1e293b';
       pctx.fillRect(sx + 2, sy + 6, 3, 4);
@@ -2033,8 +2310,7 @@ function draw16BitTypedBuildingTile(
       pctx.fillRect(sx + 3, sy + 7, 1, 2);
       pctx.fillRect(sx + 7, sy + 7, 2, 2);
       pctx.fillRect(sx + 12, sy + 7, 1, 2);
-      // Wrought-iron balcony guardrail
-      pctx.fillStyle = '#0f172a';
+      pctx.fillStyle = theme.hasAlpineWoodBalcony ? pal.timber : '#0f172a';
       pctx.fillRect(sx + 2, sy + 9, 12, 1);
 
       // Ground floor: Striped bistro/boutique shopfront OR arched carriage portal & tall windows
@@ -2116,12 +2392,13 @@ function draw16BitTypedBuildingTile(
   if (archCode === BC_FARM) {
     const topLift = blockedNorth || (!nB && rawNB) ? 0 : -2;
     const isTimberBarn = (wx + wy) % 2 === 1;
-    const outline = '#24160b';
-    const roofMid = isTimberBarn ? '#6b4c2b' : '#7c4a2d';
-    const roofLight = isTimberBarn ? '#8c663e' : '#a3633e';
-    const roofDark = '#472f18';
-    const wall = isTimberBarn ? '#8c5832' : '#d6c3a3';
-    const wallShade = isTimberBarn ? '#694022' : '#b59e7a';
+    const farmRef = theme.villagePalettes[0];
+    const outline = farmRef.outline;
+    const roofMid = isTimberBarn ? '#6b4c2b' : farmRef.roofMid;
+    const roofLight = isTimberBarn ? '#8c663e' : farmRef.roofLight;
+    const roofDark = isTimberBarn ? '#472f18' : farmRef.roofShadow;
+    const wall = isTimberBarn ? '#8c5832' : farmRef.wall;
+    const wallShade = isTimberBarn ? '#694022' : farmRef.wallShade;
 
     if (!sB) {
       const roofH = 8 - topLift;
@@ -2220,51 +2497,28 @@ function draw16BitTypedBuildingTile(
   if (archCode === BC_SUBURBAN) {
     const topLift = blockedNorth || (!nB && rawNB) ? 0 : -2;
     const subStyle = (wx * 3 + wy * 5) % 3;
-    const pal =
-      subStyle === 0
-        ? {
-            // Crisp white modern pavilion with terracotta tile roof
-            outline: '#2b1810',
-            roofShadow: '#8c3523',
-            roofMid: '#bd4b33',
-            roofLight: '#e06b4f',
-            roofRidge: '#f7b29c',
-            wall: '#faf8f2',
-            wallShade: '#e2ddd1',
-          }
-        : subStyle === 1
-        ? {
-            // Contemporary cream pavilion with anthracite slate-tile roof
-            outline: '#1e293b',
-            roofShadow: '#263142',
-            roofMid: '#3b495e',
-            roofLight: '#576982',
-            roofRidge: '#94a3b8',
-            wall: '#f5efe2',
-            wallShade: '#dbd1be',
-          }
-        : {
-            // Warm sand/brick suburban house with brown tile roof
-            outline: '#291c12',
-            roofShadow: '#573d28',
-            roofMid: '#7d593b',
-            roofLight: '#a17652',
-            roofRidge: '#d1ad88',
-            wall: '#f2dec4',
-            wallShade: '#d6bc9c',
-          };
+    const pal = theme.suburbanPalettes[subStyle];
 
     if (!sB) {
       const roofH = 7 - topLift;
       pctx.fillStyle = pal.roofMid;
       pctx.fillRect(sx, sy + topLift, 16, roofH);
-      for (let ry = sy + topLift + 2; ry < sy + 6; ry += 2) {
-        pctx.fillStyle = pal.roofLight;
-        for (let rx = (ry & 2) ? 1 : 0; rx < 15; rx += 4) {
-          pctx.fillRect(sx + rx, ry, 3, 1);
+      if (theme.isCanalTile) {
+        for (let rx = 1; rx < 15; rx += 3) {
+          pctx.fillStyle = pal.roofLight;
+          pctx.fillRect(sx + rx, sy + topLift + 1, 1, roofH - 1);
+          pctx.fillStyle = pal.roofShadow;
+          pctx.fillRect(sx + rx + 1, sy + topLift + 1, 1, roofH - 1);
         }
-        pctx.fillStyle = pal.roofShadow;
-        pctx.fillRect(sx, ry + 1, 16, 1);
+      } else {
+        for (let ry = sy + topLift + 2; ry < sy + 6; ry += 2) {
+          pctx.fillStyle = pal.roofLight;
+          for (let rx = (ry & 2) ? 1 : 0; rx < 15; rx += 4) {
+            pctx.fillRect(sx + rx, ry, 3, 1);
+          }
+          pctx.fillStyle = pal.roofShadow;
+          pctx.fillRect(sx, ry + 1, 16, 1);
+        }
       }
       if (!nB) {
         pctx.fillStyle = pal.outline;
@@ -2283,8 +2537,13 @@ function draw16BitTypedBuildingTile(
       pctx.fillStyle = pal.outline;
       pctx.fillRect(sx, sy + 15, 16, 1);
 
+      if (theme.hasAlpineWoodBalcony) {
+        // Upper chalet wooden cladding & balcony rail
+        pctx.fillStyle = pal.timber;
+        pctx.fillRect(sx + 1, sy + 7, 14, 2);
+      }
+
       if ((wx + wy) % 2 === 0) {
-        // Pavilion with ribbed light-grey garage door + front door / lit window
         pctx.fillStyle = '#475569';
         pctx.fillRect(sx + 2, sy + 9, 6, 6);
         pctx.fillStyle = '#cbd5e1';
@@ -2298,7 +2557,6 @@ function draw16BitTypedBuildingTile(
         pctx.fillStyle = '#fef08a';
         pctx.fillRect(sx + 11, sy + 10, 2, 2);
       } else {
-        // Pavilion with front door + wide sliding glass bay window (baie vitrée)
         pctx.fillStyle = '#451a03';
         pctx.fillRect(sx + 2, sy + 10, 3, 5);
         pctx.fillStyle = '#92400e';
@@ -2342,59 +2600,34 @@ function draw16BitTypedBuildingTile(
   }
 
   // ==========================================================================
-  // 6. TRADITIONAL VILLAGE HOUSE (MAISON DE BOURG — STONE, COLOMBAGES & SHUTTERS)
+  // 6. REGIONAL VERNACULAR VILLAGE HOUSE (MAISON DE BOURG — 7 FRENCH TRADITIONS!)
   // ==========================================================================
   const topLift = blockedNorth || (!nB && rawNB) ? 0 : -3;
   const style = tileHash(wx >> 1, wy >> 1) % 3;
-  const pal =
-    style === 0
-      ? {
-          outline: '#2b150e',
-          roofShadow: '#6e2c1e',
-          roofMid: '#9e432e',
-          roofLight: '#c96044',
-          roofRidge: '#f2a384',
-          wall: '#f2e2c4',
-          wallShade: '#d4be98',
-          timber: '#6e4226',
-          shutter: '#1d4ed8', // French blue shutters
-        }
-      : style === 1
-      ? {
-          outline: '#17202e',
-          roofShadow: '#334155',
-          roofMid: '#475569',
-          roofLight: '#64748b',
-          roofRidge: '#cbd5e1',
-          wall: '#f0e4cc',
-          wallShade: '#d1c2a5',
-          timber: '#64748b',
-          shutter: '#15803d', // Village sage/forest green shutters
-        }
-      : {
-          outline: '#261a10',
-          roofShadow: '#4f3b27',
-          roofMid: '#73573b',
-          roofLight: '#967452',
-          roofRidge: '#cbb08c',
-          wall: '#ebd9b7',
-          wallShade: '#cbb38a',
-          timber: '#54341d',
-          shutter: '#991b1b', // Burgundy shutters + colombages
-        };
+  const pal = theme.villagePalettes[style];
 
   if (!sB) {
     const roofH = 8 - topLift;
     pctx.fillStyle = pal.roofMid;
     pctx.fillRect(sx, sy + topLift, 16, roofH);
 
-    for (let ry = sy + topLift + 2; ry < sy + 7; ry += 2) {
-      pctx.fillStyle = pal.roofLight;
-      for (let rx = (ry & 2) ? 1 : 0; rx < 15; rx += 4) {
-        pctx.fillRect(sx + rx, ry, 3, 1);
+    if (theme.isCanalTile) {
+      // Mediterranean curved Roman barrel tiles (tuiles canal)
+      for (let rx = 1; rx < 15; rx += 3) {
+        pctx.fillStyle = pal.roofLight;
+        pctx.fillRect(sx + rx, sy + topLift + 1, 1, roofH - 1);
+        pctx.fillStyle = pal.roofShadow;
+        pctx.fillRect(sx + rx + 1, sy + topLift + 1, 1, roofH - 1);
       }
-      pctx.fillStyle = pal.roofShadow;
-      pctx.fillRect(sx, ry + 1, 16, 1);
+    } else {
+      for (let ry = sy + topLift + 2; ry < sy + 7; ry += 2) {
+        pctx.fillStyle = pal.roofLight;
+        for (let rx = (ry & 2) ? 1 : 0; rx < 15; rx += 4) {
+          pctx.fillRect(sx + rx, ry, 3, 1);
+        }
+        pctx.fillStyle = pal.roofShadow;
+        pctx.fillRect(sx, ry + 1, 16, 1);
+      }
     }
 
     if (!nB) {
@@ -2404,21 +2637,58 @@ function draw16BitTypedBuildingTile(
       pctx.fillRect(sx + 1, sy + topLift + 1, 14, 1);
     }
 
+    // Flemish stepped brick gable peak (pignon à pas de moineaux)
+    if (theme.hasSteppedGables && !sameW && !sameE) {
+      pctx.fillStyle = pal.wall;
+      pctx.fillRect(sx + 3, sy + topLift + 3, 10, 3);
+      pctx.fillRect(sx + 5, sy + topLift + 1, 6, 2);
+      pctx.fillStyle = pal.cornice;
+      pctx.fillRect(sx + 3, sy + topLift + 3, 2, 1);
+      pctx.fillRect(sx + 11, sy + topLift + 3, 2, 1);
+      pctx.fillRect(sx + 6, sy + topLift + 1, 4, 1);
+    }
+
     pctx.fillStyle = pal.outline;
     pctx.fillRect(sx, sy + 7, 16, 1);
     pctx.fillStyle = pal.wall;
     pctx.fillRect(sx, sy + 8, 16, 8);
+    pctx.fillStyle = theme.isCanalTile ? pal.cornice : pal.wallShade;
+    pctx.fillRect(sx, sy + 8, 16, 1); // Provençal génoise cornice OR shadow eave
     pctx.fillStyle = pal.wallShade;
-    pctx.fillRect(sx, sy + 8, 16, 1);
     pctx.fillRect(sx, sy + 14, 16, 1);
     pctx.fillStyle = pal.outline;
     pctx.fillRect(sx, sy + 15, 16, 1);
 
-    // Half-timbered colombage beams on style 2!
-    if (style === 2) {
+    // Regional vernacular facade timbering, granite quoins, alpine balcony or basalt ashlar
+    const useColombage =
+      theme.colombageStyle === 'alsace_rich' ||
+      (theme.colombageStyle === 'occasional' && style === 2);
+    if (useColombage) {
       pctx.fillStyle = pal.timber;
-      pctx.fillRect(sx + 7, sy + 8, 1, 7);
+      pctx.fillRect(sx + 1, sy + 8, 1, 7);
+      pctx.fillRect(sx + 7, sy + 8, 2, 7);
+      pctx.fillRect(sx + 14, sy + 8, 1, 7);
       pctx.fillRect(sx + 1, sy + 11, 14, 1);
+      if (theme.colombageStyle === 'alsace_rich') {
+        // Diagonal Saint-Andrew brace ticks
+        pctx.fillRect(sx + 2, sy + 9, 1, 1);
+        pctx.fillRect(sx + 3, sy + 10, 1, 1);
+        pctx.fillRect(sx + 12, sy + 10, 1, 1);
+        pctx.fillRect(sx + 13, sy + 9, 1, 1);
+      }
+    } else if (theme.isGraniteQuoins) {
+      pctx.fillStyle = pal.cornice;
+      pctx.fillRect(sx + 1, sy + 8, 1, 1);
+      pctx.fillRect(sx + 1, sy + 10, 1, 1);
+      pctx.fillRect(sx + 1, sy + 12, 1, 1);
+      pctx.fillRect(sx + 14, sy + 9, 1, 1);
+      pctx.fillRect(sx + 14, sy + 11, 1, 1);
+      pctx.fillRect(sx + 14, sy + 13, 1, 1);
+    } else if (theme.isDarkBasalt) {
+      // Crisp pale mortar courses over dark Auvergne volcanic stone
+      pctx.fillStyle = pal.cornice;
+      pctx.fillRect(sx + 2, sy + 11, 4, 1);
+      pctx.fillRect(sx + 10, sy + 11, 4, 1);
     }
 
     const hasDoor = (wx + wy) % 2 === 0;
@@ -2430,7 +2700,6 @@ function draw16BitTypedBuildingTile(
       pctx.fillStyle = '#fbbf24';
       pctx.fillRect(sx + 5, sy + 12, 1, 1);
 
-      // Window with colored wooden shutters & geranium flowerbox
       pctx.fillStyle = pal.shutter;
       pctx.fillRect(sx + 9, sy + 9, 1, 4);
       pctx.fillRect(sx + 14, sy + 9, 1, 4);
@@ -2457,10 +2726,19 @@ function draw16BitTypedBuildingTile(
       pctx.fillRect(sx + 11, sy + 10, 2, 2);
     }
 
+    if (theme.hasAlpineWoodBalcony) {
+      // Warm carved Savoyard / Alpine wooden balcony balustrade across upper facade!
+      pctx.fillStyle = pal.timber;
+      pctx.fillRect(sx + 1, sy + 11, 14, 1);
+      pctx.fillStyle = '#d97706';
+      pctx.fillRect(sx + 2, sy + 11, 3, 1);
+      pctx.fillRect(sx + 10, sy + 11, 4, 1);
+    }
+
     if (!nB && !rawNB && h % 3 === 0) {
-      pctx.fillStyle = '#451a03';
+      pctx.fillStyle = theme.isGraniteQuoins ? '#334155' : '#451a03';
       pctx.fillRect(sx + 11, sy + topLift - 3, 3, 4);
-      pctx.fillStyle = '#9a3412';
+      pctx.fillStyle = theme.isGraniteQuoins ? '#94a3b8' : '#9a3412';
       pctx.fillRect(sx + 11, sy + topLift - 2, 2, 3);
       const smokeStep = (envTick + wx) % 4;
       pctx.fillStyle = 'rgba(255, 251, 235, 0.75)';
@@ -2483,7 +2761,7 @@ function draw16BitTypedBuildingTile(
       pctx.fillStyle = pal.roofRidge;
       pctx.fillRect(sx + 1, sy + topLift + 1, 14, 1);
     }
-    if (h % 6 === 0) {
+    if (h % 6 === 0 && !theme.isCanalTile) {
       pctx.fillStyle = pal.outline;
       pctx.fillRect(sx + 6, sy + 6, 4, 5);
       pctx.fillStyle = pal.roofRidge;
@@ -3567,6 +3845,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
   harvestedNodeIds,
   onHarvestSpecimen,
   onOpenNpcPostcard,
+  worldChests,
+  openedChestIds,
+  onOpenArchivistChest,
+  nearbyGeocaches = [],
+  foundGeocacheIds,
+  currentUserId = null,
+  onInspectGeocache,
 }) => {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -3609,6 +3894,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
   const [hoveredPoiId, setHoveredPoiId] = useState<string | null>(null);
   const [hoveredNpcId, setHoveredNpcId] = useState<string | null>(null);
   const [hoveredSpecimenId, setHoveredSpecimenId] = useState<string | null>(null);
+  const [hoveredChestId, setHoveredChestId] = useState<string | null>(null);
+  const [hoveredGeocacheId, setHoveredGeocacheId] = useState<string | null>(null);
   const [activeNpcDialogue, setActiveNpcDialogue] = useState<{
     npc: WorldNpc;
     lineIndex: number;
@@ -4090,6 +4377,10 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         { kind: 'industrial', code: T_INDUSTRIAL },
         { kind: 'commercial', code: T_COMMERCIAL },
         { kind: 'farmland', code: T_FARMLAND },
+        { kind: 'scrub', code: T_SCRUB },
+        { kind: 'scree', code: T_SCREE },
+        { kind: 'sand', code: T_SAND },
+        { kind: 'wetland', code: T_WETLAND },
         { kind: 'forest', code: T_FOREST },
         { kind: 'park', code: T_PARK },
         { kind: 'cemetery', code: T_CEMETERY },
@@ -4162,7 +4453,14 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               const nc = bldgCov16[nIdx];
               if (
                 nc === 0 &&
-                (nt === T_FOREST || nt === T_FARMLAND || nt === T_PARK || nt === T_CEMETERY)
+                (nt === T_FOREST ||
+                  nt === T_FARMLAND ||
+                  nt === T_PARK ||
+                  nt === T_CEMETERY ||
+                  nt === T_SAND ||
+                  nt === T_SCRUB ||
+                  nt === T_WETLAND ||
+                  nt === T_SCREE)
               ) {
                 continue;
               }
@@ -5264,18 +5562,26 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       carveDungeonCell(st.gx, Math.min(GRID_SIZE - 3, st.gy + ry), D_STAIRS, true);
     }
 
-    // 8B. Stamp REAL Subterranean Vector Lines (MVT road tunnels, subway lines, culverted rivers/canals)
+    // 8B. Stamp REAL Subterranean Vector Lines (MVT road tunnels, subway lines, culverts, aqueducts & fault veins)
     for (const sf of subterranean) {
       if (!sf.isLine || sf.points.length < 2) continue;
       const pts = sf.points.map((p) => toGridFloat(p.lat, p.lng));
       const lineCode =
         sf.kind === 'underground_water'
           ? D_SUB_WATER
+          : sf.kind === 'culvert'
+          ? D_CULVERT
+          : sf.kind === 'aqueduct'
+          ? D_AQUEDUCT
+          : sf.kind === 'fault_line'
+          ? D_FAULT_VEIN
           : sf.kind === 'subway'
           ? D_METRO_RAIL
           : D_GALLERY;
-      const borderCode = sf.kind === 'underground_water' ? D_GALLERY : D_ROCK;
-      const halfW = tileMeters <= 15 ? 1 : 0;
+      const borderCode =
+        sf.kind === 'underground_water' || sf.kind === 'aqueduct' ? D_GALLERY : D_ROCK;
+      const halfW =
+        sf.kind === 'fault_line' ? (tileMeters <= 22 ? 1 : 0) : tileMeters <= 15 ? 1 : 0;
       for (let i = 0; i < pts.length - 1; i++) {
         carveDungeonLine(
           pts[i].gx,
@@ -5567,7 +5873,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               dt === D_NATURAL_CAVERN
             ) {
               weight = 1.0;
-            } else if (dt === D_METRO_RAIL || dt === D_CELLAR) {
+            } else if (dt === D_AQUEDUCT || dt === D_CULVERT) {
+              weight = 1.25;
+            } else if (dt === D_METRO_RAIL || dt === D_CELLAR || dt === D_FAULT_VEIN) {
               weight = 1.35;
             } else if (dt === D_SUB_WATER) {
               weight = nearEndpoints ? 3.5 : 8.5;
@@ -5592,6 +5900,12 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               tile === T_PIER
             ) {
               weight = 1.0; // Streets, paths, plazas & stairs are preferred!
+            } else if (tile === T_SAND || tile === T_SCRUB) {
+              weight = 1.5;
+            } else if (tile === T_SCREE) {
+              weight = 2.35;
+            } else if (tile === T_WETLAND) {
+              weight = 2.65;
             } else if (tile === T_FOREST || tile === T_RAIL) {
               weight = 2.75;
             } else if (tile === T_BUILDING) {
@@ -5829,6 +6143,47 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     [worldSpecimens, subterraneanMode, harvestedNodeIds]
   );
 
+  // Deterministic World Archivist Chests (identical at same real-world coordinates for all players)
+  const resolvedWorldChests = useMemo(() => {
+    if (worldChests) return worldChests;
+    const chunkCenterLat =
+      -((worldMapData.originWy + worldMapData.gridSize * 0.5) * tileMeters) / 110540;
+    const chunkCenterLng =
+      ((worldMapData.originWx + worldMapData.gridSize * 0.5) * tileMeters) /
+      (111320 * worldMapData.cosRef);
+    return spawnWorldArchivistChests({
+      centerLat: chunkCenterLat,
+      centerLng: chunkCenterLng,
+      terrain,
+      subterranean,
+      elevation,
+      bedrock: bedrock || null,
+      pois: [...(surfacePois || pois), ...(subterraneanPois || [])],
+    });
+  }, [
+    worldChests,
+    worldMapData,
+    tileMeters,
+    terrain,
+    subterranean,
+    elevation,
+    bedrock,
+    surfacePois,
+    subterraneanPois,
+    pois,
+  ]);
+
+  const layerChests = useMemo(
+    () => resolvedWorldChests.filter((c) => c.isSubterranean === subterraneanMode),
+    [resolvedWorldChests, subterraneanMode]
+  );
+
+  const layerGeocaches = useMemo(
+    () =>
+      nearbyGeocaches.filter((g) => Boolean(g.isSubterranean) === Boolean(subterraneanMode)),
+    [nearbyGeocaches, subterraneanMode]
+  );
+
   // Real Surface <-> Sous-sol stairwell portals derived from real subterranean entrances & landmarks
   const portalAnchors = useMemo(() => {
     const out: Array<{ id: string; name: string; lat: number; lng: number }> = [];
@@ -5886,7 +6241,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     return rumorLeads.find((r) => r.id === activeDialogueRumor.id) || null;
   }, [activeDialogueRumor, rumorLeads]);
 
-  // Discrete parchment micro-labels for real named rivers, forests, parks & plazas
+  // Discrete parchment micro-labels for real named rivers, forests, parks, plazas, beaches, marshes & cliffs
   const namedPlaceLabels = useMemo(() => {
     const seen = new Set<string>();
     const items: Array<{ name: string; kind: TerrainFeature['kind']; lat: number; lng: number }> = [];
@@ -5896,7 +6251,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         f.kind !== 'waterway' &&
         f.kind !== 'forest' &&
         f.kind !== 'park' &&
-        f.kind !== 'plaza'
+        f.kind !== 'plaza' &&
+        f.kind !== 'sand' &&
+        f.kind !== 'wetland' &&
+        f.kind !== 'scrub' &&
+        f.kind !== 'scree'
       ) {
         continue;
       }
@@ -5925,11 +6284,19 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       const idx = gy * gridSize + gx;
       if (subterraneanMode) {
         const dt = dungeonGrid[idx];
-        surface = dt === D_NATURAL_CAVERN || dt === D_QUARRY_HALL ? 'gravel' : 'stone';
+        surface =
+          dt === D_NATURAL_CAVERN || dt === D_QUARRY_HALL || dt === D_FAULT_VEIN
+            ? 'gravel'
+            : 'stone';
         for (let dy = -1; dy <= 1 && !nearWater; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
             const ndt = dungeonGrid[(gy + dy) * gridSize + (gx + dx)];
-            if (ndt === D_SUB_WATER || ndt === D_NATURAL_CAVERN) {
+            if (
+              ndt === D_SUB_WATER ||
+              ndt === D_CULVERT ||
+              ndt === D_AQUEDUCT ||
+              ndt === D_NATURAL_CAVERN
+            ) {
               nearWater = true;
               break;
             }
@@ -5940,7 +6307,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         const b = bridgeModeGrid[idx];
         if (b !== B_NONE || t === T_PIER) {
           surface = 'wood';
-        } else if (t === T_PATH || t === T_CEMETERY) {
+        } else if (t === T_PATH || t === T_CEMETERY || t === T_SAND || t === T_SCREE) {
           surface = 'gravel';
         } else if (
           t === T_STREET ||
@@ -5958,7 +6325,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
 
         for (let dy = -1; dy <= 1 && !nearWater; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
-            if (grid[(gy + dy) * gridSize + (gx + dx)] === T_WATER) {
+            const nt = grid[(gy + dy) * gridSize + (gx + dx)];
+            if (nt === T_WATER || nt === T_WETLAND) {
               nearWater = true;
               break;
             }
@@ -6043,13 +6411,30 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     });
   }, [pois, categoryFilter, stratumFilter, selectedPoiId, unlockedIds]);
 
+  const regionalTheme = useMemo(
+    () =>
+      resolveRegionalTheme({
+        lat: playerLat,
+        lng: playerLng,
+        elevation,
+        bedrock,
+        terrain,
+      }),
+    [playerLat, playerLng, elevation, bedrock, terrain]
+  );
+
+  const subLithoProfile = useMemo(
+    () => resolveSubterraneanLithoProfile(bedrock),
+    [bedrock]
+  );
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const atlas = getOrCreateSnesAtlas();
+    const atlas = getOrCreateSnesAtlas(regionalTheme);
 
     let offscreen = frameCanvasRef.current;
     if (!offscreen) {
@@ -6245,7 +6630,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     const lithoKey = bedrock?.lithology ? bedrock.lithology.slice(0, 18) : 'std';
     const staticCacheKey = `${layerW}_${layerH}_${anchorWx}_${anchorWy}_${
       subterraneanMode ? 'sub' : 'surf'
-    }_${lithoKey}_${reliefEnabled ? 1 : 0}_${subtleBuildings ? 1 : 0}_${envTick}`;
+    }_${regionalTheme.id}_${subLithoProfile.id}_${lithoKey}_${reliefEnabled ? 1 : 0}_${
+      subtleBuildings ? 1 : 0
+    }_${envTick}`;
 
     if (
       worldLayer.width !== layerW ||
@@ -6283,36 +6670,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
 
         if (subterraneanMode) {
           // ==================================================================
-          // SUBTERRANEAN "SOUS-SOL / DONJON" 16-BIT CARTOGRAPHIC RENDERER
+          // SUBTERRANEAN "SOUS-SOL / DONJON" 16-BIT LITHOLOGY-AWARE RENDERER
           // ==================================================================
-          const lithoText = `${bedrock?.lithology || ''} ${bedrock?.environment || ''}`.toLowerCase();
-          const rockTheme = /granit|gneiss|schist|basalt|volcan|cristal|métamorph/.test(lithoText)
-            ? {
-                base: '#19212e',
-                dark: '#0f151f',
-                mid: '#263245',
-                wallFace: '#38475e',
-                wallTop: '#64748b',
-                vein: '#94a3b8',
-              }
-            : /gr[èe]s|sable|quartzit|ferrug/.test(lithoText)
-            ? {
-                base: '#2b1913',
-                dark: '#190d09',
-                mid: '#42261d',
-                wallFace: '#633829',
-                wallTop: '#9a5b42',
-                vein: '#d97706',
-              }
-            : {
-                // Default Lutetian limestone / karst / chalk / marl ochre-stone
-                base: '#251c13',
-                dark: '#140e09',
-                mid: '#382a1c',
-                wallFace: '#57422c',
-                wallTop: '#8a6d4b',
-                vein: '#b8976c',
-              };
+          const rockTheme = subLithoProfile;
 
           for (let wy = layerStartWy; wy <= layerEndWy; wy++) {
             for (let wx = layerStartWx; wx <= layerEndWx; wx++) {
@@ -6337,13 +6697,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   pctx.fillRect(sx + 5, sy + 12, 7, 2);
                 }
                 if (h % 13 === 0) {
-                  // Subtle fossil ammonite / quartz crystal glint inside unexcavated rock
+                  // Fossil ammonite / quartz crystal / geothermal olivine vein inside unexcavated rock
                   pctx.fillStyle = rockTheme.vein;
                   pctx.fillRect(sx + 5 + (h % 5), sy + 5 + ((h >> 2) % 5), 2, 2);
                 }
 
-                // Faint hydrographic seepage trace when a surface river flows overhead
-                if (surfT === T_WATER) {
+                // Faint hydrographic seepage trace when a surface river or wetland lies overhead
+                if (surfT === T_WATER || surfT === T_WETLAND) {
                   pctx.fillStyle = 'rgba(14, 116, 144, 0.24)';
                   pctx.fillRect(sx, sy, TILE, TILE);
                   if ((wx + wy + envTick) % 5 === 0) {
@@ -6357,19 +6717,31 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 const wDt = getDungeonAt(wx - 1, wy);
                 const eDt = getDungeonAt(wx + 1, wy);
 
-                // 3/4 Perspective Chiseled Stone Dungeon Wall Face when open chamber/gallery lies South!
+                // 3/4 Perspective Chiseled Stone / Timbered Mine Wall Face when open chamber/gallery lies South!
                 if (sDt !== D_ROCK) {
                   pctx.fillStyle = rockTheme.wallTop;
                   pctx.fillRect(sx, sy, TILE, 3);
                   pctx.fillStyle = rockTheme.wallFace;
                   pctx.fillRect(sx, sy + 3, TILE, 10);
-                  // Ashlar mortar courses
+                  // Ashlar or cleaved rock courses
                   pctx.fillStyle = rockTheme.dark;
                   pctx.fillRect(sx, sy + 7, TILE, 1);
                   pctx.fillRect(sx, sy + 11, TILE, 1);
                   pctx.fillRect(sx + 7, sy + 3, 1, 4);
                   pctx.fillRect(sx + 3, sy + 8, 1, 3);
                   pctx.fillRect(sx + 12, sy + 8, 1, 3);
+
+                  if (rockTheme.useTimberProps && (wx + wy) % 2 === 0) {
+                    // Authentic 16-bit Mine Timbering (Étançons & chapeau de boisage) in schist/granite drifts!
+                    pctx.fillStyle = '#451a03';
+                    pctx.fillRect(sx + 1, sy + 2, 2, 11);
+                    pctx.fillRect(sx + 13, sy + 2, 2, 11);
+                    pctx.fillRect(sx + 1, sy + 2, 14, 2);
+                    pctx.fillStyle = '#92400e';
+                    pctx.fillRect(sx + 2, sy + 3, 12, 1);
+                    pctx.fillRect(sx + 2, sy + 4, 1, 8);
+                  }
+
                   // Deep basal wall shadow
                   pctx.fillStyle = '#0d0805';
                   pctx.fillRect(sx, sy + 13, TILE, 3);
@@ -6408,10 +6780,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               }
 
               // ==============================================================
-              // EXCAVATED DUNGEON FLOORS, TUNNELS, CAVITIES & CRYPTS
+              // EXCAVATED DUNGEON FLOORS, TUNNELS, AQUEDUCTS, FAULTS & CRYPTS
               // ==============================================================
               if (dt === D_SUB_WATER) {
-                // Subterranean river, vaulted canal or phreatic aquifer pool
                 pctx.fillStyle = '#082f49';
                 pctx.fillRect(sx, sy, TILE, TILE);
                 pctx.fillStyle = '#0c4a6e';
@@ -6423,7 +6794,6 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 pctx.fillStyle = '#7dd3fc';
                 pctx.fillRect(sx + 3 + rip, sy + 4, 3, 1);
 
-                // Masonry canal curbs against dry dungeon tiles
                 if (getDungeonAt(wx, wy - 1) !== D_SUB_WATER) {
                   pctx.fillStyle = '#78716c';
                   pctx.fillRect(sx, sy, TILE, 2);
@@ -6432,8 +6802,49 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   pctx.fillStyle = '#57534e';
                   pctx.fillRect(sx, sy + TILE - 2, TILE, 2);
                 }
+              } else if (dt === D_CULVERT) {
+                // Brick/stone vaulted storm culvert (buse & ruisseau voûté) with walkable inspection ledge
+                pctx.fillStyle = rockTheme.floorBase;
+                pctx.fillRect(sx, sy, TILE, TILE);
+                pctx.fillStyle = '#7c2d12';
+                pctx.fillRect(sx + 1, sy + 1, TILE - 2, 3);
+                pctx.fillRect(sx + 1, sy + 12, TILE - 2, 3);
+                pctx.fillStyle = '#0369a1';
+                pctx.fillRect(sx, sy + 5, TILE, 6);
+                const flow = (wx + envTick) % 4;
+                pctx.fillStyle = '#38bdf8';
+                pctx.fillRect(sx + 2 + flow, sy + 7, 5, 2);
+                pctx.fillRect(sx + 9 + (flow >> 1), sy + 6, 3, 1);
+              } else if (dt === D_AQUEDUCT) {
+                // Dressed-stone Roman / royal subterranean aqueduct channel (Aqueduc souterrain)
+                pctx.fillStyle = '#d6c3a5';
+                pctx.fillRect(sx, sy, TILE, TILE);
+                pctx.fillStyle = '#f5ebd6';
+                pctx.fillRect(sx + 1, sy + 1, TILE - 2, 3);
+                pctx.fillRect(sx + 1, sy + 12, TILE - 2, 3);
+                pctx.fillStyle = '#0e7490';
+                pctx.fillRect(sx, sy + 4, TILE, 8);
+                const gl = (wx * 2 + wy + envTick) % 5;
+                pctx.fillStyle = '#22d3ee';
+                pctx.fillRect(sx + 1 + gl, sy + 6, 6, 3);
+                pctx.fillStyle = '#cffafe';
+                pctx.fillRect(sx + 2 + gl, sy + 7, 3, 1);
+              } else if (dt === D_FAULT_VEIN) {
+                // Tectonic Geological Fault Gallery (Faille géologique & filon minéral luminescent)
+                pctx.fillStyle = rockTheme.dark;
+                pctx.fillRect(sx, sy, TILE, TILE);
+                pctx.fillStyle = rockTheme.floorBase;
+                pctx.fillRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
+                // Jagged glowing mineral / geothermal fissure running diagonally across floor
+                pctx.fillStyle = rockTheme.vein;
+                pctx.fillRect(sx + 2, sy + 3, 4, 3);
+                pctx.fillRect(sx + 6, sy + 6, 4, 3);
+                pctx.fillRect(sx + 10, sy + 9, 4, 4);
+                pctx.fillStyle = rockTheme.crystalGlow;
+                pctx.fillRect(sx + 3, sy + 4, 2, 1);
+                pctx.fillRect(sx + 7, sy + 7, 2, 2);
+                pctx.fillRect(sx + 11, sy + 10, 2, 2);
               } else if (dt === D_METRO_RAIL) {
-                // Iron-railed underground metro / railway gallery
                 pctx.fillStyle = '#292524';
                 pctx.fillRect(sx, sy, TILE, TILE);
                 pctx.fillStyle = '#44403c';
@@ -6459,62 +6870,75 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   pctx.fillRect(sx, sy + 10, TILE, 2);
                 }
               } else if (dt === D_QUARRY_HALL) {
-                // Pillared limestone quarry / mine gallery (BRGM BDCavités)
-                pctx.fillStyle = '#8c7456';
+                // Pillared limestone quarry OR timbered mine chamber (BRGM BDCavités)
+                pctx.fillStyle = rockTheme.floorBase;
                 pctx.fillRect(sx, sy, TILE, TILE);
-                pctx.fillStyle = '#a68b67';
+                pctx.fillStyle = rockTheme.floorTile;
                 pctx.fillRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
-                pctx.fillStyle = '#6e583f';
+                pctx.fillStyle = rockTheme.floorJoint;
                 pctx.fillRect(sx, sy + 7, TILE, 1);
                 pctx.fillRect(sx + 8, sy, 1, TILE);
 
-                // Chunky 16-bit square stone quarry support pillar every 2x2 interior grid!
                 const surrounded =
                   getDungeonAt(wx, wy - 1) === D_QUARRY_HALL &&
                   getDungeonAt(wx, wy + 1) === D_QUARRY_HALL &&
                   getDungeonAt(wx - 1, wy) === D_QUARRY_HALL &&
                   getDungeonAt(wx + 1, wy) === D_QUARRY_HALL;
                 if (surrounded && (wx & 1) === 0 && (wy & 1) === 0) {
-                  pctx.fillStyle = '#1c130c';
-                  pctx.fillRect(sx + 3, sy + 2, 10, 12);
-                  pctx.fillStyle = '#d6c3a5';
-                  pctx.fillRect(sx + 4, sy + 3, 8, 3);
-                  pctx.fillStyle = '#9c8260';
-                  pctx.fillRect(sx + 4, sy + 6, 8, 6);
+                  if (rockTheme.useTimberProps) {
+                    // Heavy timber mine roof-support crib (pile de boisage)
+                    pctx.fillStyle = '#291509';
+                    pctx.fillRect(sx + 3, sy + 2, 10, 12);
+                    pctx.fillStyle = '#92400e';
+                    pctx.fillRect(sx + 4, sy + 3, 8, 3);
+                    pctx.fillStyle = '#78350f';
+                    pctx.fillRect(sx + 4, sy + 6, 8, 6);
+                  } else {
+                    // Turned stone quarry pillar (pilier tourné de carrière)
+                    pctx.fillStyle = '#1c130c';
+                    pctx.fillRect(sx + 3, sy + 2, 10, 12);
+                    pctx.fillStyle = rockTheme.wallTop;
+                    pctx.fillRect(sx + 4, sy + 3, 8, 3);
+                    pctx.fillStyle = rockTheme.wallFace;
+                    pctx.fillRect(sx + 4, sy + 6, 8, 6);
+                  }
                 } else if (h % 9 === 0) {
-                  // Hewn limestone block / mine timber prop
                   pctx.fillStyle = '#452712';
                   pctx.fillRect(sx + 4, sy + 5, 7, 5);
-                  pctx.fillStyle = '#e7d8be';
+                  pctx.fillStyle = rockTheme.vein;
                   pctx.fillRect(sx + 5, sy + 6, 5, 3);
                 }
               } else if (dt === D_NATURAL_CAVERN) {
-                // Organic karstic cavern / grotto with stalagmites & calcite crystals
-                pctx.fillStyle = '#4a3b2c';
+                pctx.fillStyle = rockTheme.mid;
                 pctx.fillRect(sx, sy, TILE, TILE);
-                pctx.fillStyle = '#5e4c3a';
+                pctx.fillStyle = rockTheme.floorBase;
                 pctx.fillRect(sx + 1, sy + 1, 14, 14);
                 if ((wx + wy) % 2 === 0) {
-                  pctx.fillStyle = '#3b2e22';
+                  pctx.fillStyle = rockTheme.dark;
                   pctx.fillRect(sx + 3, sy + 9, 5, 3);
                 }
                 if (h % 5 === 0) {
-                  // 16-bit conical stalagmite!
-                  pctx.fillStyle = '#1f160f';
-                  pctx.fillRect(sx + 5, sy + 11, 6, 2);
-                  pctx.fillStyle = '#a89070';
-                  pctx.fillRect(sx + 6, sy + 6, 4, 6);
-                  pctx.fillStyle = '#e7d8c3';
-                  pctx.fillRect(sx + 7, sy + 3, 2, 4);
+                  if (rockTheme.hasKarstStalagmites) {
+                    pctx.fillStyle = '#1f160f';
+                    pctx.fillRect(sx + 5, sy + 11, 6, 2);
+                    pctx.fillStyle = '#a89070';
+                    pctx.fillRect(sx + 6, sy + 6, 4, 6);
+                    pctx.fillStyle = '#e7d8c3';
+                    pctx.fillRect(sx + 7, sy + 3, 2, 4);
+                  } else {
+                    // Hexagonal basalt prism OR crystalline quartz/schist monolith
+                    pctx.fillStyle = rockTheme.dark;
+                    pctx.fillRect(sx + 5, sy + 5, 6, 8);
+                    pctx.fillStyle = rockTheme.wallTop;
+                    pctx.fillRect(sx + 6, sy + 4, 4, 7);
+                  }
                 } else if (h % 11 === 0) {
-                  // Luminescent turquoise rimstone / calcite crystal cluster
-                  pctx.fillStyle = '#06b6d4';
+                  pctx.fillStyle = rockTheme.crystalGlow;
                   pctx.fillRect(sx + 6, sy + 7, 4, 4);
-                  pctx.fillStyle = '#cffafe';
-                  pctx.fillRect(sx + 7, sy + 6, 2, 3);
+                  pctx.fillStyle = '#ffffff';
+                  pctx.fillRect(sx + 7, sy + 6, 2, 2);
                 }
               } else if (dt === D_CRYPT) {
-                // Ornate sacred crypt / casemate beneath historic monuments
                 const checker = (wx + wy) & 1;
                 pctx.fillStyle = checker ? '#4c4359' : '#3a3245';
                 pctx.fillRect(sx, sy, TILE, TILE);
@@ -6522,7 +6946,6 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 pctx.fillRect(sx, sy, TILE, 1);
                 pctx.fillRect(sx, sy, 1, TILE);
                 if (h % 11 === 0) {
-                  // Carved stone sarcophagus / reliquary plinth
                   pctx.fillStyle = '#1b1521';
                   pctx.fillRect(sx + 3, sy + 4, 10, 8);
                   pctx.fillStyle = '#cbd5e1';
@@ -6531,7 +6954,6 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   pctx.fillRect(sx + 7, sy + 7, 2, 2);
                 }
               } else if (dt === D_CELLAR) {
-                // Vaulted cellar beneath real building footprints
                 pctx.fillStyle = '#473325';
                 pctx.fillRect(sx, sy, TILE, TILE);
                 pctx.fillStyle = '#5c4230';
@@ -6540,7 +6962,6 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 pctx.fillRect(sx, sy + 8, TILE, 1);
                 pctx.fillRect(sx + 8, sy, 1, TILE);
                 if (h % 10 === 0) {
-                  // Oak barrel / cellar crate
                   pctx.fillStyle = '#291509';
                   pctx.fillRect(sx + 4, sy + 5, 7, 6);
                   pctx.fillStyle = '#92400e';
@@ -6549,7 +6970,6 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   pctx.fillRect(sx + 6, sy + 6, 1, 4);
                 }
               } else if (dt === D_STAIRS) {
-                // 16-bit Descending / Ascending Dungeon Stone Staircase Portal!
                 pctx.fillStyle = '#1c140d';
                 pctx.fillRect(sx, sy, TILE, TILE);
                 pctx.fillStyle = '#fbbf24';
@@ -6562,26 +6982,23 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   pctx.fillRect(sx + 3, sy + 3 + st * 3, 10, 2);
                 }
               } else {
-                // D_GALLERY: Vaulted stone collector gallery / subterranean street passage
-                pctx.fillStyle = '#5c4d3c';
+                // D_GALLERY: Lithology-tinted vaulted gallery / mine drift / collector passage
+                pctx.fillStyle = rockTheme.floorBase;
                 pctx.fillRect(sx, sy, TILE, TILE);
-                pctx.fillStyle = '#73614d';
+                pctx.fillStyle = rockTheme.floorTile;
                 pctx.fillRect(sx + 1, sy + 1, 6, 6);
                 pctx.fillRect(sx + 9, sy + 1, 6, 6);
                 pctx.fillRect(sx + 1, sy + 9, 6, 6);
                 pctx.fillRect(sx + 9, sy + 9, 6, 6);
-                // Central drainage rigole
-                pctx.fillStyle = '#3d3226';
+                pctx.fillStyle = rockTheme.floorJoint;
                 pctx.fillRect(sx + 7, sy, 2, TILE);
                 pctx.fillRect(sx, sy + 7, TILE, 2);
                 if (surfT === T_WATER) {
-                  // Vaulted gallery passing directly underneath a river!
                   pctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
                   pctx.fillRect(sx + 6, sy + 6, 4, 4);
                 }
               }
 
-              // Subtle top-shadow under northern rock wall for 3D depth!
               if (getDungeonAt(wx, wy - 1) === D_ROCK) {
                 pctx.fillStyle = 'rgba(12, 7, 4, 0.36)';
                 pctx.fillRect(sx, sy, TILE, 3);
@@ -7186,13 +7603,41 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           continue;
         }
 
+        if (t === T_SAND) {
+          blitAtlas(ATLAS_ROW_SAND, h & 3, sx, sy);
+          applyDitheredHillshade(wx, wy, sx, sy);
+          continue;
+        }
+
+        if (t === T_SCRUB) {
+          blitAtlas(ATLAS_ROW_SCRUB, h & 3, sx, sy);
+          applyDitheredHillshade(wx, wy, sx, sy);
+          continue;
+        }
+
+        if (t === T_WETLAND) {
+          blitAtlas(ATLAS_ROW_WETLAND, h & 3, sx, sy);
+          if ((wx + wy + envTick) % 4 === 0) {
+            pctx.fillStyle = '#bae6fd';
+            pctx.fillRect(sx + 4 + (h & 3), sy + 4, 2, 1);
+          }
+          applyDitheredHillshade(wx, wy, sx, sy);
+          continue;
+        }
+
+        if (t === T_SCREE) {
+          blitAtlas(ATLAS_ROW_SCREE, h & 3, sx, sy);
+          applyDitheredHillshade(wx, wy, sx, sy);
+          continue;
+        }
+
         if (t === T_FOREST) {
           blitAtlas(ATLAS_ROW_FOREST, h & 3, sx, sy);
           const slopeMag = applyDitheredHillshade(wx, wy, sx, sy);
           if (slopeMag > 0.15 && h % 4 === 0) {
             pctx.fillStyle = '#292524';
             pctx.fillRect(sx + 4, sy + 10, 6, 4);
-            pctx.fillStyle = '#78716c';
+            pctx.fillStyle = regionalTheme.cliff[0];
             pctx.fillRect(sx + 5, sy + 9, 4, 4);
             pctx.fillStyle = '#4ade80';
             pctx.fillRect(sx + 5, sy + 9, 3, 1);
@@ -7411,29 +7856,30 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 pctx.fillRect(sx + tx, sy + cliffTop + 2, 2, 1);
               }
 
-              // 4-Tone Stratified Rock Wall
-              pctx.fillStyle = '#9c784c'; // mid ochre-limestone body
+              // 4-Tone Regional Stratified Rock Wall (Chalk/Limestone, Granite, Ochre, Sandstone, Slate, or Basalt!)
+              const [cBody, cSunShelf, cMidBand, cShadeUndercut, cFissure] = regionalTheme.cliff;
+              pctx.fillStyle = cBody;
               pctx.fillRect(sx + x0, sy + rockTop, cw, rockH);
-              pctx.fillStyle = '#ead7b3'; // sunlit upper rock shelf
+              pctx.fillStyle = cSunShelf;
               pctx.fillRect(sx + x0, sy + rockTop + 1, cw, 2);
-              pctx.fillStyle = '#c9a677'; // upper-mid warm stratum
+              pctx.fillStyle = cMidBand;
               pctx.fillRect(sx + x0, sy + rockTop + 3, cw, Math.max(2, rockH - 6));
-              pctx.fillStyle = '#6e4e30'; // lower cool undercut stratum
+              pctx.fillStyle = cShadeUndercut;
               pctx.fillRect(sx + x0, sy + 12, cw, 3);
-              pctx.fillStyle = '#291a0d'; // crisp 16-bit dark basal crevice
+              pctx.fillStyle = '#1c140d';
               pctx.fillRect(sx + x0, sy + 15, cw, 1);
 
               // Vertical geological fissures & sunlit bevelled rock facets
               const f1 = x0 + 2 + (h % 4);
               const f2 = x0 + 9 + ((h >> 3) % 4);
               if (f1 < x1 - 1) {
-                pctx.fillStyle = '#4a321c';
+                pctx.fillStyle = cFissure;
                 pctx.fillRect(sx + f1, sy + rockTop + 1, 1, rockH - 1);
-                pctx.fillStyle = '#f7ebd2';
+                pctx.fillStyle = cSunShelf;
                 pctx.fillRect(sx + f1 + 1, sy + rockTop + 2, Math.min(3, x1 - f1 - 1), 3);
               }
               if (f2 < x1 - 1) {
-                pctx.fillStyle = '#4a321c';
+                pctx.fillStyle = cFissure;
                 pctx.fillRect(sx + f2, sy + rockTop + 2, 1, rockH - 2);
               }
 
@@ -7693,22 +8139,31 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               onCliffEdge,
               facesStreetSouth,
               h,
-              envTick
+              envTick,
+              regionalTheme
             );
           }
         } else if (t === T_FOREST) {
-          // Dense, untamed multi-species woodland canopy with slight organic jitter
+          // Dense, untamed regional woodland canopy with slight organic jitter
           if ((wx + wy) % 2 === 0 || h % 3 !== 0) {
             const jx = ((h >> 4) % 3) - 1;
             const jy = ((h >> 7) % 3) - 1;
-            draw16BitTreeCanopy(pctx, sx + jx, sy + jy, h, sway);
+            draw16BitTreeCanopy(pctx, sx + jx, sy + jy, h, sway, regionalTheme.floraMode);
           }
+        } else if (t === T_SCRUB && h % 11 === 0) {
+          // Scattered wind-sculpted umbrella pines, olives, junipers or gorse trees in garrigue/moorland
+          draw16BitTreeCanopy(pctx, sx, sy, h, sway, regionalTheme.floraMode);
         } else if (t === T_PARK && h % 9 === 0) {
-          // Airy, manicured park trees (broadleaf oaks & ornamental cypress/poplar — never dark mountain pines!)
-          draw16BitTreeCanopy(pctx, sx, sy, h % 4 === 0 ? 3 : (h % 3) * 5, sway);
+          draw16BitTreeCanopy(
+            pctx,
+            sx,
+            sy,
+            h % 4 === 0 ? 3 : (h % 3) * 5,
+            sway,
+            regionalTheme.floraMode === 'mediterranean' ? 'mediterranean' : 'temperate'
+          );
         } else if (t === T_CEMETERY && h % 7 === 0) {
-          // Solemn slender cypresses in cemeteries
-          draw16BitTreeCanopy(pctx, sx, sy, 3, sway);
+          draw16BitTreeCanopy(pctx, sx, sy, 3, sway, 'temperate');
         } else if (
           t === T_RESIDENTIAL &&
           getSettlementAt(wx, wy) !== SETTLE_CITY_CENTER &&
@@ -7717,9 +8172,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           getTileAt(wx, wy - 1) !== T_BUILDING &&
           !isLandmarkCellAt(wx, wy - 1)
         ) {
-          draw16BitTreeCanopy(pctx, sx, sy, h, sway);
+          draw16BitTreeCanopy(pctx, sx, sy, h, sway, regionalTheme.floraMode);
         } else if (t === T_MEADOW && h % 37 === 0) {
-          draw16BitTreeCanopy(pctx, sx, sy, h, sway);
+          draw16BitTreeCanopy(pctx, sx, sy, h, sway, regionalTheme.floraMode);
         } else if (
           (t === T_MAIN_ROAD || t === T_PLAZA) &&
           h % 19 === 0 &&
@@ -8327,9 +8782,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         ctx.fillStyle = 'rgba(20, 11, 5, 0.72)';
         ctx.fillRect(tx - 1, ty - 1, tw + 2, 16);
         ctx.fillStyle =
-          lbl.kind === 'water' || lbl.kind === 'waterway'
+          lbl.kind === 'water' || lbl.kind === 'waterway' || lbl.kind === 'wetland'
             ? 'rgba(224, 242, 254, 0.88)'
-            : lbl.kind === 'forest' || lbl.kind === 'park'
+            : lbl.kind === 'forest' || lbl.kind === 'park' || lbl.kind === 'scrub'
             ? 'rgba(220, 252, 231, 0.88)'
             : 'rgba(251, 242, 220, 0.88)';
         ctx.fillRect(tx, ty, tw, 14);
@@ -8358,6 +8813,70 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         animTick,
         isHovered: isHoveredSpec,
       });
+    }
+
+    // ========================================================================
+    // PASS 2H: COFFRES D'ARCHIVISTE DÉTERMINISTES & CACHES D'EXPLORATEURS
+    // ========================================================================
+    for (const chest of layerChests) {
+      const cv = projectToVirtual(chest.lat, chest.lng);
+      if (cv.vx < -22 || cv.vx > VW + 22 || cv.vy < -22 || cv.vy > VH + 22) continue;
+      const isOpened = Boolean(openedChestIds?.has(chest.chestId));
+      const distChest = haversineMeters(effectivePlayerLat, effectivePlayerLng, chest.lat, chest.lng);
+      if (!isOpened && fogEnabled && fogSet && !subterraneanMode && distChest > npcClearR) {
+        const fc = fogCoordsFromLatLng(chest.lat, chest.lng);
+        if (!fogSet.has(fogKeyFromCoords(fc.fx, fc.fy))) continue;
+      }
+      drawArchivistChestSprite16Bit(ctx, {
+        cx: cv.vx,
+        cy: cv.vy,
+        scale: SCALE,
+        isOpened,
+        isHovered: hoveredChestId === chest.chestId || (!isOpened && distChest <= 35),
+        animTick,
+      });
+    }
+
+    const cleanUid = currentUserId ? currentUserId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128) : null;
+    for (const cache of layerGeocaches) {
+      const dGeo = haversineMeters(effectivePlayerLat, effectivePlayerLng, cache.lat, cache.lng);
+      const isOwn = Boolean((cleanUid && cache.authorId === cleanUid) || cache.id.startsWith('local_'));
+      const isFound = Boolean(foundGeocacheIds?.has(cache.id));
+
+      if (isOwn || isFound || dGeo <= 38) {
+        const gv = projectToVirtual(cache.lat, cache.lng);
+        if (gv.vx < -22 || gv.vx > VW + 22 || gv.vy < -22 || gv.vy > VH + 22) continue;
+        drawExplorerCapsuleSprite16Bit(ctx, {
+          cx: gv.vx,
+          cy: gv.vy,
+          scale: SCALE,
+          isFound,
+          isOwn,
+          isHovered: hoveredGeocacheId === cache.id || dGeo <= 24,
+          animTick,
+        });
+      } else if (dGeo <= 220) {
+        // Telluric detector radar echo offset ~15 m deterministically so explorers search the exact spot
+        let hSeed = 0;
+        for (let k = 0; k < cache.id.length; k++) {
+          hSeed = (hSeed * 31 + cache.id.charCodeAt(k)) >>> 0;
+        }
+        const ang = ((hSeed % 360) * Math.PI) / 180;
+        const pLat = cache.lat + (Math.sin(ang) * 15) / 110540;
+        const pLng =
+          cache.lng +
+          (Math.cos(ang) * 15) / (111320 * Math.max(0.2, Math.cos((cache.lat * Math.PI) / 180)));
+        const pv = projectToVirtual(pLat, pLng);
+        if (pv.vx >= -36 && pv.vx <= VW + 36 && pv.vy >= -36 && pv.vy <= VH + 36) {
+          drawDetectorRadarPulse16Bit(ctx, {
+            cx: pv.vx,
+            cy: pv.vy,
+            scale: SCALE,
+            animTick,
+            hot: dGeo <= 80,
+          });
+        }
+      }
     }
 
     // ========================================================================
@@ -8808,6 +9327,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     poiById,
     subterranean,
     bedrock,
+    regionalTheme,
+    subLithoProfile,
     subterraneanMode,
     worldMapData,
     unlockedIds,
@@ -8840,6 +9361,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     namedPlaceLabels,
     layerSpecimens,
     hoveredSpecimenId,
+    layerChests,
+    openedChestIds,
+    hoveredChestId,
+    layerGeocaches,
+    foundGeocacheIds,
+    currentUserId,
+    hoveredGeocacheId,
     layerNpcs,
     hoveredNpcId,
     activeNpcDialogue,
@@ -8920,6 +9448,39 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           if (closestSpec) {
             ev.preventDefault();
             onHarvestSpecimen(closestSpec);
+            return;
+          }
+        }
+        if (onOpenArchivistChest) {
+          let closestChest: WorldArchivistChestNode | null = null;
+          let bestChestD = 95;
+          for (const ch of layerChests) {
+            if (openedChestIds?.has(ch.chestId)) continue;
+            const d = haversineMeters(playerLat, playerLng, ch.lat, ch.lng);
+            if (d < bestChestD) {
+              bestChestD = d;
+              closestChest = ch;
+            }
+          }
+          if (closestChest) {
+            ev.preventDefault();
+            onOpenArchivistChest(closestChest);
+            return;
+          }
+        }
+        if (onInspectGeocache) {
+          let closestCache: ExplorerGeocacheRecord | null = null;
+          let bestCacheD = 45;
+          for (const gc of layerGeocaches) {
+            const d = haversineMeters(playerLat, playerLng, gc.lat, gc.lng);
+            if (d < bestCacheD) {
+              bestCacheD = d;
+              closestCache = gc;
+            }
+          }
+          if (closestCache) {
+            ev.preventDefault();
+            onInspectGeocache(closestCache);
           }
         }
       }
@@ -8932,6 +9493,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     layerNpcs,
     layerSpecimens,
     onHarvestSpecimen,
+    layerChests,
+    openedChestIds,
+    onOpenArchivistChest,
+    layerGeocaches,
+    onInspectGeocache,
     playerLat,
     playerLng,
     interactWithNpc,
@@ -9036,6 +9602,59 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           if (onPlanWalkRoute) onPlanWalkRoute(waypoints);
           else onMapDestinationClick(closestSpec.lat, closestSpec.lng);
         }
+        return;
+      }
+    }
+
+    // Check tap/click on a deterministic World Archivist Chest!
+    if (onOpenArchivistChest) {
+      const chestHitRadius = isTouch ? 24 : 18;
+      let closestChest: WorldArchivistChestNode | null = null;
+      let bestChestPx = chestHitRadius;
+      for (const ch of layerChests) {
+        const cv = projectToVirtual(ch.lat, ch.lng);
+        const d = Math.hypot(cv.vx - unproj.vx, cv.vy - 6 - unproj.vy);
+        if (d < bestChestPx) {
+          bestChestPx = d;
+          closestChest = ch;
+        }
+      }
+      if (closestChest) {
+        const distM = haversineMeters(playerLat, playerLng, closestChest.lat, closestChest.lng);
+        if (distM <= 95 || !simulationMode) {
+          onOpenArchivistChest(closestChest);
+        } else {
+          setPanMeters({ east: 0, north: 0 });
+          const waypoints = computeTopologicalWalkPath(closestChest.lat, closestChest.lng);
+          if (onPlanWalkRoute) onPlanWalkRoute(waypoints);
+          else onMapDestinationClick(closestChest.lat, closestChest.lng);
+        }
+        return;
+      }
+    }
+
+    // Check tap/click on a revealed Explorer Geocache capsule!
+    if (onInspectGeocache) {
+      const cleanUid = currentUserId
+        ? currentUserId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128)
+        : null;
+      const cacheHitRadius = isTouch ? 24 : 18;
+      let closestCache: ExplorerGeocacheRecord | null = null;
+      let bestCachePx = cacheHitRadius;
+      for (const gc of layerGeocaches) {
+        const distM = haversineMeters(playerLat, playerLng, gc.lat, gc.lng);
+        const isOwn = Boolean((cleanUid && gc.authorId === cleanUid) || gc.id.startsWith('local_'));
+        const isFound = Boolean(foundGeocacheIds?.has(gc.id));
+        if (!isOwn && !isFound && distM > 38) continue;
+        const gv = projectToVirtual(gc.lat, gc.lng);
+        const d = Math.hypot(gv.vx - unproj.vx, gv.vy - 6 - unproj.vy);
+        if (d < bestCachePx) {
+          bestCachePx = d;
+          closestCache = gc;
+        }
+      }
+      if (closestCache) {
+        onInspectGeocache(closestCache);
         return;
       }
     }
@@ -9194,6 +9813,41 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       }
     }
     setHoveredSpecimenId((prev) => (prev === foundSpec ? prev : foundSpec));
+
+    let foundChest: string | null = null;
+    if (!found && !foundNpc && !foundSpec) {
+      let bestC = 18;
+      for (const ch of layerChests) {
+        const cv = projectToVirtual(ch.lat, ch.lng);
+        const d = Math.hypot(cv.vx - unproj.vx, cv.vy - 6 - unproj.vy);
+        if (d < bestC) {
+          bestC = d;
+          foundChest = ch.chestId;
+        }
+      }
+    }
+    setHoveredChestId((prev) => (prev === foundChest ? prev : foundChest));
+
+    let foundGeo: string | null = null;
+    if (!found && !foundNpc && !foundSpec && !foundChest) {
+      const cleanUid = currentUserId
+        ? currentUserId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128)
+        : null;
+      let bestG = 18;
+      for (const gc of layerGeocaches) {
+        const distM = haversineMeters(playerLat, playerLng, gc.lat, gc.lng);
+        const isOwn = Boolean((cleanUid && gc.authorId === cleanUid) || gc.id.startsWith('local_'));
+        const isFound = Boolean(foundGeocacheIds?.has(gc.id));
+        if (!isOwn && !isFound && distM > 38) continue;
+        const gv = projectToVirtual(gc.lat, gc.lng);
+        const d = Math.hypot(gv.vx - unproj.vx, gv.vy - 6 - unproj.vy);
+        if (d < bestG) {
+          bestG = d;
+          foundGeo = gc.id;
+        }
+      }
+    }
+    setHoveredGeocacheId((prev) => (prev === foundGeo ? prev : foundGeo));
   };
 
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -9214,6 +9868,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     setHoveredPoiId((prev) => (prev === null ? prev : null));
     setHoveredNpcId((prev) => (prev === null ? prev : null));
     setHoveredSpecimenId((prev) => (prev === null ? prev : null));
+    setHoveredChestId((prev) => (prev === null ? prev : null));
+    setHoveredGeocacheId((prev) => (prev === null ? prev : null));
   };
 
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -9298,6 +9954,12 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
   const hoveredSpecimen = hoveredSpecimenId
     ? layerSpecimens.find((s) => s.nodeId === hoveredSpecimenId) || null
     : null;
+  const hoveredChest = hoveredChestId
+    ? layerChests.find((c) => c.chestId === hoveredChestId) || null
+    : null;
+  const hoveredGeocache = hoveredGeocacheId
+    ? layerGeocaches.find((g) => g.id === hoveredGeocacheId) || null
+    : null;
   const livePlayerAlt = useMemo(
     () => sampleElevationMeters(elevation, playerLat, playerLng),
     [elevation, playerLat, playerLng]
@@ -9361,7 +10023,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           className={`w-full h-full pixelated block touch-none ${
             isDraggingMap
               ? 'cursor-grabbing'
-              : hoveredPoiId || hoveredNpcId
+              : hoveredPoiId || hoveredNpcId || hoveredChestId || hoveredGeocacheId
               ? 'cursor-pointer'
               : simulationMode
               ? 'cursor-crosshair'
@@ -9396,15 +10058,23 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               {subterraneanMode
                 ? bedrock?.lithology
                   ? bedrock.lithology.split(/[,;]/)[0]
-                  : currentZoomMeta.label
+                  : subLithoProfile.shortLabel
                 : currentZoomMeta.label}
             </span>
             {subterraneanMode ? (
-              <span className="font-bold text-cyan-300 hidden sm:inline shrink-0">
-                · {subterranean.length} {subterranean.length > 1 ? 'cavités & tunnels' : 'cavité'}
-              </span>
+              <>
+                <span className="font-sans font-bold text-amber-300/90 hidden lg:inline truncate max-w-[170px]">
+                  · {subLithoProfile.shortLabel}
+                </span>
+                <span className="font-bold text-cyan-300 hidden sm:inline shrink-0">
+                  · {subterranean.length} {subterranean.length > 1 ? 'cavités & conduits' : 'cavité'}
+                </span>
+              </>
             ) : (
               <>
+                <span className="font-sans font-bold text-[#6b4928] hidden xl:inline truncate max-w-[175px]">
+                  · {regionalTheme.shortLabel}
+                </span>
                 <span className="text-[#8c6d46] hidden sm:inline">·</span>
                 <span className="font-bold hidden sm:inline shrink-0">
                   {Math.round(VW * metersPerVirtualPx)} m
@@ -9578,20 +10248,26 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             {subterraneanMode ? (
               <>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 bg-[#73614d] border border-[#d6c3a5] inline-block" />
-                  <span>Galeries & Tunnels</span>
+                  <span
+                    className="w-2.5 h-2.5 border border-[#d6c3a5] inline-block"
+                    style={{ backgroundColor: subLithoProfile.floorTile }}
+                  />
+                  <span>{subLithoProfile.shortLabel}</span>
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 bg-[#a68b67] border border-[#fde047] inline-block" />
-                  <span>Carrières & Grottes (BRGM)</span>
+                  <span>Carrières, Mines & Grottes</span>
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 bg-[#4c4359] border border-[#cbd5e1] inline-block" />
-                  <span>Cryptes & Caves</span>
+                  <span className="w-2.5 h-2.5 bg-[#22d3ee] border border-[#f5ebd6] inline-block" />
+                  <span>Aqueducs & Buses voûtées</span>
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 bg-[#0284c7] border border-[#7dd3fc] inline-block" />
-                  <span>Nappes & Canaux voûtés</span>
+                  <span
+                    className="w-2.5 h-2.5 border border-[#ffffff] inline-block"
+                    style={{ backgroundColor: subLithoProfile.crystalGlow }}
+                  />
+                  <span>Failles & Filons</span>
                 </span>
               </>
             ) : (
@@ -9897,6 +10573,58 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             </span>
           </div>
         )}
+
+        {!activeNpcDialogue &&
+          !hoveredPoi &&
+          !hoveredNpc &&
+          !hoveredSpecimen &&
+          hoveredChest &&
+          !uiCollapsed && (
+            <div
+              className={`pointer-events-none hidden sm:flex absolute right-2.5 bg-[#1c120b] text-amber-200 border-2 border-amber-400 px-3 py-1.5 text-xs jrpg-shadow items-center gap-2 max-w-sm z-10 ${
+                immersiveFullscreen
+                  ? 'bottom-[calc(4.6rem+env(safe-area-inset-bottom))]'
+                  : 'max-lg:bottom-16 lg:bottom-2.5'
+              }`}
+            >
+              <PixelUiIcon name="chest" className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <span className="font-bold font-display text-amber-300 truncate">
+                {hoveredChest.title}
+              </span>
+              <span className="text-[11px] text-amber-100/85 truncate">
+                ·{' '}
+                {openedChestIds?.has(hoveredChest.chestId)
+                  ? 'Coffre ouvert'
+                  : haversineMeters(playerLat, playerLng, hoveredChest.lat, hoveredChest.lng) <= 95
+                  ? 'Cliquer pour desceller'
+                  : 'Cliquer pour s’y rendre'}
+              </span>
+            </div>
+          )}
+
+        {!activeNpcDialogue &&
+          !hoveredPoi &&
+          !hoveredNpc &&
+          !hoveredSpecimen &&
+          !hoveredChest &&
+          hoveredGeocache &&
+          !uiCollapsed && (
+            <div
+              className={`pointer-events-none hidden sm:flex absolute right-2.5 bg-[#1c120b] text-emerald-200 border-2 border-emerald-400 px-3 py-1.5 text-xs jrpg-shadow items-center gap-2 max-w-sm z-10 ${
+                immersiveFullscreen
+                  ? 'bottom-[calc(4.6rem+env(safe-area-inset-bottom))]'
+                  : 'max-lg:bottom-16 lg:bottom-2.5'
+              }`}
+            >
+              <PixelUiIcon name="capsule" className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+              <span className="font-bold font-display text-emerald-300 truncate">
+                {hoveredGeocache.title}
+              </span>
+              <span className="text-[11px] text-emerald-100/85 truncate">
+                · Par {hoveredGeocache.authorCallsign}
+              </span>
+            </div>
+          )}
       </div>
     </div>
   );

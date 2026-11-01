@@ -240,7 +240,9 @@ export type UiPixelIconName =
   | 'ambience-off'
   | 'leaf'
   | 'mineral'
-  | 'postcard';
+  | 'postcard'
+  | 'chest'
+  | 'capsule';
 
 export const PixelUiIcon: React.FC<{ name: UiPixelIconName; className?: string }> = ({
   name,
@@ -904,6 +906,33 @@ export const PixelUiIcon: React.FC<{ name: UiPixelIconName; className?: string }
           <rect x="11" y="4" width="2" height="3" fill="#dc2626" />
           <rect x="9" y="8" width="4" height="1" fill="#78350f" />
           <rect x="9" y="10" width="3" height="1" fill="#78350f" />
+        </svg>
+      );
+    case 'chest':
+      return (
+        <svg viewBox="0 0 16 16" shapeRendering="crispEdges" className={`pixelated shrink-0 ${className}`} aria-hidden="true">
+          <rect x="2" y="3" width="12" height="11" fill="#2b1d12" />
+          <rect x="3" y="4" width="10" height="3" fill="#b45309" />
+          <rect x="3" y="4" width="10" height="1" fill="#f59e0b" />
+          <rect x="3" y="7" width="10" height="1" fill="#2b1d12" />
+          <rect x="3" y="8" width="10" height="5" fill="#92400e" />
+          <rect x="4" y="4" width="1" height="9" fill="#fbbf24" />
+          <rect x="11" y="4" width="1" height="9" fill="#fbbf24" />
+          <rect x="7" y="6" width="2" height="4" fill="#fde047" />
+          <rect x="7" y="7" width="2" height="1" fill="#ffffff" />
+        </svg>
+      );
+    case 'capsule':
+      return (
+        <svg viewBox="0 0 16 16" shapeRendering="crispEdges" className={`pixelated shrink-0 ${className}`} aria-hidden="true">
+          <rect x="5" y="1" width="6" height="2" fill="#fbbf24" />
+          <rect x="4" y="3" width="8" height="10" fill="#2b1d12" />
+          <rect x="5" y="4" width="6" height="8" fill="#059669" />
+          <rect x="5" y="4" width="2" height="8" fill="#34d399" />
+          <rect x="6" y="6" width="4" height="3" fill="#fef08a" />
+          <rect x="7" y="7" width="2" height="1" fill="#ffffff" />
+          <rect x="4" y="12" width="8" height="2" fill="#d97706" />
+          <rect x="2" y="13" width="12" height="2" fill="#78350f" />
         </svg>
       );
   }

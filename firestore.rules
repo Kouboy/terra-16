@@ -279,6 +279,180 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    // Validation Blueprint: OpenedArchivistChest (synced verbatim with firebase-blueprint.json)
+    function isValidOpenedArchivistChest(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'chestId',
+          'archetype',
+          'title',
+          'placeNote',
+          'relicId',
+          'relicName',
+          'category',
+          'regionLabel',
+          'lat',
+          'lng',
+          'isSubterranean',
+          'xpAwarded',
+          'openedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId',
+          'chestId',
+          'archetype',
+          'title',
+          'placeNote',
+          'relicId',
+          'relicName',
+          'category',
+          'regionLabel',
+          'lat',
+          'lng',
+          'altitudeMeters',
+          'isSubterranean',
+          'xpAwarded',
+          'openedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && isValidId(data.chestId)
+        && data.archetype is string && data.archetype.size() >= 1 && data.archetype.size() <= 32
+        && data.archetype in ['sommet_colline', 'confluence_eaux', 'cul_de_sac_forestier', 'clairiere_sylvestre', 'bouche_souterraine']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.placeNote is string && data.placeNote.size() >= 1 && data.placeNote.size() <= 240
+        && isValidId(data.relicId)
+        && data.relicId.size() <= 64
+        && data.relicName is string && data.relicName.size() >= 1 && data.relicName.size() <= 160
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 32
+        && data.category in ['histoire', 'geographie', 'ecosysteme', 'etrange', 'legende']
+        && data.regionLabel is string && data.regionLabel.size() >= 1 && data.regionLabel.size() <= 140
+        && data.lat is number && data.lat >= -90 && data.lat <= 90
+        && data.lng is number && data.lng >= -180 && data.lng <= 180
+        && (!('altitudeMeters' in data) || (data.altitudeMeters is number && data.altitudeMeters >= -500 && data.altitudeMeters <= 9000))
+        && data.isSubterranean is bool
+        && data.xpAwarded is number && data.xpAwarded >= 0 && data.xpAwarded <= 5000
+        && data.openedAt is timestamp;
+    }
+
+    // Validation Blueprint: ExplorerGeocache (synced verbatim with firebase-blueprint.json)
+    function isValidExplorerGeocache(data) {
+      return data.keys().hasAll([
+          'authorId',
+          'authorCallsign',
+          'sectorKey',
+          'placementMode',
+          'lat',
+          'lng',
+          'isSubterranean',
+          'regionLabel',
+          'title',
+          'riddleHint',
+          'giftKind',
+          'giftId',
+          'giftName',
+          'giftDomain',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'authorId',
+          'authorCallsign',
+          'authorGender',
+          'authorAvatarPreset',
+          'authorSkinTone',
+          'authorHeadgearId',
+          'authorOutfitId',
+          'sectorKey',
+          'placementMode',
+          'anchorPoiId',
+          'lat',
+          'lng',
+          'isSubterranean',
+          'regionLabel',
+          'title',
+          'riddleHint',
+          'giftKind',
+          'giftId',
+          'giftName',
+          'giftDomain',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.authorId)
+        && data.authorId == request.auth.uid
+        && data.authorCallsign is string && data.authorCallsign.size() >= 1 && data.authorCallsign.size() <= 60
+        && (!('authorGender' in data) || (data.authorGender is string && data.authorGender.size() >= 1 && data.authorGender.size() <= 16 && data.authorGender in ['feminin', 'masculin', 'neutre']))
+        && (!('authorAvatarPreset' in data) || (data.authorAvatarPreset is string && data.authorAvatarPreset.size() >= 1 && data.authorAvatarPreset.size() <= 32 && data.authorAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
+        && (!('authorSkinTone' in data) || (data.authorSkinTone is string && data.authorSkinTone.size() >= 1 && data.authorSkinTone.size() <= 32 && data.authorSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
+        && (!('authorHeadgearId' in data) || (data.authorHeadgearId is string && data.authorHeadgearId.size() >= 1 && data.authorHeadgearId.size() <= 32 && data.authorHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro']))
+        && (!('authorOutfitId' in data) || (data.authorOutfitId is string && data.authorOutfitId.size() >= 1 && data.authorOutfitId.size() <= 32 && data.authorOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
+        && isValidId(data.sectorKey)
+        && data.sectorKey.size() >= 3 && data.sectorKey.size() <= 32
+        && data.placementMode is string && data.placementMode.size() >= 8 && data.placementMode.size() <= 16
+        && data.placementMode in ['gps_live', 'unlocked_poi']
+        && (!('anchorPoiId' in data) || isValidId(data.anchorPoiId))
+        && (data.placementMode == 'gps_live' || 'anchorPoiId' in data)
+        && data.lat is number && data.lat >= -90 && data.lat <= 90
+        && data.lng is number && data.lng >= -180 && data.lng <= 180
+        && data.isSubterranean is bool
+        && data.regionLabel is string && data.regionLabel.size() >= 1 && data.regionLabel.size() <= 140
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 100
+        && data.riddleHint is string && data.riddleHint.size() >= 5 && data.riddleHint.size() <= 320
+        && data.giftKind is string && data.giftKind.size() >= 5 && data.giftKind.size() <= 16
+        && data.giftKind in ['relic', 'specimen']
+        && isValidId(data.giftId)
+        && data.giftId.size() <= 64
+        && data.giftName is string && data.giftName.size() >= 1 && data.giftName.size() <= 160
+        && data.giftDomain is string && data.giftDomain.size() >= 7 && data.giftDomain.size() <= 16
+        && data.giftDomain in ['relique', 'botanique', 'geologie']
+        && data.visibility is string && data.visibility.size() == 6 && data.visibility == 'public'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: GeocacheLogEntry (synced verbatim with firebase-blueprint.json)
+    function isValidGeocacheLogEntry(data) {
+      return data.keys().hasAll([
+          'cacheId',
+          'finderId',
+          'finderCallsign',
+          'note',
+          'visibility',
+          'foundAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'cacheId',
+          'finderId',
+          'finderCallsign',
+          'finderGender',
+          'finderAvatarPreset',
+          'finderSkinTone',
+          'finderHeadgearId',
+          'finderOutfitId',
+          'note',
+          'visibility',
+          'foundAt',
+          'updatedAt'
+        ])
+        && isValidId(data.cacheId)
+        && isValidId(data.finderId)
+        && data.finderId == request.auth.uid
+        && data.finderCallsign is string && data.finderCallsign.size() >= 1 && data.finderCallsign.size() <= 60
+        && (!('finderGender' in data) || (data.finderGender is string && data.finderGender.size() >= 1 && data.finderGender.size() <= 16 && data.finderGender in ['feminin', 'masculin', 'neutre']))
+        && (!('finderAvatarPreset' in data) || (data.finderAvatarPreset is string && data.finderAvatarPreset.size() >= 1 && data.finderAvatarPreset.size() <= 32 && data.finderAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
+        && (!('finderSkinTone' in data) || (data.finderSkinTone is string && data.finderSkinTone.size() >= 1 && data.finderSkinTone.size() <= 32 && data.finderSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
+        && (!('finderHeadgearId' in data) || (data.finderHeadgearId is string && data.finderHeadgearId.size() >= 1 && data.finderHeadgearId.size() <= 32 && data.finderHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro']))
+        && (!('finderOutfitId' in data) || (data.finderOutfitId is string && data.finderOutfitId.size() >= 1 && data.finderOutfitId.size() <= 32 && data.finderOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
+        && data.note is string && data.note.size() >= 3 && data.note.size() <= 240
+        && data.visibility is string && data.visibility.size() == 6 && data.visibility == 'public'
+        && data.foundAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     function hasExistingExplorerParent(userId) {
       return exists(/databases/$(database)/documents/explorers/$(userId))
         && get(/databases/$(database)/documents/explorers/$(userId)).data.ownerId == request.auth.uid;
@@ -295,6 +469,20 @@ service cloud.firestore {
       return (
         exists(/databases/$(database)/documents/explorers/$(userId)/discoveries/$(poiId))
         && get(/databases/$(database)/documents/explorers/$(userId)/discoveries/$(poiId)).data.ownerId == request.auth.uid
+      );
+    }
+
+    function hasOwnedSpecimen(userId, specimenId) {
+      return (
+        exists(/databases/$(database)/documents/explorers/$(userId)/specimens/$(specimenId))
+        && get(/databases/$(database)/documents/explorers/$(userId)/specimens/$(specimenId)).data.ownerId == request.auth.uid
+      );
+    }
+
+    function hasExistingPublicGeocache(cacheId) {
+      return (
+        exists(/databases/$(database)/documents/geocaches/$(cacheId))
+        && get(/databases/$(database)/documents/geocaches/$(cacheId)).data.visibility == 'public'
       );
     }
 
@@ -435,7 +623,6 @@ service cloud.firestore {
           && incoming().updatedAt == request.time
           && hasValidExplorerParent(userId)
           && (
-            // Action 1: Save personal field note and/or photo count in Carnet
             incoming().diff(existing()).affectedKeys().hasOnly([
               'personalNote',
               'photoCount',
@@ -443,7 +630,6 @@ service cloud.firestore {
             ])
           );
 
-        // Owner-isolated deletion during Character Reset
         allow delete: if isVerified()
           && isValidId(userId)
           && isValidId(discoveryId)
@@ -505,10 +691,43 @@ service cloud.firestore {
             'updatedAt'
           ]);
 
-        // Owner-isolated deletion during Character Reset
         allow delete: if isVerified()
           && isValidId(userId)
           && isValidId(specimenId)
+          && request.auth.uid == userId
+          && existing().ownerId == request.auth.uid
+          && hasExistingExplorerParent(userId);
+      }
+
+      // Subcollection: Opened Deterministic Archivist Chests
+      match /archivistChests/{chestId} {
+        allow get: if isVerified()
+          && isValidId(userId)
+          && isValidId(chestId)
+          && request.auth.uid == userId
+          && (resource == null || existing().ownerId == request.auth.uid)
+          && hasValidExplorerParent(userId);
+
+        // Pillar 8: Cost-Optimized Query Enforcer without get()/exists() O(n) reads
+        allow list: if isVerified()
+          && request.auth.uid == userId
+          && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerified()
+          && isValidId(userId)
+          && isValidId(chestId)
+          && request.auth.uid == userId
+          && isValidOpenedArchivistChest(incoming())
+          && incoming().chestId == chestId
+          && incoming().openedAt == request.time
+          && hasValidExplorerParent(userId);
+
+        // Opened Archivist Chests are immutable once unlocked (terminal state)
+        allow update: if false;
+
+        allow delete: if isVerified()
+          && isValidId(userId)
+          && isValidId(chestId)
           && request.auth.uid == userId
           && existing().ownerId == request.auth.uid
           && hasExistingExplorerParent(userId);
@@ -521,7 +740,6 @@ service cloud.firestore {
         && isValidId(cairnId)
         && (resource == null || existing().visibility == 'public');
 
-      // Pillar 8: Cost-Optimized Query Enforcer without get()/exists() inside list
       allow list: if isVerified()
         && existing().visibility == 'public';
 
@@ -559,6 +777,131 @@ service cloud.firestore {
       allow delete: if isVerified()
         && isValidId(cairnId)
         && existing().authorId == request.auth.uid;
+    }
+
+    // Shared 16-bit Explorer Geocaches (Time Capsules buried at physical GPS or unlocked POIs)
+    match /geocaches/{cacheId} {
+      allow get: if isVerified()
+        && isValidId(cacheId)
+        && (resource == null || existing().visibility == 'public');
+
+      // Pillar 8: Cost-Optimized Query Enforcer without get()/exists() inside list
+      allow list: if isVerified()
+        && existing().visibility == 'public';
+
+      allow create: if isVerified()
+        && isValidId(cacheId)
+        && isValidExplorerGeocache(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasValidExplorerParent(request.auth.uid)
+        && (
+          incoming().placementMode == 'gps_live'
+          || (
+            incoming().placementMode == 'unlocked_poi'
+            && 'anchorPoiId' in incoming()
+            && hasUnlockedPoi(request.auth.uid, incoming().anchorPoiId)
+          )
+        )
+        && (
+          incoming().giftKind == 'relic'
+          || hasOwnedSpecimen(request.auth.uid, incoming().giftId)
+        );
+
+      allow update: if isVerified()
+        && isValidExplorerGeocache(incoming())
+        && isValidId(cacheId)
+        && existing().authorId == request.auth.uid
+        && incoming().authorId == existing().authorId
+        && incoming().sectorKey == existing().sectorKey
+        && incoming().placementMode == existing().placementMode
+        && (
+          (!('anchorPoiId' in existing()) && !('anchorPoiId' in incoming()))
+          || ('anchorPoiId' in existing() && 'anchorPoiId' in incoming() && incoming().anchorPoiId == existing().anchorPoiId)
+        )
+        && incoming().lat == existing().lat
+        && incoming().lng == existing().lng
+        && incoming().isSubterranean == existing().isSubterranean
+        && incoming().giftKind == existing().giftKind
+        && incoming().giftId == existing().giftId
+        && incoming().giftName == existing().giftName
+        && incoming().giftDomain == existing().giftDomain
+        && incoming().visibility == existing().visibility
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && hasExistingExplorerParent(request.auth.uid)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'authorCallsign',
+          'authorGender',
+          'authorAvatarPreset',
+          'authorSkinTone',
+          'authorHeadgearId',
+          'authorOutfitId',
+          'title',
+          'riddleHint',
+          'updatedAt'
+        ]);
+
+      allow delete: if isVerified()
+        && isValidId(cacheId)
+        && existing().authorId == request.auth.uid
+        && hasExistingExplorerParent(request.auth.uid);
+
+      // Subcollection: Discoverer Logbook Signatures (Pillar 1 Master Gate)
+      match /logs/{finderId} {
+        allow get: if isVerified()
+          && isValidId(cacheId)
+          && isValidId(finderId)
+          && (resource == null || existing().visibility == 'public')
+          && hasExistingPublicGeocache(cacheId);
+
+        // Pillar 8: Cost-Optimized Query Enforcer without get()/exists() inside list
+        allow list: if isVerified()
+          && existing().visibility == 'public'
+          && existing().cacheId == cacheId;
+
+        allow create: if isVerified()
+          && isValidId(cacheId)
+          && isValidId(finderId)
+          && request.auth.uid == finderId
+          && isValidGeocacheLogEntry(incoming())
+          && incoming().cacheId == cacheId
+          && incoming().foundAt == request.time
+          && incoming().updatedAt == request.time
+          && hasValidExplorerParent(request.auth.uid)
+          && hasExistingPublicGeocache(cacheId);
+
+        allow update: if isVerified()
+          && isValidGeocacheLogEntry(incoming())
+          && isValidId(cacheId)
+          && isValidId(finderId)
+          && request.auth.uid == finderId
+          && existing().finderId == request.auth.uid
+          && incoming().finderId == existing().finderId
+          && incoming().cacheId == existing().cacheId
+          && incoming().visibility == existing().visibility
+          && incoming().foundAt == existing().foundAt
+          && incoming().updatedAt == request.time
+          && hasExistingExplorerParent(request.auth.uid)
+          && hasExistingPublicGeocache(cacheId)
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'finderCallsign',
+            'finderGender',
+            'finderAvatarPreset',
+            'finderSkinTone',
+            'finderHeadgearId',
+            'finderOutfitId',
+            'note',
+            'updatedAt'
+          ]);
+
+        allow delete: if isVerified()
+          && isValidId(cacheId)
+          && isValidId(finderId)
+          && request.auth.uid == finderId
+          && existing().finderId == request.auth.uid
+          && hasExistingExplorerParent(request.auth.uid);
+      }
     }
   }
 }

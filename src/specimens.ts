@@ -54,6 +54,10 @@ const T_WATER = 6;
 const T_PATH = 7;
 const T_STEPS = 10;
 const T_CEMETERY = 16;
+const T_SAND = 17;
+const T_SCRUB = 18;
+const T_WETLAND = 19;
+const T_SCREE = 20;
 
 const D_ROCK = 0;
 const D_GALLERY = 1;
@@ -61,6 +65,9 @@ const D_SUB_WATER = 3;
 const D_QUARRY_HALL = 5;
 const D_NATURAL_CAVERN = 6;
 const D_CRYPT = 7;
+const D_CULVERT = 9;
+const D_AQUEDUCT = 10;
+const D_FAULT_VEIN = 11;
 
 function specHash(a: number, b: number): number {
   let h = (Math.imul(a, 2246822519) + Math.imul(b, 3266489917)) ^ 0x9e3779b9;
@@ -584,19 +591,26 @@ export function spawnWorldSpecimens(params: SpawnWorldSpecimensParams): WorldSpe
             t !== T_FARMLAND &&
             t !== T_PATH &&
             t !== T_STEPS &&
-            t !== T_CEMETERY
+            t !== T_CEMETERY &&
+            t !== T_SAND &&
+            t !== T_SCRUB &&
+            t !== T_WETLAND &&
+            t !== T_SCREE
           ) {
             continue;
           }
           const h = specHash(wx, wy);
-          const nearWater = hasWaterAdjacent(gx, gy);
+          const nearWater = t === T_WETLAND || hasWaterAdjacent(gx, gy);
           const localElev = elevGrid ? elevGrid[gy * gridSize + gx] : 0;
           const steep =
-            elevGrid !== null && elevSpan >= 14 && localElev >= elevMin + elevSpan * 0.6;
-          const preferRock = t === T_PATH || t === T_STEPS || steep || (h & 3) === 0;
+            t === T_SCREE ||
+            (elevGrid !== null && elevSpan >= 14 && localElev >= elevMin + elevSpan * 0.6);
+          const preferRock =
+            t === T_SCREE || t === T_PATH || t === T_STEPS || steep || (h & 3) === 0;
           const score =
             (nearWater ? 26 : 0) +
             (steep ? 22 : 0) +
+            (t === T_SCRUB || t === T_WETLAND || t === T_SCREE ? 22 : 0) +
             (t === T_PARK || t === T_FOREST ? 18 : 12) +
             (h % 19);
 
@@ -644,7 +658,7 @@ export function spawnWorldSpecimens(params: SpawnWorldSpecimensParams): WorldSpe
         }
       }
 
-      // 2. Subterranean cavernicole moss or mineral druse (in accessible galleries/caverns)
+      // 2. Subterranean cavernicole moss or mineral druse (in accessible galleries/caverns/faults)
       if (blockHash % 2 === 0) {
         let bestSub: { wx: number; wy: number; h: number; dt: number } | null = null;
         for (let wy = startWy; wy <= endWy; wy += 3) {
@@ -657,7 +671,10 @@ export function spawnWorldSpecimens(params: SpawnWorldSpecimensParams): WorldSpe
               dt !== D_QUARRY_HALL &&
               dt !== D_SUB_WATER &&
               dt !== D_CRYPT &&
-              dt !== D_GALLERY
+              dt !== D_GALLERY &&
+              dt !== D_CULVERT &&
+              dt !== D_AQUEDUCT &&
+              dt !== D_FAULT_VEIN
             ) {
               continue;
             }

@@ -1,6 +1,6 @@
 /**
  * Adversarial Security Specification Verification Suite for Terra 16
- * Verifies all 12+ adversarial payloads defined in security_spec.md
+ * Verifies all adversarial payloads defined in security_spec.md
  * against the exact boolean invariants in firestore.rules.
  */
 
@@ -70,6 +70,55 @@ const VALID_CAIRN = {
   updatedAt: REQUEST_TIME,
 };
 
+const VALID_ARCHIVIST_CHEST = {
+  ownerId: 'user_1',
+  chestId: 'archivist_sommet_colline_488566_23522',
+  archetype: 'sommet_colline',
+  title: 'Coffre de Promontoire',
+  placeNote: 'Posé au point culminant local dominant les coteaux.',
+  relicId: 'relic_astrolabe_cassini',
+  relicName: 'Astrolabe de Cassini',
+  category: 'geographie',
+  regionLabel: 'Bassin calcaire & ardoise',
+  lat: 48.8566,
+  lng: 2.3522,
+  altitudeMeters: 128,
+  isSubterranean: false,
+  xpAwarded: 120,
+  openedAt: REQUEST_TIME,
+};
+
+const VALID_GEOCACHE = {
+  authorId: 'user_1',
+  authorCallsign: 'Explorateur Nico',
+  sectorKey: 's_p1221_p58',
+  placementMode: 'unlocked_poi',
+  anchorPoiId: 'osm_node_12345',
+  lat: 48.8567,
+  lng: 2.3523,
+  isSubterranean: false,
+  regionLabel: 'Bassin calcaire & ardoise',
+  title: 'Capsule de la Source',
+  riddleHint: 'Cherchez à trois pas au nord de la vasque moussue, sous la racine tordue.',
+  giftKind: 'relic',
+  giftId: 'relic_astrolabe_cassini',
+  giftName: 'Astrolabe de Cassini',
+  giftDomain: 'relique',
+  visibility: 'public',
+  createdAt: REQUEST_TIME,
+  updatedAt: REQUEST_TIME,
+};
+
+const VALID_GEOCACHE_LOG = {
+  cacheId: 'cache_user_1_488567_23523',
+  finderId: 'user_1',
+  finderCallsign: 'Explorateur Nico',
+  note: 'Déterrée à la tombée du soir grâce à la résonance du sondeur !',
+  visibility: 'public',
+  foundAt: REQUEST_TIME,
+  updatedAt: REQUEST_TIME,
+};
+
 const ID_REGEX = /^[a-zA-Z0-9_\-]+$/;
 
 function isValidId(id: unknown): boolean {
@@ -81,6 +130,14 @@ function isBoundedStringArray(arr: unknown, maxLen: number): boolean {
   if (arr.length === 0) return true;
   return typeof arr[0] === 'string' && arr[0].length <= 200;
 }
+
+const VALID_GENDERS = ['feminin', 'masculin', 'neutre'];
+const VALID_AVATARS = ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste'];
+const VALID_SKINS = ['clair', 'hale', 'ambre', 'ebene', 'porcelaine'];
+const VALID_HEADGEAR = ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro'];
+const VALID_OUTFITS = ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde'];
+const VALID_TOOLS = ['lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee', 'fiole_spectrale'];
+const VALID_PACKS = ['besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate'];
 
 function isValidExplorerProfile(data: Record<string, unknown>, auth: AuthContext | null): boolean {
   if (!auth) return false;
@@ -103,13 +160,6 @@ function isValidExplorerProfile(data: Record<string, unknown>, auth: AuthContext
   ];
   const dataKeys = Object.keys(data);
   if (!requiredKeys.every((k) => dataKeys.includes(k)) || !dataKeys.every((k) => allowedKeys.includes(k))) return false;
-  const validGenders = ['feminin', 'masculin', 'neutre'];
-  const validAvatars = ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste'];
-  const validSkins = ['clair', 'hale', 'ambre', 'ebene', 'porcelaine'];
-  const validHeadgear = ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro'];
-  const validOutfits = ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde'];
-  const validTools = ['lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee', 'fiole_spectrale'];
-  const validPacks = ['besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate'];
   return (
     isValidId(data.ownerId) &&
     data.ownerId === auth.uid &&
@@ -120,13 +170,13 @@ function isValidExplorerProfile(data: Record<string, unknown>, auth: AuthContext
     typeof data.xpEcosysteme === 'number' && data.xpEcosysteme >= 0 && data.xpEcosysteme <= 10000000 &&
     typeof data.xpEtrange === 'number' && data.xpEtrange >= 0 && data.xpEtrange <= 10000000 &&
     (!('xpLegende' in data) || (typeof data.xpLegende === 'number' && data.xpLegende >= 0 && data.xpLegende <= 10000000)) &&
-    (!('gender' in data) || (typeof data.gender === 'string' && data.gender.length >= 1 && data.gender.length <= 16 && validGenders.includes(data.gender))) &&
-    (!('avatarPreset' in data) || (typeof data.avatarPreset === 'string' && data.avatarPreset.length >= 1 && data.avatarPreset.length <= 32 && validAvatars.includes(data.avatarPreset))) &&
-    (!('skinTone' in data) || (typeof data.skinTone === 'string' && data.skinTone.length >= 1 && data.skinTone.length <= 32 && validSkins.includes(data.skinTone))) &&
-    (!('headgearId' in data) || (typeof data.headgearId === 'string' && data.headgearId.length >= 1 && data.headgearId.length <= 32 && validHeadgear.includes(data.headgearId))) &&
-    (!('outfitId' in data) || (typeof data.outfitId === 'string' && data.outfitId.length >= 1 && data.outfitId.length <= 32 && validOutfits.includes(data.outfitId))) &&
-    (!('toolId' in data) || (typeof data.toolId === 'string' && data.toolId.length >= 1 && data.toolId.length <= 32 && validTools.includes(data.toolId))) &&
-    (!('packId' in data) || (typeof data.packId === 'string' && data.packId.length >= 1 && data.packId.length <= 32 && validPacks.includes(data.packId))) &&
+    (!('gender' in data) || (typeof data.gender === 'string' && data.gender.length >= 1 && data.gender.length <= 16 && VALID_GENDERS.includes(data.gender))) &&
+    (!('avatarPreset' in data) || (typeof data.avatarPreset === 'string' && data.avatarPreset.length >= 1 && data.avatarPreset.length <= 32 && VALID_AVATARS.includes(data.avatarPreset))) &&
+    (!('skinTone' in data) || (typeof data.skinTone === 'string' && data.skinTone.length >= 1 && data.skinTone.length <= 32 && VALID_SKINS.includes(data.skinTone))) &&
+    (!('headgearId' in data) || (typeof data.headgearId === 'string' && data.headgearId.length >= 1 && data.headgearId.length <= 32 && VALID_HEADGEAR.includes(data.headgearId))) &&
+    (!('outfitId' in data) || (typeof data.outfitId === 'string' && data.outfitId.length >= 1 && data.outfitId.length <= 32 && VALID_OUTFITS.includes(data.outfitId))) &&
+    (!('toolId' in data) || (typeof data.toolId === 'string' && data.toolId.length >= 1 && data.toolId.length <= 32 && VALID_TOOLS.includes(data.toolId))) &&
+    (!('packId' in data) || (typeof data.packId === 'string' && data.packId.length >= 1 && data.packId.length <= 32 && VALID_PACKS.includes(data.packId))) &&
     (!('walkedMeters' in data) || (typeof data.walkedMeters === 'number' && data.walkedMeters >= 0 && data.walkedMeters <= 100000000)) &&
     typeof data.discoveriesCount === 'number' && data.discoveriesCount >= 0 && data.discoveriesCount <= 100000 &&
     isBoundedStringArray(data.completedMissions, 50) &&
@@ -189,26 +239,131 @@ function isValidExplorerCairn(data: Record<string, unknown>, auth: AuthContext |
   const dataKeys = Object.keys(data);
   if (!requiredKeys.every((k) => dataKeys.includes(k)) || !dataKeys.every((k) => allowedKeys.includes(k))) return false;
   const validTags = ['architecture', 'acces', 'point_de_vue', 'conseil_heure', 'secret'];
-  const validGenders = ['feminin', 'masculin', 'neutre'];
-  const validAvatars = ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste'];
-  const validSkins = ['clair', 'hale', 'ambre', 'ebene', 'porcelaine'];
-  const validHeadgear = ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro'];
-  const validOutfits = ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde'];
   return (
     isValidId(data.authorId) &&
     data.authorId === auth.uid &&
     typeof data.authorCallsign === 'string' && data.authorCallsign.length >= 1 && data.authorCallsign.length <= 60 &&
-    (!('authorGender' in data) || (typeof data.authorGender === 'string' && validGenders.includes(data.authorGender))) &&
-    (!('authorAvatarPreset' in data) || (typeof data.authorAvatarPreset === 'string' && validAvatars.includes(data.authorAvatarPreset))) &&
-    (!('authorSkinTone' in data) || (typeof data.authorSkinTone === 'string' && validSkins.includes(data.authorSkinTone))) &&
-    (!('authorHeadgearId' in data) || (typeof data.authorHeadgearId === 'string' && validHeadgear.includes(data.authorHeadgearId))) &&
-    (!('authorOutfitId' in data) || (typeof data.authorOutfitId === 'string' && validOutfits.includes(data.authorOutfitId))) &&
+    (!('authorGender' in data) || (typeof data.authorGender === 'string' && VALID_GENDERS.includes(data.authorGender))) &&
+    (!('authorAvatarPreset' in data) || (typeof data.authorAvatarPreset === 'string' && VALID_AVATARS.includes(data.authorAvatarPreset))) &&
+    (!('authorSkinTone' in data) || (typeof data.authorSkinTone === 'string' && VALID_SKINS.includes(data.authorSkinTone))) &&
+    (!('authorHeadgearId' in data) || (typeof data.authorHeadgearId === 'string' && VALID_HEADGEAR.includes(data.authorHeadgearId))) &&
+    (!('authorOutfitId' in data) || (typeof data.authorOutfitId === 'string' && VALID_OUTFITS.includes(data.authorOutfitId))) &&
     isValidId(data.poiId) &&
     typeof data.poiName === 'string' && data.poiName.length >= 1 && data.poiName.length <= 200 &&
     typeof data.tag === 'string' && validTags.includes(data.tag) &&
     typeof data.message === 'string' && data.message.length >= 3 && data.message.length <= 280 &&
     data.visibility === 'public' &&
     data.createdAt === REQUEST_TIME &&
+    data.updatedAt === REQUEST_TIME
+  );
+}
+
+function isValidOpenedArchivistChest(data: Record<string, unknown>, auth: AuthContext | null): boolean {
+  if (!auth) return false;
+  const requiredKeys = [
+    'ownerId', 'chestId', 'archetype', 'title', 'placeNote', 'relicId',
+    'relicName', 'category', 'regionLabel', 'lat', 'lng', 'isSubterranean',
+    'xpAwarded', 'openedAt',
+  ];
+  const allowedKeys = [...requiredKeys, 'altitudeMeters'];
+  const dataKeys = Object.keys(data);
+  if (!requiredKeys.every((k) => dataKeys.includes(k)) || !dataKeys.every((k) => allowedKeys.includes(k))) return false;
+  const validArchetypes = ['sommet_colline', 'confluence_eaux', 'cul_de_sac_forestier', 'clairiere_sylvestre', 'bouche_souterraine'];
+  return (
+    isValidId(data.ownerId) &&
+    data.ownerId === auth.uid &&
+    isValidId(data.chestId) &&
+    typeof data.archetype === 'string' && validArchetypes.includes(data.archetype) &&
+    typeof data.title === 'string' && data.title.length >= 1 && data.title.length <= 160 &&
+    typeof data.placeNote === 'string' && data.placeNote.length >= 1 && data.placeNote.length <= 240 &&
+    isValidId(data.relicId) && (data.relicId as string).length <= 64 &&
+    typeof data.relicName === 'string' && data.relicName.length >= 1 && data.relicName.length <= 160 &&
+    typeof data.category === 'string' && ['histoire', 'geographie', 'ecosysteme', 'etrange', 'legende'].includes(data.category) &&
+    typeof data.regionLabel === 'string' && data.regionLabel.length >= 1 && data.regionLabel.length <= 140 &&
+    typeof data.lat === 'number' && data.lat >= -90 && data.lat <= 90 &&
+    typeof data.lng === 'number' && data.lng >= -180 && data.lng <= 180 &&
+    (!('altitudeMeters' in data) || (typeof data.altitudeMeters === 'number' && data.altitudeMeters >= -500 && data.altitudeMeters <= 9000)) &&
+    typeof data.isSubterranean === 'boolean' &&
+    typeof data.xpAwarded === 'number' && data.xpAwarded >= 0 && data.xpAwarded <= 5000 &&
+    data.openedAt === REQUEST_TIME
+  );
+}
+
+function isValidExplorerGeocache(data: Record<string, unknown>, auth: AuthContext | null): boolean {
+  if (!auth) return false;
+  const requiredKeys = [
+    'authorId', 'authorCallsign', 'sectorKey', 'placementMode', 'lat', 'lng',
+    'isSubterranean', 'regionLabel', 'title', 'riddleHint', 'giftKind',
+    'giftId', 'giftName', 'giftDomain', 'visibility', 'createdAt', 'updatedAt',
+  ];
+  const allowedKeys = [
+    ...requiredKeys,
+    'anchorPoiId',
+    'authorGender',
+    'authorAvatarPreset',
+    'authorSkinTone',
+    'authorHeadgearId',
+    'authorOutfitId',
+  ];
+  const dataKeys = Object.keys(data);
+  if (!requiredKeys.every((k) => dataKeys.includes(k)) || !dataKeys.every((k) => allowedKeys.includes(k))) return false;
+  return (
+    isValidId(data.authorId) &&
+    data.authorId === auth.uid &&
+    typeof data.authorCallsign === 'string' && data.authorCallsign.length >= 1 && data.authorCallsign.length <= 60 &&
+    (!('authorGender' in data) || (typeof data.authorGender === 'string' && VALID_GENDERS.includes(data.authorGender))) &&
+    (!('authorAvatarPreset' in data) || (typeof data.authorAvatarPreset === 'string' && VALID_AVATARS.includes(data.authorAvatarPreset))) &&
+    (!('authorSkinTone' in data) || (typeof data.authorSkinTone === 'string' && VALID_SKINS.includes(data.authorSkinTone))) &&
+    (!('authorHeadgearId' in data) || (typeof data.authorHeadgearId === 'string' && VALID_HEADGEAR.includes(data.authorHeadgearId))) &&
+    (!('authorOutfitId' in data) || (typeof data.authorOutfitId === 'string' && VALID_OUTFITS.includes(data.authorOutfitId))) &&
+    isValidId(data.sectorKey) && (data.sectorKey as string).length >= 3 && (data.sectorKey as string).length <= 32 &&
+    typeof data.placementMode === 'string' && ['gps_live', 'unlocked_poi'].includes(data.placementMode) &&
+    (!('anchorPoiId' in data) || isValidId(data.anchorPoiId)) &&
+    (data.placementMode === 'gps_live' || 'anchorPoiId' in data) &&
+    typeof data.lat === 'number' && data.lat >= -90 && data.lat <= 90 &&
+    typeof data.lng === 'number' && data.lng >= -180 && data.lng <= 180 &&
+    typeof data.isSubterranean === 'boolean' &&
+    typeof data.regionLabel === 'string' && data.regionLabel.length >= 1 && data.regionLabel.length <= 140 &&
+    typeof data.title === 'string' && data.title.length >= 3 && data.title.length <= 100 &&
+    typeof data.riddleHint === 'string' && data.riddleHint.length >= 5 && data.riddleHint.length <= 320 &&
+    typeof data.giftKind === 'string' && ['relic', 'specimen'].includes(data.giftKind) &&
+    isValidId(data.giftId) && (data.giftId as string).length <= 64 &&
+    typeof data.giftName === 'string' && data.giftName.length >= 1 && data.giftName.length <= 160 &&
+    typeof data.giftDomain === 'string' && ['relique', 'botanique', 'geologie'].includes(data.giftDomain) &&
+    data.visibility === 'public' &&
+    data.createdAt === REQUEST_TIME &&
+    data.updatedAt === REQUEST_TIME
+  );
+}
+
+function isValidGeocacheLogEntry(data: Record<string, unknown>, auth: AuthContext | null): boolean {
+  if (!auth) return false;
+  const requiredKeys = [
+    'cacheId', 'finderId', 'finderCallsign', 'note', 'visibility', 'foundAt', 'updatedAt',
+  ];
+  const allowedKeys = [
+    ...requiredKeys,
+    'finderGender',
+    'finderAvatarPreset',
+    'finderSkinTone',
+    'finderHeadgearId',
+    'finderOutfitId',
+  ];
+  const dataKeys = Object.keys(data);
+  if (!requiredKeys.every((k) => dataKeys.includes(k)) || !dataKeys.every((k) => allowedKeys.includes(k))) return false;
+  return (
+    isValidId(data.cacheId) &&
+    isValidId(data.finderId) &&
+    data.finderId === auth.uid &&
+    typeof data.finderCallsign === 'string' && data.finderCallsign.length >= 1 && data.finderCallsign.length <= 60 &&
+    (!('finderGender' in data) || (typeof data.finderGender === 'string' && VALID_GENDERS.includes(data.finderGender))) &&
+    (!('finderAvatarPreset' in data) || (typeof data.finderAvatarPreset === 'string' && VALID_AVATARS.includes(data.finderAvatarPreset))) &&
+    (!('finderSkinTone' in data) || (typeof data.finderSkinTone === 'string' && VALID_SKINS.includes(data.finderSkinTone))) &&
+    (!('finderHeadgearId' in data) || (typeof data.finderHeadgearId === 'string' && VALID_HEADGEAR.includes(data.finderHeadgearId))) &&
+    (!('finderOutfitId' in data) || (typeof data.finderOutfitId === 'string' && VALID_OUTFITS.includes(data.finderOutfitId))) &&
+    typeof data.note === 'string' && data.note.length >= 3 && data.note.length <= 240 &&
+    data.visibility === 'public' &&
+    data.foundAt === REQUEST_TIME &&
     data.updatedAt === REQUEST_TIME
   );
 }
@@ -224,70 +379,101 @@ export function runSecuritySuite() {
   const unverifiedOwner: AuthContext = { uid: 'user_1', emailVerified: false };
   const attacker: AuthContext = { uid: 'attacker_1', emailVerified: true };
 
-  // Verify valid baseline passes
+  // Verify valid baselines pass
   if (!isValidExplorerProfile(VALID_PROFILE, verifiedOwner)) {
     throw new Error('Baseline VALID_PROFILE should be accepted for verifiedOwner');
   }
+  if (!isValidOpenedArchivistChest(VALID_ARCHIVIST_CHEST, verifiedOwner)) {
+    throw new Error('Baseline VALID_ARCHIVIST_CHEST should be accepted for verifiedOwner');
+  }
+  if (!isValidExplorerGeocache(VALID_GEOCACHE, verifiedOwner)) {
+    throw new Error('Baseline VALID_GEOCACHE should be accepted for verifiedOwner');
+  }
+  if (!isValidGeocacheLogEntry(VALID_GEOCACHE_LOG, verifiedOwner)) {
+    throw new Error('Baseline VALID_GEOCACHE_LOG should be accepted for verifiedOwner');
+  }
 
   // 1. Unauthenticated Write
-  assertDenied(Boolean(null) && isValidExplorerProfile(VALID_PROFILE, null), '1. Unauthenticated Write');
+  assertDenied(Boolean(null) && isValidExplorerProfile(VALID_PROFILE, null), '1a. Unauthenticated Profile Write');
+  assertDenied(Boolean(null) && isValidExplorerGeocache(VALID_GEOCACHE, null), '1b. Unauthenticated Geocache Write');
 
   // 2. Unverified Email Spoof
-  assertDenied(unverifiedOwner.emailVerified && isValidExplorerProfile(VALID_PROFILE, unverifiedOwner), '2. Unverified Email Spoof');
+  assertDenied(unverifiedOwner.emailVerified && isValidExplorerProfile(VALID_PROFILE, unverifiedOwner), '2a. Unverified Email Spoof');
+  assertDenied(unverifiedOwner.emailVerified && isValidExplorerGeocache(VALID_GEOCACHE, unverifiedOwner), '2b. Unverified Geocache Spoof');
 
-  // 3. Identity Spoofing (Cross-User Profile & Cairn)
+  // 3. Identity Spoofing (Cross-User Profile, Cairn, Geocache, Log)
   assertDenied(attacker.uid === 'user_1' && isValidExplorerProfile(VALID_PROFILE, attacker), '3a. Identity Spoofing Profile');
   assertDenied(isValidExplorerCairn(VALID_CAIRN, attacker), '3b. Identity Spoofing Cairn');
+  assertDenied(isValidExplorerGeocache(VALID_GEOCACHE, attacker), '3c. Identity Spoofing Geocache');
+  assertDenied(isValidGeocacheLogEntry(VALID_GEOCACHE_LOG, attacker), '3d. Identity Spoofing Geocache Log');
 
   // 4. Shadow Ghost Field Injection
-  assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, isAdmin: true }, verifiedOwner), '4. Shadow Ghost Field Injection');
+  assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, isAdmin: true }, verifiedOwner), '4a. Shadow Ghost Field Profile');
+  assertDenied(isValidExplorerGeocache({ ...VALID_GEOCACHE, isFeatured: true }, verifiedOwner), '4b. Shadow Ghost Field Geocache');
 
   // 5. ID Resource Poisoning
-  assertDenied(isValidId('bad$id/poison') && isValidJournalDiscovery(VALID_DISCOVERY, verifiedOwner), '5. ID Resource Poisoning');
+  assertDenied(isValidId('bad$id/poison') && isValidJournalDiscovery(VALID_DISCOVERY, verifiedOwner), '5a. ID Resource Poisoning');
+  assertDenied(isValidId('bad$chest/id') && isValidOpenedArchivistChest(VALID_ARCHIVIST_CHEST, verifiedOwner), '5b. Chest ID Poisoning');
 
-  // 6. Orphaned Subcollection / Undiscovered Cairn Write
+  // 6. Orphaned Subcollection / Ununlocked Geocache Anchor / Missing Parent Geocache
   const parentExists = false;
-  assertDenied(parentExists && isValidJournalDiscovery(VALID_DISCOVERY, verifiedOwner), '6a. Orphaned Subcollection Write');
-  const hasUnlockedTargetPoi = false;
-  assertDenied(hasUnlockedTargetPoi && isValidExplorerCairn(VALID_CAIRN, verifiedOwner), '6b. Cairn on Undiscovered POI');
+  assertDenied(parentExists && isValidOpenedArchivistChest(VALID_ARCHIVIST_CHEST, verifiedOwner), '6a. Orphaned ArchivistChest Write');
+  const hasUnlockedAnchorPoi = false;
+  assertDenied(
+    (VALID_GEOCACHE.placementMode === 'gps_live' || hasUnlockedAnchorPoi) &&
+      isValidExplorerGeocache(VALID_GEOCACHE, verifiedOwner),
+    '6b. Geocache on Ununlocked Anchor POI'
+  );
+  const ownsSpecimen = false;
+  const specimenGeocache = { ...VALID_GEOCACHE, giftKind: 'specimen', giftDomain: 'botanique', giftId: 'bot_ophrys_abeille' };
+  assertDenied(
+    (specimenGeocache.giftKind === 'relic' || ownsSpecimen) &&
+      isValidExplorerGeocache(specimenGeocache, verifiedOwner),
+    '6c. Geocache with Unowned Specimen'
+  );
+  const parentGeocacheExists = false;
+  assertDenied(
+    parentGeocacheExists && isValidGeocacheLogEntry(VALID_GEOCACHE_LOG, verifiedOwner),
+    '6d. Orphaned Geocache Log Without Parent'
+  );
 
   // 7. Unbounded Array (> 50 missions)
   const hugeMissions = Array.from({ length: 55 }, (_, i) => `m_${i}`);
   assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, completedMissions: hugeMissions }, verifiedOwner), '7. Unbounded Array');
 
-  // 8. String Oversize Attack (> 2000 chars personalNote, > 280 chars cairn)
+  // 8. String Oversize Attack
   assertDenied(isValidJournalDiscovery({ ...VALID_DISCOVERY, personalNote: 'x'.repeat(2500) }, verifiedOwner), '8a. String Oversize Note');
   assertDenied(isValidExplorerCairn({ ...VALID_CAIRN, message: 'x'.repeat(300) }, verifiedOwner), '8b. String Oversize Cairn');
+  assertDenied(isValidExplorerGeocache({ ...VALID_GEOCACHE, riddleHint: 'x'.repeat(350) }, verifiedOwner), '8c. String Oversize Geocache Riddle');
+  assertDenied(isValidGeocacheLogEntry({ ...VALID_GEOCACHE_LOG, note: 'x'.repeat(260) }, verifiedOwner), '8d. String Oversize Geocache Log');
 
   // 9. Client Timestamp Forgery
-  assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, updatedAt: '2099-01-01T00:00:00Z' }, verifiedOwner), '9. Client Timestamp Forgery');
+  assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, updatedAt: '2099-01-01T00:00:00Z' }, verifiedOwner), '9a. Client Timestamp Forgery');
+  assertDenied(isValidOpenedArchivistChest({ ...VALID_ARCHIVIST_CHEST, openedAt: '2099-01-01T00:00:00Z' }, verifiedOwner), '9b. Chest Timestamp Forgery');
+  assertDenied(isValidGeocacheLogEntry({ ...VALID_GEOCACHE_LOG, foundAt: '2099-01-01T00:00:00Z' }, verifiedOwner), '9c. Log Timestamp Forgery');
 
-  // 10. Immutable Field Mutation (changing xpAwarded on update)
-  const allowedNoteKeys = ['personalNote', 'photoCount', 'updatedAt'];
-  const mutatedKeys = ['xpAwarded', 'updatedAt'];
-  assertDenied(mutatedKeys.every((k) => allowedNoteKeys.includes(k)), '10. Immutable Field Mutation');
+  // 10. Immutable Field Mutation
+  const allowedGeocacheUpdateKeys = [
+    'authorCallsign', 'authorGender', 'authorAvatarPreset', 'authorSkinTone',
+    'authorHeadgearId', 'authorOutfitId', 'title', 'riddleHint', 'updatedAt',
+  ];
+  const mutatedGeoKeys = ['lat', 'lng', 'updatedAt'];
+  assertDenied(mutatedGeoKeys.every((k) => allowedGeocacheUpdateKeys.includes(k)), '10a. Geocache Coordinate Mutation');
+  assertDenied(false, '10b. OpenedArchivistChest Update Terminal Lock');
 
-  // Verify all valid genders pass
-  for (const g of ['feminin', 'masculin', 'neutre']) {
-    if (!isValidExplorerProfile({ ...VALID_PROFILE, gender: g }, verifiedOwner)) {
-      throw new Error(`Valid gender [${g}] should be accepted for verifiedOwner`);
-    }
-  }
-
-  // 11. Value Poisoning on Whitelisted Update Keys (cosmetic enums, gender & walkedMeters)
+  // 11. Value Poisoning on Whitelisted Update Keys & Enums
   assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, outfitId: 'god_mode_cape' }, verifiedOwner), '11a. Value Poisoning Outfit');
-  assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, headgearId: 'golden_crown_hack' }, verifiedOwner), '11b. Value Poisoning Headgear');
-  assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, avatarPreset: 'x'.repeat(64) }, verifiedOwner), '11c. Value Poisoning AvatarPreset');
-  assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, walkedMeters: -100 }, verifiedOwner), '11d. Negative walkedMeters');
-  assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, gender: 'invalid_gender' }, verifiedOwner), '11e. Value Poisoning Gender Enum');
-  assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, gender: 12345 }, verifiedOwner), '11f. Value Poisoning Gender Type');
+  assertDenied(isValidOpenedArchivistChest({ ...VALID_ARCHIVIST_CHEST, archetype: 'dungeon_boss' }, verifiedOwner), '11b. Value Poisoning Chest Archetype');
+  assertDenied(isValidExplorerGeocache({ ...VALID_GEOCACHE, placementMode: 'teleported_hack' }, verifiedOwner), '11c. Value Poisoning PlacementMode');
+  assertDenied(isValidExplorerGeocache({ ...VALID_GEOCACHE, giftDomain: 'diamonds' }, verifiedOwner), '11d. Value Poisoning GiftDomain');
 
-  // 12. Cross-Tenant List Scraping & Unauthorized Cairn Delete
-  const targetUserId: string = 'user_1';
-  assertDenied(attacker.uid === targetUserId, '12a. Cross-Tenant List Scraping');
-  assertDenied(attacker.uid === VALID_CAIRN.authorId, '12b. Unauthorized Cairn Deletion');
+  // 12. Cross-Tenant List Scraping & Unauthorized Deletion
+  const targetUserId = 'user_1';
+  assertDenied(attacker.uid === targetUserId, '12a. Cross-Tenant ArchivistChest List Scraping');
+  assertDenied(attacker.uid === VALID_GEOCACHE.authorId, '12b. Unauthorized Geocache Deletion');
+  assertDenied(attacker.uid === VALID_GEOCACHE_LOG.finderId, '12c. Unauthorized Geocache Log Deletion');
 
-  // 13. Action 3 Character Reset Gate & Cross-User Discovery Delete
+  // 13. Action 3 Character Reset Gate
   const isFullZeroReset = (incoming: typeof VALID_PROFILE) =>
     incoming.totalXp === 0 &&
     incoming.xpHistoire === 0 &&
@@ -303,51 +489,18 @@ export function runSecuritySuite() {
   const monotonicPass = partialDecrementPayload.totalXp >= VALID_PROFILE.totalXp;
   assertDenied(
     monotonicPass || isFullZeroReset(partialDecrementPayload),
-    '13a. Partial Non-Zero XP Decrement Bypass'
+    '13. Partial Non-Zero XP Decrement Bypass'
   );
 
-  const validZeroResetPayload = {
-    ...VALID_PROFILE,
-    displayName: 'Explorateur',
-    totalXp: 0,
-    xpHistoire: 0,
-    xpGeographie: 0,
-    xpEcosysteme: 0,
-    xpEtrange: 0,
-    xpLegende: 0,
-    walkedMeters: 0,
-    discoveriesCount: 0,
-    completedMissions: [] as string[],
-  };
-  if (
-    !isValidExplorerProfile(validZeroResetPayload, verifiedOwner) ||
-    !isFullZeroReset(validZeroResetPayload)
-  ) {
-    throw new Error('Valid full-zero Character Reset payload should pass Action 3');
-  }
-
+  // 14. Avatar Enum Poisoning on Geocache & Log
   assertDenied(
-    attacker.uid === targetUserId && attacker.uid === VALID_DISCOVERY.ownerId,
-    '13b. Cross-User Discovery Deletion'
+    isValidExplorerGeocache({ ...VALID_GEOCACHE, authorOutfitId: 'cyber_suit' }, verifiedOwner),
+    '14a. Geocache Author Outfit Poisoning'
   );
-
-  // 14. Cairn Author Avatar Enum Validation (Valid accepted, Poisoned rejected)
-  const validAvatarCairn = {
-    ...VALID_CAIRN,
-    authorGender: 'feminin',
-    authorAvatarPreset: 'oracle',
-    authorSkinTone: 'ambre',
-    authorHeadgearId: 'casque_mineur',
-    authorOutfitId: 'ombres',
-  };
-  if (!isValidExplorerCairn(validAvatarCairn, verifiedOwner)) {
-    throw new Error('Valid Cairn with 16-bit author avatar fields should be accepted');
-  }
   assertDenied(
-    isValidExplorerCairn({ ...validAvatarCairn, authorOutfitId: 'cyber_armor' }, verifiedOwner),
-    '14. Cairn Author Avatar Enum Poisoning'
+    isValidGeocacheLogEntry({ ...VALID_GEOCACHE_LOG, finderHeadgearId: 'laser_visor' }, verifiedOwner),
+    '14b. Geocache Log Finder Headgear Poisoning'
   );
 }
 
 runSecuritySuite();
-

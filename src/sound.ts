@@ -637,3 +637,35 @@ export function syncBiomeSoundscape(params: BiomeSoundscapeParams) {
   applyRigGains();
 }
 
+export function playChestOpenSfx(muted: boolean) {
+  if (muted) return;
+  // Brass clasp click + classic SNES treasure chest ascending arpeggio
+  playShortNoiseBurst(0.04, 1500, 1.8, 0.025);
+  playFilteredTone(196, 0, 0.06, 'triangle', 0.05, 950);
+  const notes = [392.0, 493.88, 587.33, 783.99, 987.77, 1174.66];
+  notes.forEach((f, idx) => {
+    const t = 0.06 + idx * 0.072;
+    const isLast = idx === notes.length - 1;
+    playFilteredTone(f, t, isLast ? 0.44 : 0.14, isLast ? 'triangle' : 'square', isLast ? 0.065 : 0.042, 2400);
+    playFilteredTone(f * 0.5, t, isLast ? 0.46 : 0.13, 'triangle', 0.03, 1300);
+  });
+}
+
+export function playDetectorPingSfx(muted: boolean, strength01 = 0.5) {
+  if (muted) return;
+  const clamped = Math.max(0, Math.min(1, strength01));
+  const baseHz = 560 + clamped * 520;
+  playFilteredTone(baseHz, 0, 0.095, 'sine', 0.04, 2800);
+  playFilteredTone(baseHz * 1.498, 0.065, 0.14, 'triangle', 0.032, 2800);
+}
+
+export function playCapsuleBurySfx(muted: boolean) {
+  if (muted) return;
+  // Soft turf spade rustle + sealed brass capsule chime
+  playShortNoiseBurst(0.075, 820, 1.3, 0.032);
+  playFilteredTone(146.83, 0.015, 0.08, 'triangle', 0.048, 780);
+  playFilteredTone(523.25, 0.09, 0.13, 'triangle', 0.04, 2100);
+  playFilteredTone(783.99, 0.15, 0.22, 'sine', 0.038, 2300);
+}
+
+

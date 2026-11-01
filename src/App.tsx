@@ -24,16 +24,22 @@ import {
   auth,
   createDiscoveryInCloud,
   ensureExplorerProfileInCloud,
+  formatFirebaseAuthErrorFr,
+  isTransientCloudOfflineError,
+  recordOpenedArchivistChestInCloud,
   resetExplorerCharacterInCloud,
   signInExplorerWithGoogle,
   signOutExplorer,
   subscribeToCloudExplorer,
+  subscribeToNearbyGeocaches,
+  syncMissingArchivistChestsToCloud,
   syncMissingDiscoveriesToCloud,
   syncMissingSpecimensToCloud,
   syncProgressToCloud,
   updateDiscoveryJournalInCloud,
   updateExplorerIdentityInCloud,
   upsertSpecimenInCloud,
+  validateExplorerAuthSession,
 } from './firebase';
 import {
   CachedSectorRecord,
@@ -92,7 +98,19 @@ const LazyStratigraphicFriezeView = React.lazy(() =>
 const LazyExplorerProfileView = React.lazy(() =>
   import('./components/ExplorerProfileView').then((m) => ({ default: m.ExplorerProfileView }))
 );
+const LazyTreasuresAndGeocachesView = React.lazy(() =>
+  import('./components/TreasuresAndGeocachesView').then((m) => ({
+    default: m.TreasuresAndGeocachesView,
+  }))
+);
+const LazyGeocacheModal = React.lazy(() =>
+  import('./components/TreasuresAndGeocachesView').then((m) => ({
+    default: m.GeocacheModal,
+  }))
+);
+import { TelluricDetectorCard } from './components/TreasuresAndGeocachesView';
 import { isMissionUnlocked, MISSIONS_CATALOG } from './missions';
+import { resolveRegionalTheme } from './regionalBiomes';
 import {
   computeGuildPerks,
   evaluateDynamicContract,
@@ -104,6 +122,7 @@ import {
   saveClaimedSectorContracts,
 } from './rpgExtras';
 import {
+  playChestOpenSfx,
   playDiscoveryFanfare,
   playJournalOpenSfx,
   playMissionFanfare,
@@ -116,6 +135,18 @@ import {
 } from './sound';
 import { SPECIMENS_CATALOG, WorldSpecimenNode } from './specimens';
 import {
+  computeGeocacheSectorKey,
+  getNearbyGeocacheSectorKeys,
+  loadFoundGeocacheIds,
+  loadLocalFallbackGeocaches,
+  loadOpenedArchivistChests,
+  saveFoundGeocacheIds,
+  saveLocalFallbackGeocaches,
+  saveOpenedArchivistChests,
+  spawnWorldArchivistChests,
+  WorldArchivistChestNode,
+} from './treasures';
+import {
   ActiveTab,
   BedrockInfo,
   CarnetViewMode,
@@ -126,6 +157,7 @@ import {
   ElevationGrid,
   ExplorationCategory,
   ExplorerAppearance,
+  ExplorerGeocacheRecord,
   ExplorerOutfitId,
   ExplorerProgress,
   getCategoryXp,
@@ -135,6 +167,7 @@ import {
   HistoricalStratum,
   minDistancePointToSegmentMeters,
   NpcEncounterRecord,
+  OpenedArchivistChestRecord,
   partitionSurfaceAndSubterraneanPois,
   PoiItem,
   PostcardSubject,
@@ -196,6 +229,7 @@ interface CutInAlert {
   emblemSrc?: string;
   poiId?: string;
   unlockedCosmeticName?: string;
+  openReliquary?: boolean;
 }
 
 type MobileDrawerMode = 'none' | 'filters' | 'travel' | 'signals' | 'ios-install';
@@ -238,6 +272,10 @@ function computeAtmosphereLabel(terrain: TerrainFeature[], elevation: ElevationG
   const hasWater = terrain.some((t) => t.kind === 'water' || t.kind === 'waterway');
   const forestCount = terrain.filter((t) => t.kind === 'forest').length;
   const parkCount = terrain.filter((t) => t.kind === 'park').length;
+  const sandCount = terrain.filter((t) => t.kind === 'sand').length;
+  const scrubCount = terrain.filter((t) => t.kind === 'scrub').length;
+  const wetlandCount = terrain.filter((t) => t.kind === 'wetland').length;
+  const screeCount = terrain.filter((t) => t.kind === 'scree').length;
   const industrialCount = terrain.filter(
     (t) => t.kind === 'industrial' || (t.kind === 'building' && t.bldgClass === 'industrial')
   ).length;
@@ -253,27 +291,39 @@ function computeAtmosphereLabel(terrain: TerrainFeature[], elevation: ElevationG
   ).length;
   const reliefSpan = elevation ? elevation.maxMeters - elevation.minMeters : 0;
 
+  if (screeCount >= 2 || (screeCount >= 1 && reliefSpan >= 65)) {
+    return 'Éboulis, pierriers & crêtes rocheuses';
+  }
   if (reliefSpan >= 85 && hasWater) return 'Gorges, coteaux & falaises';
   if (reliefSpan >= 85) return 'Buttes escarpées & promontoires';
   if (industrialCount >= 3 && buildingCount < 220) return 'Zone industrielle & entrepôts';
   if (buildingCount > 240 || midriseCount > 35) {
+    if (sandCount >= 2 && hasWater) return 'Cité maritime, grèves & remparts';
     if (hasWater) return 'Centre-ville & quais pavés';
     if (parkCount >= 3) return 'Centre-ville & parcs urbains';
     return 'Centre-ville dense & avenues';
   }
   if (buildingCount > 110) {
+    if (sandCount >= 2 && hasWater) return 'Port, plages & quartier côtier';
     if (commercialCount >= 2) return 'Quartier marchand & faubourgs';
     if (reliefSpan >= 35) return 'Faubourgs en pente & escaliers';
     return 'Banlieue pavillonnaire & jardins';
   }
   if (buildingCount >= 28) {
+    if (sandCount >= 1 && hasWater) return 'Village côtier, dunes & grèves';
+    if (scrubCount >= 3) return 'Village perché & garrigue';
     if (farmCount >= 3) return 'Village & terres agricoles';
     if (hasWater) return 'Village de rivière & ponts';
     return 'Bourg & maisons de village';
   }
   if (buildingCount >= 5) {
+    if (wetlandCount >= 2) return 'Hameau des marais & roselières';
+    if (scrubCount >= 2) return 'Hameau, landes & maquis';
     return 'Hameau & fermes isolées';
   }
+  if (wetlandCount >= 2) return 'Marais, roselières & tourbières';
+  if (sandCount >= 2 && hasWater) return 'Plages, dunes & rivages';
+  if (scrubCount >= 3) return 'Landes, maquis & garrigues';
   if (forestCount > 4 && hasWater) return 'Vallée boisée & eaux vives';
   if (parkCount >= 2 && forestCount <= 2) return 'Parc arboré & allées';
   if (forestCount > 4) return 'Forêt profonde & futaies';
@@ -349,7 +399,18 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('carte');
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [cloudOnline, setCloudOnline] = useState<boolean>(
+    () => typeof navigator === 'undefined' || navigator.onLine !== false
+  );
   const [authError, setAuthError] = useState('');
+
+  const handleCloudSyncError = useCallback((err: unknown) => {
+    if (isTransientCloudOfflineError(err)) {
+      setCloudOnline(false);
+      return;
+    }
+    console.warn('Synchronisation Cloud interrompue :', err);
+  }, []);
 
   // Fullscreen, Collapsible UI ("Replier / Déplier l’UI"), Mobile Ergonomics & PWA Install
   const [isFullscreenMap, setIsFullscreenMap] = useState(false);
@@ -509,6 +570,19 @@ export default function App() {
   const [harvestedSpecimenNodes, setHarvestedSpecimenNodes] = useState<Set<string>>(
     () => new Set()
   );
+  const [openedChests, setOpenedChests] = useState<OpenedArchivistChestRecord[]>(() =>
+    loadOpenedArchivistChests()
+  );
+  const [cloudGeocaches, setCloudGeocaches] = useState<ExplorerGeocacheRecord[]>([]);
+  const [localFallbackGeocaches, setLocalFallbackGeocaches] = useState<ExplorerGeocacheRecord[]>(
+    () => loadLocalFallbackGeocaches()
+  );
+  const [foundGeocacheIds, setFoundGeocacheIds] = useState<Set<string>>(() =>
+    loadFoundGeocacheIds()
+  );
+  const [geocacheModal, setGeocacheModal] = useState<
+    { mode: 'bury' } | { mode: 'inspect'; cache: ExplorerGeocacheRecord } | null
+  >(null);
   const [postcardSubject, setPostcardSubject] = useState<PostcardSubject | null>(null);
   const [soundscapeEnabled, setSoundscapeEnabled] = useState<boolean>(() => {
     try {
@@ -605,7 +679,9 @@ export default function App() {
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (postcardSubject) {
+        if (geocacheModal) {
+          setGeocacheModal(null);
+        } else if (postcardSubject) {
           setPostcardSubject(null);
         } else if (fullscreenModalPoiId) {
           setFullscreenModalPoiId(null);
@@ -625,6 +701,7 @@ export default function App() {
     window.addEventListener('keydown', onEsc);
     return () => window.removeEventListener('keydown', onEsc);
   }, [
+    geocacheModal,
     postcardSubject,
     fullscreenModalPoiId,
     mobileDrawer,
@@ -694,6 +771,18 @@ export default function App() {
   }, [specimens]);
 
   useEffect(() => {
+    saveOpenedArchivistChests(openedChests);
+  }, [openedChests]);
+
+  useEffect(() => {
+    saveLocalFallbackGeocaches(localFallbackGeocaches);
+  }, [localFallbackGeocaches]);
+
+  useEffect(() => {
+    saveFoundGeocacheIds(foundGeocacheIds);
+  }, [foundGeocacheIds]);
+
+  useEffect(() => {
     try {
       localStorage.setItem('terra16_soundscape_v1', soundscapeEnabled ? '1' : '0');
     } catch {
@@ -702,43 +791,108 @@ export default function App() {
   }, [soundscapeEnabled]);
 
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    let active = true;
+    const unsubAuth = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        if (!active) return;
+        setUser(null);
+        setAuthReady(true);
+        return;
+      }
+      const check = await validateExplorerAuthSession(currentUser);
+      if (!active) return;
+      if (check.warningMessage) {
+        setAuthError(check.warningMessage);
+      }
+      setCloudOnline(check.cloudReachable);
+      setUser(check.validUser);
       setAuthReady(true);
     });
-    return () => unsubAuth();
+
+    const handleOnline = async () => {
+      const check = await validateExplorerAuthSession(auth.currentUser);
+      if (!active) return;
+      setCloudOnline(check.cloudReachable);
+      setUser(check.validUser);
+    };
+    const handleOffline = () => {
+      if (!active) return;
+      setCloudOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      active = false;
+      unsubAuth();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   useEffect(() => {
-    if (!authReady || !user) return;
+    if (!authReady || !user || !cloudOnline) return;
     let unsubCloud: (() => void) | null = null;
     let cancelled = false;
 
     const bootstrapCloud = async () => {
-      await ensureExplorerProfileInCloud(user, progress);
-      await Promise.all([
-        syncMissingDiscoveriesToCloud(user.uid, entries),
-        syncMissingSpecimensToCloud(user.uid, specimens),
-      ]);
-      if (cancelled) return;
-      unsubCloud = subscribeToCloudExplorer(
-        user.uid,
-        (cloudProfile) =>
-          setProgress((prev) => ({
-            ...cloudProfile,
-            walkedMeters: Math.max(cloudProfile.walkedMeters || 0, prev.walkedMeters || 0),
-          })),
-        (cloudEntries) => setEntries(cloudEntries),
-        (cloudSpecimens) => setSpecimens(cloudSpecimens)
-      );
+      try {
+        await ensureExplorerProfileInCloud(user, progress);
+        await Promise.all([
+          syncMissingDiscoveriesToCloud(user.uid, entries),
+          syncMissingSpecimensToCloud(user.uid, specimens),
+          syncMissingArchivistChestsToCloud(user.uid, openedChests),
+        ]);
+        if (cancelled) return;
+        unsubCloud = subscribeToCloudExplorer(
+          user.uid,
+          (cloudProfile) =>
+            setProgress((prev) => ({
+              ...cloudProfile,
+              walkedMeters: Math.max(cloudProfile.walkedMeters || 0, prev.walkedMeters || 0),
+            })),
+          (cloudEntries) => setEntries(cloudEntries),
+          (cloudSpecimens) => setSpecimens(cloudSpecimens),
+          (cloudChests) =>
+            setOpenedChests((prev) => {
+              const merged = new Map<string, OpenedArchivistChestRecord>();
+              for (const c of prev) merged.set(c.chestId, c);
+              for (const c of cloudChests) merged.set(c.chestId, c);
+              return Array.from(merged.values()).sort((a, b) =>
+                b.openedAtIso.localeCompare(a.openedAtIso)
+              );
+            })
+        );
+      } catch (err) {
+        handleCloudSyncError(err);
+      }
     };
 
-    bootstrapCloud().catch((err) => console.error(err));
+    bootstrapCloud();
     return () => {
       cancelled = true;
       if (unsubCloud) unsubCloud();
     };
-  }, [authReady, user]);
+  }, [authReady, user, cloudOnline, handleCloudSyncError]);
+
+  const activeGeocacheSectorCenterKey = useMemo(
+    () => computeGeocacheSectorKey(playerPos.lat, playerPos.lng),
+    [playerPos.lat, playerPos.lng]
+  );
+
+  useEffect(() => {
+    if (!authReady || !user || !cloudOnline) {
+      setCloudGeocaches([]);
+      return;
+    }
+    const sectorKeys = getNearbyGeocacheSectorKeys(playerPos.lat, playerPos.lng);
+    const unsubGeo = subscribeToNearbyGeocaches(sectorKeys, (list) => {
+      setCloudGeocaches(list);
+    });
+    return () => unsubGeo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, user, cloudOnline, activeGeocacheSectorCenterKey]);
 
   // Load cached offline sectors on mount
   useEffect(() => {
@@ -1508,11 +1662,11 @@ export default function App() {
       poiId: primary.poiId,
     });
 
-    if (user) {
+    if (user && cloudOnline) {
       Promise.all([
         ...newEntries.map((entry) => createDiscoveryInCloud(user.uid, entry)),
         syncProgressToCloud(user.uid, finalProgress),
-      ]).catch((err) => console.error(err));
+      ]).catch(handleCloudSyncError);
     }
   }, [
     playerPos,
@@ -1523,6 +1677,8 @@ export default function App() {
     evaluateMissionsWithEntries,
     muted,
     user,
+    cloudOnline,
+    handleCloudSyncError,
     guildPerks,
     timeMode,
     weather,
@@ -1579,10 +1735,19 @@ export default function App() {
       subtitle: `Prime d’exploration locale : +${newlyClaimed.xpBonus} XP`,
     });
 
-    if (user) {
-      syncProgressToCloud(user.uid, updatedProgress).catch((err) => console.error(err));
+    if (user && cloudOnline) {
+      syncProgressToCloud(user.uid, updatedProgress).catch(handleCloudSyncError);
     }
-  }, [dynamicContracts, entries, claimedContracts, progress, muted, user]);
+  }, [
+    dynamicContracts,
+    entries,
+    claimedContracts,
+    progress,
+    muted,
+    user,
+    cloudOnline,
+    handleCloudSyncError,
+  ]);
 
   const handleSaveJournalAnnotation = async (poiId: string, note: string, photoCount: number) => {
     const updatedEntries = entries.map((e) =>
@@ -1592,9 +1757,13 @@ export default function App() {
     const evaluatedProgress = evaluateMissionsWithEntries(updatedEntries, progress);
     setProgress(evaluatedProgress);
 
-    if (user) {
-      await updateDiscoveryJournalInCloud(user.uid, poiId, note, photoCount);
-      await syncProgressToCloud(user.uid, evaluatedProgress);
+    if (user && cloudOnline) {
+      try {
+        await updateDiscoveryJournalInCloud(user.uid, poiId, note, photoCount);
+        await syncProgressToCloud(user.uid, evaluatedProgress);
+      } catch (err) {
+        handleCloudSyncError(err);
+      }
     }
   };
 
@@ -1696,15 +1865,15 @@ export default function App() {
       const nextFog = new Set(restored.fogCells);
       setFogSet(nextFog);
       saveRevealedFogSet(nextFog);
-      if (user) {
+      if (user && cloudOnline) {
         Promise.all([
           syncProgressToCloud(user.uid, restored.progress),
           syncMissingDiscoveriesToCloud(user.uid, restored.entries),
           syncMissingSpecimensToCloud(user.uid, restored.specimens || []),
-        ]).catch((err) => console.error(err));
+        ]).catch(handleCloudSyncError);
       }
     },
-    [user]
+    [user, cloudOnline, handleCloudSyncError]
   );
 
   const handleUpdateAppearance = async (patch: Partial<ExplorerAppearance>) => {
@@ -1714,12 +1883,16 @@ export default function App() {
       ...patch,
     };
     setProgress(nextProgress);
-    if (user) {
-      await updateExplorerIdentityInCloud(
-        user.uid,
-        nextProgress.displayName,
-        resolveExplorerAppearance(nextProgress)
-      );
+    if (user && cloudOnline) {
+      try {
+        await updateExplorerIdentityInCloud(
+          user.uid,
+          nextProgress.displayName,
+          resolveExplorerAppearance(nextProgress)
+        );
+      } catch (err) {
+        handleCloudSyncError(err);
+      }
     }
   };
 
@@ -1744,8 +1917,9 @@ export default function App() {
     setSelectedPoiId(null);
     setSelectedJournalPoiId(null);
     setPostcardSubject(null);
+    setGeocacheModal(null);
 
-    // Reset local character state, Carnet, Bestiary, Herbarium, Rumors, contracts, session trail & fog of war
+    // Reset local character state, Carnet, Bestiary, Herbarium, Reliquary, Rumors, contracts, session trail & fog of war
     const freshProgress: ExplorerProgress = { ...INITIAL_PROGRESS, completedMissions: [] };
     setProgress(freshProgress);
     setCallsignDraft(freshProgress.displayName);
@@ -1754,9 +1928,15 @@ export default function App() {
     setRumorLeads([]);
     setSpecimens([]);
     setHarvestedSpecimenNodes(new Set());
+    setOpenedChests([]);
+    setLocalFallbackGeocaches([]);
+    setFoundGeocacheIds(new Set());
     saveEncountersToStorage([]);
     saveRumorLeadsToStorage([]);
     saveSpecimensToStorage([]);
+    saveOpenedArchivistChests([]);
+    saveLocalFallbackGeocaches([]);
+    saveFoundGeocacheIds(new Set());
     const emptyContracts = new Set<string>();
     setClaimedContracts(emptyContracts);
     saveClaimedSectorContracts(emptyContracts);
@@ -1781,10 +1961,22 @@ export default function App() {
 
     await clearAllStoredPhotos();
 
-    if (user) {
-      await resetExplorerCharacterInCloud(user.uid, freshProgress);
+    if (user && cloudOnline) {
+      try {
+        await resetExplorerCharacterInCloud(user.uid, freshProgress);
+      } catch (err) {
+        handleCloudSyncError(err);
+      }
     }
-  }, [surfacePois, subterraneanPois, playerPos.lat, playerPos.lng, user]);
+  }, [
+    surfacePois,
+    subterraneanPois,
+    playerPos.lat,
+    playerPos.lng,
+    user,
+    cloudOnline,
+    handleCloudSyncError,
+  ]);
 
   const handleEquipOutfit = async (outfitId: ExplorerOutfitId) => {
     await handleUpdateAppearance({ outfitId });
@@ -1798,12 +1990,16 @@ export default function App() {
     setCallsignDraft(cleaned);
     setCallsignSavedNotice(true);
     window.setTimeout(() => setCallsignSavedNotice(false), 2400);
-    if (user) {
-      await updateExplorerIdentityInCloud(
-        user.uid,
-        cleaned,
-        resolveExplorerAppearance(nextProgress)
-      );
+    if (user && cloudOnline) {
+      try {
+        await updateExplorerIdentityInCloud(
+          user.uid,
+          cleaned,
+          resolveExplorerAppearance(nextProgress)
+        );
+      } catch (err) {
+        handleCloudSyncError(err);
+      }
     }
   };
 
@@ -1826,10 +2022,13 @@ export default function App() {
         await signOutExplorer();
       } else {
         await signInExplorerWithGoogle();
+        setCloudOnline(true);
       }
     } catch (err) {
       setAuthError(
-        err instanceof Error ? err.message : 'La fenêtre de connexion Google a été interrompue.'
+        err instanceof Error && !err.message.startsWith('Firebase:')
+          ? err.message
+          : formatFirebaseAuthErrorFr(err)
       );
     }
   };
@@ -2030,10 +2229,22 @@ export default function App() {
     return Math.round(targetAlt - playerAltitude);
   }, [selectedMapPoi, elevation, playerAltitude]);
 
-  // Ambient local biome & relief mood
+  // Ambient local biome & relief mood + regional 16-bit architectural tradition
   const localAtmosphereLabel = useMemo(
     () => computeAtmosphereLabel(terrain, elevation),
     [terrain, elevation]
+  );
+
+  const regionalTheme = useMemo(
+    () =>
+      resolveRegionalTheme({
+        lat: playerPos.lat,
+        lng: playerPos.lng,
+        elevation,
+        bedrock,
+        terrain,
+      }),
+    [playerPos.lat, playerPos.lng, elevation, bedrock, terrain]
   );
 
   const observedBestiaryCount = useMemo(() => {
@@ -2153,8 +2364,8 @@ export default function App() {
             totalXp: prev.totalXp + 15,
             xpEcosysteme: prev.xpEcosysteme + 15,
           };
-          if (user) {
-            syncProgressToCloud(user.uid, next).catch(() => {});
+          if (user && cloudOnline) {
+            syncProgressToCloud(user.uid, next).catch(handleCloudSyncError);
           }
           return next;
         });
@@ -2173,14 +2384,22 @@ export default function App() {
             totalXp: prev.totalXp + 5,
             xpLegende: (prev.xpLegende || 0) + 5,
           };
-          if (user) {
-            syncProgressToCloud(user.uid, next).catch(() => {});
+          if (user && cloudOnline) {
+            syncProgressToCloud(user.uid, next).catch(handleCloudSyncError);
           }
           return next;
         });
       }
     },
-    [desktopSidebarCollapsed, isFullscreenMap, localAtmosphereLabel, muted, user]
+    [
+      cloudOnline,
+      desktopSidebarCollapsed,
+      handleCloudSyncError,
+      isFullscreenMap,
+      localAtmosphereLabel,
+      muted,
+      user,
+    ]
   );
 
   // Pin an informant's rumor/lead onto the explorer's map
@@ -2268,14 +2487,14 @@ export default function App() {
           xpEcosysteme: prev.xpEcosysteme + (node.domain === 'botanique' ? xpGain : 0),
           xpGeographie: prev.xpGeographie + (node.domain === 'geologie' ? xpGain : 0),
         };
-        if (user) {
-          syncProgressToCloud(user.uid, next).catch(() => {});
+        if (user && cloudOnline) {
+          syncProgressToCloud(user.uid, next).catch(handleCloudSyncError);
         }
         return next;
       });
 
-      if (user) {
-        upsertSpecimenInCloud(user.uid, syncedSpecimen).catch(() => {});
+      if (user && cloudOnline) {
+        upsertSpecimenInCloud(user.uid, syncedSpecimen).catch(handleCloudSyncError);
       }
 
       if (isFirstSpecimenPlate) {
@@ -2297,7 +2516,167 @@ export default function App() {
         });
       }
     },
-    [harvestedSpecimenNodes, specimens, muted, localAtmosphereLabel, user]
+    [harvestedSpecimenNodes, specimens, muted, localAtmosphereLabel, user, cloudOnline, handleCloudSyncError]
+  );
+
+  // Deterministic World Archivist Chests for the active real-world sector
+  const sectorAnchorQuantKey = `${Math.round(playerPos.lat * 100)}_${Math.round(playerPos.lng * 100)}`;
+  const worldChests = useMemo(() => {
+    return spawnWorldArchivistChests({
+      centerLat: playerPos.lat,
+      centerLng: playerPos.lng,
+      terrain,
+      subterranean,
+      elevation,
+      bedrock,
+      pois: [...surfacePois, ...subterraneanPois],
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectorAnchorQuantKey, terrain, subterranean, elevation, bedrock, surfacePois, subterraneanPois]);
+
+  const openedChestIdSet = useMemo(
+    () => new Set(openedChests.map((c) => c.chestId)),
+    [openedChests]
+  );
+
+  const mergedNearbyGeocaches = useMemo(() => {
+    const byId = new Map<string, ExplorerGeocacheRecord>();
+    for (const loc of localFallbackGeocaches) {
+      byId.set(loc.id, loc);
+    }
+    for (const cl of cloudGeocaches) {
+      byId.set(cl.id, cl);
+    }
+    return Array.from(byId.values());
+  }, [localFallbackGeocaches, cloudGeocaches]);
+
+  const handleOpenArchivistChest = useCallback(
+    (chest: WorldArchivistChestNode) => {
+      if (openedChestIdSet.has(chest.chestId)) {
+        setCarnetView('tresors');
+        setActiveTab('carnet');
+        if (isFullscreenMap) exitFullscreenMap();
+        return;
+      }
+
+      playChestOpenSfx(muted);
+      const record: OpenedArchivistChestRecord = {
+        chestId: chest.chestId,
+        archetype: chest.archetype,
+        title: chest.title,
+        placeNote: chest.placeNote,
+        relicId: chest.relic.id,
+        relicName: chest.relic.name,
+        category: chest.category,
+        regionLabel: localAtmosphereLabel || 'Secteur local',
+        lat: chest.lat,
+        lng: chest.lng,
+        altitudeMeters: chest.altitudeMeters,
+        isSubterranean: chest.isSubterranean,
+        xpAwarded: chest.xpReward,
+        openedAtIso: new Date().toISOString(),
+      };
+
+      setOpenedChests((prev) => [
+        record,
+        ...prev.filter((r) => r.chestId !== chest.chestId),
+      ]);
+
+      setProgress((prev) => {
+        const next: ExplorerProgress = {
+          ...prev,
+          totalXp: prev.totalXp + chest.xpReward,
+          xpHistoire: prev.xpHistoire + (chest.category === 'histoire' ? chest.xpReward : 0),
+          xpGeographie: prev.xpGeographie + (chest.category === 'geographie' ? chest.xpReward : 0),
+          xpEcosysteme: prev.xpEcosysteme + (chest.category === 'ecosysteme' ? chest.xpReward : 0),
+          xpEtrange: prev.xpEtrange + (chest.category === 'etrange' ? chest.xpReward : 0),
+          xpLegende: (prev.xpLegende || 0) + (chest.category === 'legende' ? chest.xpReward : 0),
+        };
+        if (user && cloudOnline) {
+          syncProgressToCloud(user.uid, next).catch(handleCloudSyncError);
+        }
+        return next;
+      });
+
+      if (user && cloudOnline) {
+        recordOpenedArchivistChestInCloud(user.uid, record).catch(handleCloudSyncError);
+      }
+
+      const catMeta = CATEGORY_META[chest.category] || CATEGORY_META.geographie;
+      setCutIn({
+        id: `chest_${chest.chestId}_${Date.now()}`,
+        kind: 'discovery',
+        kicker: `Coffre d’Archiviste descellé · +${chest.xpReward} XP ${catMeta.shortLabel}`,
+        title: chest.relic.name,
+        subtitle: `${chest.title} · ${localAtmosphereLabel}`,
+        emblemSrc: catMeta.emblemSrc,
+        openReliquary: true,
+      });
+    },
+    [
+      openedChestIdSet,
+      muted,
+      localAtmosphereLabel,
+      user,
+      cloudOnline,
+      handleCloudSyncError,
+      isFullscreenMap,
+      exitFullscreenMap,
+    ]
+  );
+
+  const handleClaimGeocacheDiscovery = useCallback(
+    (cache: ExplorerGeocacheRecord) => {
+      if (foundGeocacheIds.has(cache.id)) return;
+      playChestOpenSfx(muted);
+      setFoundGeocacheIds((prev) => {
+        const next = new Set(prev);
+        next.add(cache.id);
+        return next;
+      });
+
+      const xpBonus = 90;
+      setProgress((prev) => {
+        const next: ExplorerProgress = {
+          ...prev,
+          totalXp: prev.totalXp + xpBonus,
+          xpGeographie: prev.xpGeographie + 45,
+          xpLegende: (prev.xpLegende || 0) + 45,
+        };
+        if (user && cloudOnline) {
+          syncProgressToCloud(user.uid, next).catch(handleCloudSyncError);
+        }
+        return next;
+      });
+
+      setCutIn({
+        id: `geocache_${cache.id}_${Date.now()}`,
+        kind: 'discovery',
+        kicker: 'Capsule d’Explorateur découverte !',
+        title: `${cache.title} (${cache.giftName})`,
+        subtitle: `+${xpBonus} XP · Cachée par ${cache.authorCallsign}`,
+        emblemSrc: CATEGORY_META.legende.emblemSrc,
+        openReliquary: true,
+      });
+    },
+    [foundGeocacheIds, muted, user, cloudOnline, handleCloudSyncError]
+  );
+
+  const handleFocusTreasureTargetOnMap = useCallback(
+    (lat: number, lng: number, isSub: boolean) => {
+      setSubterraneanMode(isSub);
+      const dist = haversineMeters(playerPos.lat, playerPos.lng, lat, lng);
+      if (dist <= 1800 && simulationMode) {
+        setDashedTracesEnabled(true);
+        setRouteRequest({ id: Date.now(), lat, lng });
+      } else {
+        teleportToLocation(lat, lng);
+      }
+      setActiveTab('carte');
+      setMobileDrawer('none');
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [playerPos.lat, playerPos.lng, simulationMode]
   );
 
   const handleOpenNpcPostcard = useCallback(
@@ -3270,6 +3649,38 @@ export default function App() {
 
               {mobileDrawer === 'signals' && (
                 <div className="space-y-2.5">
+                  <TelluricDetectorCard
+                    playerLat={playerPos.lat}
+                    playerLng={playerPos.lng}
+                    subterraneanMode={subterraneanMode}
+                    simulationMode={simulationMode}
+                    muted={muted}
+                    worldChests={worldChests}
+                    openedChestIds={openedChestIdSet}
+                    nearbyGeocaches={mergedNearbyGeocaches}
+                    foundGeocacheIds={foundGeocacheIds}
+                    unlockedEntries={entries}
+                    currentUserId={user ? user.uid : null}
+                    onOpenArchivistChest={(ch) => {
+                      setMobileDrawer('none');
+                      handleOpenArchivistChest(ch);
+                    }}
+                    onFocusMapTarget={handleFocusTreasureTargetOnMap}
+                    onOpenBuryModal={() => {
+                      setMobileDrawer('none');
+                      setGeocacheModal({ mode: 'bury' });
+                    }}
+                    onInspectGeocache={(c) => {
+                      setMobileDrawer('none');
+                      setGeocacheModal({ mode: 'inspect', cache: c });
+                    }}
+                    onOpenReliquaryTab={() => {
+                      setMobileDrawer('none');
+                      if (isFullscreenMap) exitFullscreenMap();
+                      setCarnetView('tresors');
+                      setActiveTab('carnet');
+                    }}
+                  />
                   {renderExpeditionLoopCard()}
                   {sortedNearbyPois.length === 0 ? (
                     <p className="text-xs text-[#6b4928] py-6 text-center">
@@ -3373,6 +3784,51 @@ export default function App() {
       </Suspense>
     ) : null;
 
+  const renderGeocacheModal = () =>
+    geocacheModal ? (
+      <Suspense fallback={null}>
+        <LazyGeocacheModal
+          mode={geocacheModal.mode}
+          cache={geocacheModal.mode === 'inspect' ? geocacheModal.cache : null}
+          playerLat={playerPos.lat}
+          playerLng={playerPos.lng}
+          subterraneanMode={subterraneanMode}
+          simulationMode={simulationMode}
+          currentRegionLabel={localAtmosphereLabel}
+          muted={muted}
+          currentUser={cloudOnline ? user : null}
+          cloudOnline={cloudOnline}
+          explorerCallsign={progress.displayName}
+          explorerAppearance={explorerAppearance}
+          openedChests={openedChests}
+          specimens={specimens}
+          unlockedEntries={entries}
+          foundGeocacheIds={foundGeocacheIds}
+          onClose={() => setGeocacheModal(null)}
+          onRequestGoogleSignIn={handleAuthAction}
+          onFocusMapTarget={handleFocusTreasureTargetOnMap}
+          onClaimGeocacheDiscovery={handleClaimGeocacheDiscovery}
+          onLocalCacheUpserted={(savedCache) => {
+            if (savedCache.id.startsWith('local_')) {
+              setLocalFallbackGeocaches((prev) => [
+                savedCache,
+                ...prev.filter((c) => c.id !== savedCache.id),
+              ]);
+            } else {
+              setCloudGeocaches((prev) => [
+                savedCache,
+                ...prev.filter((c) => c.id !== savedCache.id),
+              ]);
+            }
+          }}
+          onLocalCacheDeleted={(cacheId) => {
+            setLocalFallbackGeocaches((prev) => prev.filter((c) => c.id !== cacheId));
+            setCloudGeocaches((prev) => prev.filter((c) => c.id !== cacheId));
+          }}
+        />
+      </Suspense>
+    ) : null;
+
   // ==========================================================================
   // IMMERSIVE 100dvh FULLSCREEN MAP MODE (Desktop, Smartphone & AI Studio Iframe)
   // ==========================================================================
@@ -3431,6 +3887,13 @@ export default function App() {
             harvestedNodeIds={harvestedSpecimenNodes}
             onHarvestSpecimen={handleHarvestSpecimen}
             onOpenNpcPostcard={handleOpenNpcPostcard}
+            worldChests={worldChests}
+            openedChestIds={openedChestIdSet}
+            onOpenArchivistChest={handleOpenArchivistChest}
+            nearbyGeocaches={mergedNearbyGeocaches}
+            foundGeocacheIds={foundGeocacheIds}
+            currentUserId={user ? user.uid : null}
+            onInspectGeocache={(cache) => setGeocacheModal({ mode: 'inspect', cache })}
           />
 
           {/* Discovery Cut-In Banner inside Fullscreen */}
@@ -3476,6 +3939,20 @@ export default function App() {
                       className="min-h-[44px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
                     >
                       Équiper
+                    </button>
+                  )}
+                  {cutIn.openReliquary && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCutIn(null);
+                        exitFullscreenMap();
+                        setCarnetView('tresors');
+                        setActiveTab('carnet');
+                      }}
+                      className="min-h-[44px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
+                    >
+                      Reliquaire
                     </button>
                   )}
                   <button
@@ -3701,7 +4178,7 @@ export default function App() {
                       fullscreenModalEntry.lat,
                       fullscreenModalEntry.lng
                     )}
-                    currentUser={user}
+                    currentUser={cloudOnline ? user : null}
                     muted={muted}
                     onRequestCloudSignIn={handleAuthAction}
                     onSaveJournalAnnotation={handleSaveJournalAnnotation}
@@ -3718,6 +4195,7 @@ export default function App() {
 
         {renderOverlayDrawers()}
         {renderPostcardModal()}
+        {renderGeocacheModal()}
       </div>
     );
   }
@@ -4195,15 +4673,21 @@ export default function App() {
                         <div className="pointer-events-none absolute inset-0 pixel-gauge-segments" />
                       </div>
 
-                      {bedrock && (
+                      {bedrock ? (
                         <div className="text-xs text-[#54361d] flex items-center gap-1.5 truncate max-w-2xl">
                           <PixelUiIcon name="bedrock" className="w-3.5 h-3.5" />
-                          <span className="text-sky-900 font-bold shrink-0">Socle géologique :</span>
+                          <span className="text-sky-900 font-bold shrink-0">Socle & bâti :</span>
                           <span className="truncate">
                             {bedrock.lithology} ·{' '}
                             <strong className="text-amber-950">{bedrock.period}</strong> (
-                            {bedrock.ageRangeMa})
+                            {bedrock.ageRangeMa}) · {regionalTheme.shortLabel}
                           </span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-[#54361d] flex items-center gap-1.5 truncate max-w-2xl">
+                          <PixelUiIcon name="map" className="w-3.5 h-3.5" />
+                          <span className="text-amber-950 font-bold shrink-0">Bâti régional :</span>
+                          <span className="truncate">{regionalTheme.fullLabel}</span>
                         </div>
                       )}
                     </div>
@@ -4336,6 +4820,21 @@ export default function App() {
                   >
                     <PixelUiIcon name="user-profile" className="w-4 h-4" />
                     <span>Équiper au Profil</span>
+                  </button>
+                )}
+                {cutIn.openReliquary && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCutIn(null);
+                      setUiCollapsed(false);
+                      setCarnetView('tresors');
+                      setActiveTab('carnet');
+                    }}
+                    className="min-h-[42px] sm:min-h-0 inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
+                  >
+                    <PixelUiIcon name="chest" className="w-4 h-4" />
+                    <span>Voir au Reliquaire</span>
                   </button>
                 )}
                 <button
@@ -4929,6 +5428,13 @@ export default function App() {
                     harvestedNodeIds={harvestedSpecimenNodes}
                     onHarvestSpecimen={handleHarvestSpecimen}
                     onOpenNpcPostcard={handleOpenNpcPostcard}
+                    worldChests={worldChests}
+                    openedChestIds={openedChestIdSet}
+                    onOpenArchivistChest={handleOpenArchivistChest}
+                    nearbyGeocaches={mergedNearbyGeocaches}
+                    foundGeocacheIds={foundGeocacheIds}
+                    currentUserId={user ? user.uid : null}
+                    onInspectGeocache={(cache) => setGeocacheModal({ mode: 'inspect', cache })}
                   />
 
                   {/* Desktop Floating Tactile D-Pad (when unfolded via D-Pad toggle) */}
@@ -5098,6 +5604,28 @@ export default function App() {
                         )}
                       </div>
                     </div>
+
+                    <TelluricDetectorCard
+                      playerLat={playerPos.lat}
+                      playerLng={playerPos.lng}
+                      subterraneanMode={subterraneanMode}
+                      simulationMode={simulationMode}
+                      muted={muted}
+                      worldChests={worldChests}
+                      openedChestIds={openedChestIdSet}
+                      nearbyGeocaches={mergedNearbyGeocaches}
+                      foundGeocacheIds={foundGeocacheIds}
+                      unlockedEntries={entries}
+                      currentUserId={user ? user.uid : null}
+                      onOpenArchivistChest={handleOpenArchivistChest}
+                      onFocusMapTarget={handleFocusTreasureTargetOnMap}
+                      onOpenBuryModal={() => setGeocacheModal({ mode: 'bury' })}
+                      onInspectGeocache={(c) => setGeocacheModal({ mode: 'inspect', cache: c })}
+                      onOpenReliquaryTab={() => {
+                        setCarnetView('tresors');
+                        setActiveTab('carnet');
+                      }}
+                    />
 
                     {renderExpeditionLoopCard()}
 
@@ -5286,6 +5814,11 @@ export default function App() {
                         label: `Herbier & Roches · ${specimens.length}/${SPECIMENS_CATALOG.length}`,
                         icon: 'leaf',
                       },
+                      {
+                        id: 'tresors',
+                        label: `Trésors & Caches · ${openedChests.length}`,
+                        icon: 'chest',
+                      },
                       { id: 'frise', label: 'Frise des Strates', icon: 'bedrock' },
                       { id: 'constellation', label: 'Constellation', icon: 'constellation' },
                       {
@@ -5373,6 +5906,30 @@ export default function App() {
                       setActiveTab('carte');
                     }}
                     onOpenPostcard={setPostcardSubject}
+                  />
+                </Suspense>
+              ) : carnetView === 'tresors' ? (
+                <Suspense
+                  fallback={
+                    <div className="grimoire-folio p-6 text-center text-xs font-bold text-[#24160c]">
+                      Ouverture du Reliquaire & des Géocaches…
+                    </div>
+                  }
+                >
+                  <LazyTreasuresAndGeocachesView
+                    openedChests={openedChests}
+                    worldChests={worldChests}
+                    nearbyGeocaches={mergedNearbyGeocaches}
+                    foundGeocacheIds={foundGeocacheIds}
+                    playerLat={playerPos.lat}
+                    playerLng={playerPos.lng}
+                    simulationMode={simulationMode}
+                    muted={muted}
+                    currentUserId={user ? user.uid : null}
+                    onFocusLocationOnMap={handleFocusTreasureTargetOnMap}
+                    onOpenArchivistChest={handleOpenArchivistChest}
+                    onOpenBuryModal={() => setGeocacheModal({ mode: 'bury' })}
+                    onInspectGeocache={(c) => setGeocacheModal({ mode: 'inspect', cache: c })}
                   />
                 </Suspense>
               ) : carnetView === 'besace' ? (
@@ -5568,7 +6125,7 @@ export default function App() {
                             activeJournalEntry.lat,
                             activeJournalEntry.lng
                           )}
-                          currentUser={user}
+                          currentUser={cloudOnline ? user : null}
                           muted={muted}
                           onRequestCloudSignIn={handleAuthAction}
                           onSaveJournalAnnotation={handleSaveJournalAnnotation}
@@ -6164,6 +6721,7 @@ export default function App() {
 
       {renderOverlayDrawers()}
       {renderPostcardModal()}
+      {renderGeocacheModal()}
     </div>
   );
 }
