@@ -1,0 +1,967 @@
+export type ExplorationCategory =
+  | 'histoire'
+  | 'geographie'
+  | 'legende'
+  | 'etrange'
+  | 'ecosysteme';
+
+export type HistoricalStratum =
+  | 'temps_profond'
+  | 'prehistoire'
+  | 'antiquite'
+  | 'moyen_age'
+  | 'moderne'
+  | 'contemporain'
+  | 'vivant_folklore';
+
+export type ActiveTab = 'carte' | 'carnet' | 'missions' | 'branches' | 'profil';
+
+export type CarnetViewMode =
+  | 'liste'
+  | 'bestiaire'
+  | 'herbier'
+  | 'frise'
+  | 'constellation'
+  | 'besace';
+
+export interface NpcEncounterRecord {
+  id: string;
+  kind: string;
+  isHuman: boolean;
+  isSubterranean: boolean;
+  name: string;
+  roleLabel: string;
+  habitatLabel: string;
+  regionLabel: string;
+  regionsVisited: string[];
+  lat: number;
+  lng: number;
+  seed: number;
+  dialogues: string[];
+  sightingsCount: number;
+  firstMetIso: string;
+  lastMetIso: string;
+}
+
+export interface RumorLead {
+  id: string;
+  targetType: 'poi' | 'portal';
+  targetId: string;
+  title: string;
+  rumorText: string;
+  giverId: string;
+  giverName: string;
+  giverRole: string;
+  regionLabel: string;
+  lat: number;
+  lng: number;
+  isSubterranean: boolean;
+  category?: ExplorationCategory;
+  verified: boolean;
+  createdAtIso: string;
+  verifiedAtIso?: string;
+}
+
+export type ZoomLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
+export type WeatherCondition = 'clear' | 'cloudy' | 'rain' | 'snow' | 'fog' | 'storm';
+
+export interface WeatherInfo {
+  condition: WeatherCondition;
+  tempC: number;
+  windKmh: number;
+  isDay: boolean;
+  labelFr: string;
+}
+
+export type TimeOfDayMode = 'auto' | 'dawn' | 'day' | 'dusk' | 'night';
+
+export type EffectiveTimeOfDay = 'dawn' | 'day' | 'dusk' | 'night';
+
+export function resolveEffectiveTimeOfDay(
+  timeMode: TimeOfDayMode,
+  weather?: WeatherInfo | null
+): EffectiveTimeOfDay {
+  if (timeMode && timeMode !== 'auto') return timeMode;
+  const h = new Date().getHours();
+  if (weather && !weather.isDay && h >= 7 && h <= 18) return 'night';
+  if (h >= 6 && h < 9) return 'dawn';
+  if (h >= 9 && h < 18) return 'day';
+  if (h >= 18 && h < 21) return 'dusk';
+  return 'night';
+}
+
+export type SpecimenDomain = 'botanique' | 'geologie';
+
+export type LithologyAffinity =
+  | 'calcaire'
+  | 'granit'
+  | 'schiste'
+  | 'gres'
+  | 'alluvions'
+  | 'volcanique'
+  | 'souterrain';
+
+export interface CollectedSpecimen {
+  specimenId: string;
+  domain: SpecimenDomain;
+  affinity: LithologyAffinity;
+  name: string;
+  latinOrMineralName: string;
+  familyLabel: string;
+  lithologyLabel: string;
+  bedrockPeriod: string;
+  bedrockAgeMa: string;
+  regionLabel: string;
+  habitatLabel: string;
+  lat: number;
+  lng: number;
+  altitudeMeters: number | null;
+  isSubterranean: boolean;
+  harvestCount: number;
+  firstCollectedIso: string;
+  lastCollectedIso: string;
+  description: string;
+}
+
+export type PostcardSubject =
+  | { kind: 'poi'; entry: UnlockedEntry }
+  | { kind: 'encounter'; encounter: NpcEncounterRecord }
+  | { kind: 'specimen'; specimen: CollectedSpecimen };
+
+export type SurfaceType = 'stone' | 'grass' | 'wood' | 'gravel';
+
+export type ExplorerAvatarPreset =
+  | 'cartographe'
+  | 'eclaireur'
+  | 'archiviste'
+  | 'forgeron'
+  | 'oracle'
+  | 'botaniste';
+
+export type ExplorerSkinTone = 'clair' | 'hale' | 'ambre' | 'ebene' | 'porcelaine';
+
+export type ExplorerHeadgearId =
+  | 'tricorne_fauve'
+  | 'beret_chroniqueur'
+  | 'casque_mineur'
+  | 'capuche_sylvestre'
+  | 'couronne_menhir'
+  | 'lunettes_astro';
+
+export type ExplorerOutfitId =
+  | 'arpenteur'
+  | 'chroniqueur'
+  | 'geomancien'
+  | 'sylvestre'
+  | 'ombres'
+  | 'barde';
+
+export type ExplorerToolId =
+  | 'lanterne_laiton'
+  | 'boussole_astrale'
+  | 'marteau_geologue'
+  | 'plume_enluminee'
+  | 'fiole_spectrale';
+
+export type ExplorerPackId =
+  | 'besace_cuir'
+  | 'rouleau_cartes'
+  | 'hotte_cristaux'
+  | 'ailerons_automate';
+
+export type ExplorerGender = 'feminin' | 'masculin' | 'neutre';
+
+export interface ExplorerAppearance {
+  gender: ExplorerGender;
+  avatarPreset: ExplorerAvatarPreset;
+  skinTone: ExplorerSkinTone;
+  headgearId: ExplorerHeadgearId;
+  outfitId: ExplorerOutfitId;
+  toolId: ExplorerToolId;
+  packId: ExplorerPackId;
+}
+
+export type CairnTag =
+  | 'architecture'
+  | 'acces'
+  | 'point_de_vue'
+  | 'conseil_heure'
+  | 'secret';
+
+export interface ExplorerCairn {
+  id: string;
+  authorId: string;
+  authorCallsign: string;
+  authorGender?: ExplorerGender;
+  authorAvatarPreset?: ExplorerAvatarPreset;
+  authorSkinTone?: ExplorerSkinTone;
+  authorHeadgearId?: ExplorerHeadgearId;
+  authorOutfitId?: ExplorerOutfitId;
+  poiId: string;
+  poiName: string;
+  tag: CairnTag;
+  message: string;
+  createdAtIso: string;
+}
+
+export const CAIRN_TAG_META: Record<CairnTag, { label: string; badgeClass: string }> = {
+  architecture: {
+    label: 'Détail architectural',
+    badgeClass: 'bg-amber-200 text-amber-950 border-amber-800',
+  },
+  acces: {
+    label: 'Chemin & accès',
+    badgeClass: 'bg-emerald-200 text-emerald-950 border-emerald-800',
+  },
+  point_de_vue: {
+    label: 'Point de vue',
+    badgeClass: 'bg-sky-200 text-sky-950 border-sky-800',
+  },
+  conseil_heure: {
+    label: 'Lumière & heure idéale',
+    badgeClass: 'bg-purple-200 text-purple-950 border-purple-800',
+  },
+  secret: {
+    label: 'Indice discret',
+    badgeClass: 'bg-rose-200 text-rose-950 border-rose-800',
+  },
+};
+
+export interface ZoomMeta {
+  level: ZoomLevel;
+  scaleTag: string;
+  label: string;
+  metersPerPx: number;
+}
+
+export const ZOOM_LEVELS: ZoomLevel[] = [1, 2, 3, 4, 5, 6];
+
+export const ZOOM_META: Record<ZoomLevel, ZoomMeta> = {
+  1: { level: 1, scaleTag: '0.5x', label: 'Contrée', metersPerPx: 4.6 },
+  2: { level: 2, scaleTag: '0.8x', label: 'Vallée', metersPerPx: 2.9 },
+  3: { level: 3, scaleTag: '1.3x', label: 'Bourg', metersPerPx: 1.8 },
+  4: { level: 4, scaleTag: '2x', label: 'Quartier', metersPerPx: 1.12 },
+  5: { level: 5, scaleTag: '3x', label: 'Ruelle', metersPerPx: 0.7 },
+  6: { level: 6, scaleTag: '4.5x', label: 'Détail', metersPerPx: 0.45 },
+};
+
+/**
+ * Scales simulated walk step distances proportionally to the active zoom's meters-per-pixel,
+ * keeping on-screen stride velocity natural across regional (0.5x) and street-detail (4.5x) zooms.
+ */
+export function getZoomWalkStepMeters(zoomLevel: ZoomLevel): {
+  manualStepMeters: number;
+  tickStepMeters: number;
+  snapMeters: number;
+} {
+  const ratio = ZOOM_META[zoomLevel].metersPerPx / ZOOM_META[4].metersPerPx;
+  const manualStepMeters = Math.max(8, Math.round(24 * ratio));
+  const tickStepMeters = Math.max(9, Math.round(25 * ratio));
+  const snapMeters = Math.max(7, Math.round(18 * ratio));
+  return { manualStepMeters, tickStepMeters, snapMeters };
+}
+
+export interface PoiItem {
+  id: string;
+  name: string;
+  mysteryTitle: string;
+  category: ExplorationCategory;
+  subType: string;
+  stratum: HistoricalStratum;
+  eraLabel: string;
+  source: string;
+  lat: number;
+  lng: number;
+  summary: string;
+  nearWaterway: boolean;
+  waterwayName: string;
+  safetyNotice: string;
+  externalUrl: string;
+  xpReward: number;
+  unlockRadiusMeters: number;
+  relatedPoiIds: string[];
+  relatedPoiTitles: string[];
+  isSubterranean?: boolean;
+}
+
+export type TerrainKind =
+  | 'water'
+  | 'island'
+  | 'waterway'
+  | 'forest'
+  | 'park'
+  | 'farmland'
+  | 'residential'
+  | 'industrial'
+  | 'commercial'
+  | 'cemetery'
+  | 'plaza'
+  | 'pier'
+  | 'building'
+  | 'major_road'
+  | 'minor_road'
+  | 'path'
+  | 'steps'
+  | 'bridge'
+  | 'rail';
+
+export type BridgeMode = 'road' | 'minor' | 'path' | 'rail';
+
+export type LandmarkStyle =
+  | 'church'
+  | 'castle'
+  | 'station'
+  | 'civic'
+  | 'arena'
+  | 'tower'
+  | 'fountain';
+
+export type BuildingArchetype =
+  | 'urban_midrise'
+  | 'commercial_shop'
+  | 'industrial'
+  | 'suburban_house'
+  | 'village_cottage'
+  | 'rural_farm'
+  | 'civic_school';
+
+export interface TerrainFeature {
+  id: string;
+  kind: TerrainKind;
+  isPolygon?: boolean;
+  name: string;
+  points: Array<{ lat: number; lng: number }>;
+  bridgeMode?: BridgeMode;
+  landmark?: LandmarkStyle;
+  bldgClass?: BuildingArchetype;
+  levels?: number;
+  waterwayRank?: 'river' | 'canal' | 'stream';
+}
+
+export interface BedrockInfo {
+  period: string;
+  ageRangeMa: string;
+  lithology: string;
+  environment: string;
+}
+
+export interface ElevationGrid {
+  centerLat: number;
+  centerLng: number;
+  cols: number;
+  rows: number;
+  stepMeters: number;
+  minMeters: number;
+  maxMeters: number;
+  contourStepMeters: number;
+  sourceLabel: string;
+  /** Row-major (North to South, West to East) elevation values in decimeters (10 = 1.0 m) */
+  elevDm: number[];
+}
+
+export type SubterraneanKind =
+  | 'tunnel_road'
+  | 'subway'
+  | 'underground_water'
+  | 'quarry'
+  | 'cave_cellar'
+  | 'natural_cave'
+  | 'mine'
+  | 'crypt'
+  | 'military'
+  | 'well_aquifer'
+  | 'portal';
+
+export interface SubterraneanFeature {
+  id: string;
+  kind: SubterraneanKind;
+  name: string;
+  isLine?: boolean;
+  points: Array<{ lat: number; lng: number }>;
+  depthLabel?: string;
+  source?: string;
+}
+
+export interface SectorPayloadData {
+  center: { lat: number; lng: number };
+  radiusMeters: number;
+  pois: PoiItem[];
+  terrain: TerrainFeature[];
+  subterranean?: SubterraneanFeature[];
+  bedrock: BedrockInfo | null;
+  elevation?: ElevationGrid | null;
+  weather?: WeatherInfo | null;
+  sourcesActive: string[];
+  fetchedAt?: string;
+}
+
+/**
+ * Smooth bilinear interpolation of real-world altitude (in meters) at any (lat, lng) within the sector grid
+ */
+export function sampleElevationMeters(
+  grid: ElevationGrid | null | undefined,
+  lat: number,
+  lng: number
+): number | null {
+  if (!grid || !grid.elevDm || grid.elevDm.length < grid.cols * grid.rows) return null;
+  const cosLat = Math.max(0.15, Math.cos((grid.centerLat * Math.PI) / 180));
+  const dxMeters = (lng - grid.centerLng) * 111320 * cosLat;
+  const dyMeters = (grid.centerLat - lat) * 110540;
+
+  const halfX = (grid.cols - 1) / 2;
+  const halfY = (grid.rows - 1) / 2;
+  const fx = Math.max(0, Math.min(grid.cols - 1.001, halfX + dxMeters / grid.stepMeters));
+  const fy = Math.max(0, Math.min(grid.rows - 1.001, halfY + dyMeters / grid.stepMeters));
+
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const x1 = Math.min(grid.cols - 1, x0 + 1);
+  const y1 = Math.min(grid.rows - 1, y0 + 1);
+  const tx = fx - x0;
+  const ty = fy - y0;
+
+  const v00 = grid.elevDm[y0 * grid.cols + x0];
+  const v10 = grid.elevDm[y0 * grid.cols + x1];
+  const v01 = grid.elevDm[y1 * grid.cols + x0];
+  const v11 = grid.elevDm[y1 * grid.cols + x1];
+
+  const top = v00 + (v10 - v00) * tx;
+  const bot = v01 + (v11 - v01) * tx;
+  return (top + (bot - top) * ty) / 10;
+}
+
+export interface UnlockedEntry {
+  poiId: string;
+  name: string;
+  category: ExplorationCategory;
+  subType: string;
+  eraLabel: string;
+  source: string;
+  lat: number;
+  lng: number;
+  summary: string;
+  nearWaterway: boolean;
+  waterwayName: string;
+  safetyNotice: string;
+  externalUrl: string;
+  xpAwarded: number;
+  relatedPoiIds: string[];
+  relatedPoiTitles: string[];
+  personalNote: string;
+  photoCount: number;
+  discoveredAtIso: string;
+}
+
+export interface ExplorerProgress {
+  displayName: string;
+  totalXp: number;
+  xpHistoire: number;
+  xpGeographie: number;
+  xpEcosysteme: number;
+  xpEtrange: number;
+  xpLegende: number;
+  gender?: ExplorerGender;
+  avatarPreset?: ExplorerAvatarPreset;
+  skinTone?: ExplorerSkinTone;
+  headgearId?: ExplorerHeadgearId;
+  outfitId?: ExplorerOutfitId;
+  toolId?: ExplorerToolId;
+  packId?: ExplorerPackId;
+  walkedMeters?: number;
+  discoveriesCount: number;
+  completedMissions: string[];
+}
+
+export interface CategoryMeta {
+  key: ExplorationCategory;
+  label: string;
+  shortLabel: string;
+  guildRankTitle: string;
+  tagline: string;
+  emblemSrc: string;
+  mapHex: string;
+  mapTextClass: string;
+  accentBgClass: string;
+}
+
+export const HERO_BANNER_SRC = '/src/assets/images/hero_overworld_16bit_1793180778807.jpg';
+export const EXPLORER_PORTRAIT_SRC = '/src/assets/images/jrpg_explorer_portrait_1793182565537.jpg';
+
+export const CATEGORY_ORDER: ExplorationCategory[] = [
+  'histoire',
+  'geographie',
+  'legende',
+  'etrange',
+  'ecosysteme',
+];
+
+export const CATEGORY_META: Record<ExplorationCategory, CategoryMeta> = {
+  histoire: {
+    key: 'histoire',
+    label: 'Histoire, Fouilles & Arts',
+    shortLabel: 'Histoire',
+    guildRankTitle: 'Chroniqueur des Âges',
+    tagline:
+      'Fouilles archéologiques (INRAP / Atlas), monuments Mérimée, trésors mobiliers classés Palissy, tableaux Joconde, lieux de romans et plaques.',
+    emblemSrc: '/src/assets/images/cat_histoire_emblem_1793180780013.jpg',
+    mapHex: '#f59e0b',
+    mapTextClass: 'text-amber-900',
+    accentBgClass: 'bg-amber-500',
+  },
+  geographie: {
+    key: 'geographie',
+    label: 'Géologie INPG, Reliefs & Eaux',
+    shortLabel: 'Géologie',
+    guildRankTitle: 'Géomancien des Roches',
+    tagline:
+      'Géosites nationaux INPG (MNHN), substrat en millions d’années, gisements de fossiles, chaos rocheux, fontaines et sources vives IGN.',
+    emblemSrc: '/src/assets/images/cat_geographie_emblem_1793180781022.jpg',
+    mapHex: '#0284c7',
+    mapTextClass: 'text-sky-900',
+    accentBgClass: 'bg-sky-500',
+  },
+  legende: {
+    key: 'legende',
+    label: 'Légendes, Contes & Lieux-Dits',
+    shortLabel: 'Légendes',
+    guildRankTitle: 'Chasseur de Mythes',
+    tagline:
+      'Légendes urbaines et rurales, toponymes anciens aux fées et au diable, mégalithes enchantés, fontaines miraculeuses et récits littéraires.',
+    emblemSrc: '/src/assets/images/cat_legende_emblem_1793182564466.jpg',
+    mapHex: '#9333ea',
+    mapTextClass: 'text-purple-900',
+    accentBgClass: 'bg-purple-500',
+  },
+  etrange: {
+    key: 'etrange',
+    label: 'Souterrains, Friches & Rails',
+    shortLabel: 'Souterrains',
+    guildRankTitle: 'Éclaireur des Ombres',
+    tagline:
+      'Cavités et nappes souterraines BRGM, carrières, friches industrielles et ouvrières, moulins oubliés, voies ferrées fantômes et ruines.',
+    emblemSrc: '/src/assets/images/cat_etrange_emblem_1793180782207.jpg',
+    mapHex: '#e11d48',
+    mapTextClass: 'text-rose-900',
+    accentBgClass: 'bg-rose-500',
+  },
+  ecosysteme: {
+    key: 'ecosysteme',
+    label: 'Écosystème, ZNIEFF & Arbres',
+    shortLabel: 'Écosystème',
+    guildRankTitle: 'Naturaliste Sylvestre',
+    tagline:
+      'Sanctuaires écologiques ZNIEFF (INPN), arbres remarquables centenaires, sites naturels classés et espèces sauvages (iNaturalist & GBIF).',
+    emblemSrc: '/src/assets/images/cat_ecosysteme_emblem_1793180782808.jpg',
+    mapHex: '#059669',
+    mapTextClass: 'text-emerald-900',
+    accentBgClass: 'bg-emerald-500',
+  },
+};
+
+export const STRATUM_ORDER: HistoricalStratum[] = [
+  'temps_profond',
+  'prehistoire',
+  'antiquite',
+  'moyen_age',
+  'moderne',
+  'contemporain',
+  'vivant_folklore',
+];
+
+export const STRATUM_META: Record<HistoricalStratum, { label: string; short: string; eraSpan: string }> = {
+  temps_profond: {
+    label: 'Temps Géologique Profond (Ma)',
+    short: 'Géologie & Fossiles',
+    eraSpan: '−500 Ma à −2,5 Ma',
+  },
+  prehistoire: {
+    label: 'Préhistoire & Mégalithes',
+    short: 'Préhistoire',
+    eraSpan: 'Paléolithique · Néolithique',
+  },
+  antiquite: {
+    label: 'Antiquité & Gallo-Romain',
+    short: 'Antiquité',
+    eraSpan: 'Ve s. av. J.-C. – Ve s.',
+  },
+  moyen_age: {
+    label: 'Moyen Âge',
+    short: 'Moyen Âge',
+    eraSpan: 'Ve – XVe siècle',
+  },
+  moderne: {
+    label: 'Époque Moderne (XVIe–XVIIIe)',
+    short: 'XVIe–XVIIIe',
+    eraSpan: '1500 – 1789',
+  },
+  contemporain: {
+    label: 'Ère Industrielle & Contemporaine',
+    short: 'XIXe–XXIe',
+    eraSpan: '1789 – Aujourd’hui',
+  },
+  vivant_folklore: {
+    label: 'Folklore Vivant & Biodiversité',
+    short: 'Vivant & Mythes',
+    eraSpan: 'Mémoire orale & Vivant',
+  },
+};
+
+export const PRESET_LOCATIONS: Array<{ label: string; region: string; lat: number; lng: number }> = [
+  { label: 'Paris — Lutèce & Ste-Geneviève', region: 'Butte antique, arènes & Seine', lat: 48.8503, lng: 2.3435 },
+  { label: 'Paris — Butte Montmartre', region: 'Escaliers, vignes & coteaux escarpés', lat: 48.8867, lng: 2.3431 },
+  { label: 'Vallée de la Vézère (Les Eyzies)', region: 'Falaises calcaires, grottes & préhistoire', lat: 44.9364, lng: 1.0136 },
+  { label: 'Lyon — Croix-Rousse & Fourvière', region: 'Collines, traboules, ruines & Saône', lat: 45.7672, lng: 4.8318 },
+  { label: 'Rocamadour — Cité & Canyon', region: 'Vertige calcaire, sanctuaires & Alzou', lat: 44.7994, lng: 1.6178 },
+  { label: 'Brocéliande (Paimpont)', region: 'Val sans Retour, mégalithes & forêt', lat: 48.0195, lng: -2.1742 },
+  { label: 'Fontainebleau — Chaos & Platières', region: 'Grès de l’Oligocène, gorges & forêt', lat: 48.4047, lng: 2.7016 },
+];
+
+export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Computes minimum distance in meters from point P to segment A->B so wide-zoom simulated strides
+ * never skip over POI proximity unlock circles along a path segment.
+ */
+export function minDistancePointToSegmentMeters(
+  pLat: number,
+  pLng: number,
+  aLat: number,
+  aLng: number,
+  bLat: number,
+  bLng: number
+): number {
+  const cosLat = Math.max(0.1, Math.cos((pLat * Math.PI) / 180));
+  const px = (pLng - aLng) * 111320 * cosLat;
+  const py = (pLat - aLat) * 110540;
+  const bx = (bLng - aLng) * 111320 * cosLat;
+  const by = (bLat - aLat) * 110540;
+  const segLenSq = bx * bx + by * by;
+  if (segLenSq < 1e-4) {
+    return Math.hypot(px, py);
+  }
+  const t = Math.max(0, Math.min(1, (px * bx + py * by) / segLenSq));
+  return Math.hypot(px - t * bx, py - t * by);
+}
+
+export function computeLevelFromXp(xp: number): {
+  level: number;
+  currentFloorXp: number;
+  nextLevelXp: number;
+  progressPct: number;
+} {
+  let level = 1;
+  let threshold = 0;
+  let step = 150;
+  while (xp >= threshold + step && level < 50) {
+    threshold += step;
+    level += 1;
+    step = Math.round(step * 1.32);
+  }
+  const nextLevelXp = threshold + step;
+  const span = Math.max(1, nextLevelXp - threshold);
+  const progressPct = Math.min(100, Math.max(0, Math.round(((xp - threshold) / span) * 100)));
+  return {
+    level,
+    currentFloorXp: threshold,
+    nextLevelXp,
+    progressPct,
+  };
+}
+
+export function getCategoryXp(progress: ExplorerProgress, category: ExplorationCategory): number {
+  switch (category) {
+    case 'histoire':
+      return progress.xpHistoire;
+    case 'geographie':
+      return progress.xpGeographie;
+    case 'ecosysteme':
+      return progress.xpEcosysteme;
+    case 'etrange':
+      return progress.xpEtrange;
+    case 'legende':
+      return progress.xpLegende || 0;
+  }
+}
+
+const SUBTERRANEAN_POI_REGEX =
+  /\b(cavit[ée]s?|grotte|gouffre|aven|doline|souterrains?|catacombes?|cryptes?|carri[èe]res?\s+souterrain|galeries?\s+souterrain|mines?\s+de|anciennes?\s+mines?|puits\s+de\s+mine|nappes?\s+phr[ée]atiques?|aquif[èe]res?|pi[ée]zom[èe]tres?|casemates?|abris?\s+souterrains?|bunkers?|tunnels?\s+|stations?\s+souterraines?|[ée]gouts?|r[ée]surgences?|pertes?\s+karstiques?|caves?\s+vo[ûu]t[ée]es?|hypog[ée]es?)\b/i;
+
+export function isPoiSubterranean(
+  poi: Pick<PoiItem, 'id' | 'name' | 'subType' | 'source' | 'isSubterranean'>
+): boolean {
+  if (typeof poi.isSubterranean === 'boolean') return poi.isSubterranean;
+  if (/^(cav_|bss_|sub_|subpoi_)/i.test(poi.id)) return true;
+  if (/BDCavit[ée]s|Sous-Sol\s*&\s*Nappes|Hub[’']Eau/i.test(poi.source)) return true;
+  return SUBTERRANEAN_POI_REGEX.test(`${poi.name} ${poi.subType}`);
+}
+
+/**
+ * Strictly separates Surface POIs from Sous-sol POIs so the two world layers never share duplicate markers,
+ * while promoting real mapped subterranean features (BRGM cavities, tunnels, culverted rivers, crypts, quarries,
+ * aquifers, and deep bedrock strata) into dedicated underground discoveries.
+ */
+export function partitionSurfaceAndSubterraneanPois(params: {
+  rawPois: PoiItem[];
+  subterranean: SubterraneanFeature[];
+  terrain: TerrainFeature[];
+  bedrock: BedrockInfo | null;
+  centerLat: number;
+  centerLng: number;
+}): {
+  surfacePois: PoiItem[];
+  subterraneanPois: PoiItem[];
+} {
+  const { rawPois, subterranean, terrain, bedrock, centerLat, centerLng } = params;
+  const surfacePois: PoiItem[] = [];
+  const subterraneanPois: PoiItem[] = [];
+
+  for (const p of rawPois) {
+    if (isPoiSubterranean(p)) {
+      subterraneanPois.push({ ...p, isSubterranean: true });
+    } else {
+      surfacePois.push({ ...p, isSubterranean: false });
+    }
+  }
+
+  const hasNearbySubPoi = (lat: number, lng: number, minMeters = 68): boolean =>
+    subterraneanPois.some((sp) => haversineMeters(lat, lng, sp.lat, sp.lng) < minMeters);
+
+  const bedNote = bedrock
+    ? ` Creusé dans un substrat de ${bedrock.lithology.toLowerCase()} datant de l’ère « ${bedrock.period} » (${bedrock.ageRangeMa} Ma).`
+    : '';
+
+  // 1. Promote real mapped SubterraneanFeatures (BRGM cavities, culverted waterways, tunnels, quarries, mines, crypts)
+  for (const sf of subterranean) {
+    if (subterraneanPois.length >= 22) break;
+    if (sf.points.length === 0) continue;
+    const anchor = sf.isLine
+      ? sf.points[Math.floor(sf.points.length / 2)]
+      : sf.points[0];
+    if (hasNearbySubPoi(anchor.lat, anchor.lng, 68)) continue;
+
+    let category: ExplorationCategory = 'etrange';
+    let stratum: HistoricalStratum = 'contemporain';
+    let subType = 'Ouvrage souterrain';
+    let mysteryTitle = 'Écho des galeries';
+    let eraLabel = 'Sous-sol & galeries';
+    let name = (sf.name || '').trim();
+    let summary = '';
+
+    switch (sf.kind) {
+      case 'natural_cave':
+        category = 'geographie';
+        stratum = 'temps_profond';
+        subType = 'Cavité naturelle & karst';
+        mysteryTitle = 'Souffle de caverne';
+        eraLabel = bedrock ? bedrock.period : 'Karst & temps profond';
+        if (!name) name = 'Cavité naturelle & réseau karstique';
+        summary = `Cavité souterraine naturelle façonnée par l’infiltration des eaux dans la roche.${
+          sf.depthLabel ? ` Profondeur ou repère : ${sf.depthLabel}.` : ''
+        }${bedNote}`;
+        break;
+      case 'quarry':
+      case 'mine':
+        category = 'etrange';
+        stratum = 'moderne';
+        subType = sf.kind === 'mine' ? 'Ancienne galerie minière' : 'Carrière souterraine';
+        mysteryTitle = 'Chambre de taille enfouie';
+        eraLabel = 'Extraction souterraine';
+        if (!name) name = sf.kind === 'mine' ? 'Galerie minière ancienne' : 'Chambre de carrière souterraine';
+        summary = `Ancienne excavation souterraine où les carriers et mineurs extrayaient la pierre ou le minerai sous le territoire.${
+          sf.depthLabel ? ` Indication : ${sf.depthLabel}.` : ''
+        }${bedNote}`;
+        break;
+      case 'underground_water':
+      case 'well_aquifer':
+        category = 'geographie';
+        stratum = 'temps_profond';
+        subType = sf.kind === 'underground_water' ? 'Cours d’eau souterrain voûté' : 'Veine phréatique & puits';
+        mysteryTitle = 'Murmure d’eau souterraine';
+        eraLabel = 'Hydrogéologie enfouie';
+        if (!name) {
+          name =
+            sf.kind === 'underground_water'
+              ? 'Galerie hydraulique & ruisseau voûté'
+              : 'Puits & nappe phréatique locale';
+        } else if (sf.kind === 'underground_water' && !/souterrain|vo[ûu]t|canalisation/i.test(name)) {
+          name = `Cours souterrain : ${name}`;
+        }
+        summary = `Écoulement souterrain dissimulé sous la surface, témoin du réseau hydrologique canalisé ou infiltré dans la roche.${bedNote}`;
+        break;
+      case 'crypt':
+      case 'military':
+        category = 'histoire';
+        stratum = sf.kind === 'crypt' ? 'moyen_age' : 'contemporain';
+        subType = sf.kind === 'crypt' ? 'Crypte & substructions' : 'Casemate & ouvrage défensif';
+        mysteryTitle = sf.kind === 'crypt' ? 'Voûte scellée sous la pierre' : 'Casemate enfouie';
+        eraLabel = sf.kind === 'crypt' ? 'Fondations & cryptes' : 'Ouvrage enfoui';
+        if (!name) name = sf.kind === 'crypt' ? 'Crypte voûtée ancienne' : 'Ouvrage souterrain abrité';
+        summary = `Architecture souterraine maçonnée préservée sous le niveau du sol actuel.${bedNote}`;
+        break;
+      case 'tunnel_road':
+      case 'subway':
+        category = 'etrange';
+        stratum = 'contemporain';
+        subType = sf.kind === 'subway' ? 'Galerie ferroviaire souterraine' : 'Tunnel & percée souterraine';
+        mysteryTitle = 'Galerie de franchissement';
+        eraLabel = 'Génie civil souterrain';
+        if (!name) {
+          name = sf.kind === 'subway' ? 'Voie souterraine métropolitaine' : 'Tunnel de franchissement';
+        } else if (!/tunnel|souterrain|m[ée]tro|galerie/i.test(name)) {
+          name = `Percée souterraine : ${name}`;
+        }
+        summary = `Ouvrage d’art percé sous le relief ou le bâti urbain pour relier deux versants sans interrompre la surface.${bedNote}`;
+        break;
+      default:
+        category = 'etrange';
+        stratum = 'moderne';
+        subType = 'Caves voûtées & celliers';
+        mysteryTitle = 'Cellier de pierre';
+        eraLabel = 'Sous-sol bâti';
+        if (!name) name = 'Caves voûtées & celliers anciens';
+        summary = `Réseau de caves et d’assises anciennes bâties à l’abri des variations thermiques de la surface.${bedNote}`;
+        break;
+    }
+
+    subterraneanPois.push({
+      id: `subpoi_${sf.id}`,
+      name,
+      mysteryTitle,
+      category,
+      subType,
+      stratum,
+      eraLabel,
+      source: sf.source || 'Cartographie Souterraine (BRGM / OSM)',
+      lat: anchor.lat,
+      lng: anchor.lng,
+      summary,
+      nearWaterway: sf.kind === 'underground_water' || sf.kind === 'well_aquifer',
+      waterwayName: sf.kind === 'underground_water' ? sf.name || '' : '',
+      safetyNotice: 'Accès souterrain réglementé ou non ouvert au public : observation cartographique uniquement.',
+      externalUrl: '',
+      xpReward: 55,
+      unlockRadiusMeters: 62,
+      relatedPoiIds: [],
+      relatedPoiTitles: [],
+      isSubterranean: true,
+    });
+  }
+
+  // 2. Promote historic subterranean crypts / foundations beneath named monumental buildings (churches, castles, arenas)
+  for (const tf of terrain) {
+    if (subterraneanPois.length >= 22) break;
+    if (tf.kind !== 'building' || !tf.landmark || tf.points.length === 0) continue;
+    if (tf.landmark !== 'church' && tf.landmark !== 'castle' && tf.landmark !== 'arena') continue;
+    const rawName = (tf.name || '').trim();
+    if (!rawName) continue;
+    let latSum = 0;
+    let lngSum = 0;
+    for (const pt of tf.points) {
+      latSum += pt.lat;
+      lngSum += pt.lng;
+    }
+    const cLat = latSum / tf.points.length;
+    const cLng = lngSum / tf.points.length;
+    if (hasNearbySubPoi(cLat, cLng, 80)) continue;
+
+    const kindTitle =
+      tf.landmark === 'church'
+        ? `Crypte & assises sous ${rawName}`
+        : tf.landmark === 'castle'
+        ? `Souterrains & basses-fosses (${rawName})`
+        : `Hypogée & substructions (${rawName})`;
+
+    subterraneanPois.push({
+      id: `subpoi_ldmk_${tf.id}`,
+      name: kindTitle,
+      mysteryTitle: 'Fondations séculaires',
+      category: 'histoire',
+      subType: 'Substructions & crypte',
+      stratum: tf.landmark === 'arena' ? 'antiquite' : 'moyen_age',
+      eraLabel: tf.landmark === 'arena' ? 'Substructions antiques' : 'Assises médiévales',
+      source: 'Topologie Patrimoniale & Sous-sol',
+      lat: cLat,
+      lng: cLng,
+      summary: `Assises de fondation, caves voûtées et niveaux anciens enfouis sous l’emprise monumentale de « ${rawName} ».${bedNote}`,
+      nearWaterway: false,
+      waterwayName: '',
+      safetyNotice: '',
+      externalUrl: '',
+      xpReward: 60,
+      unlockRadiusMeters: 62,
+      relatedPoiIds: [],
+      relatedPoiTitles: [],
+      isSubterranean: true,
+    });
+  }
+
+  // 3. World-locked geological / hydrogeological underground echoes on a fixed 0.014° lattice
+  //    (never shifts or disappears when the player walks across sector boundaries!)
+  if (subterraneanPois.length < 6) {
+    const stepDeg = 0.014;
+    const baseCellLat = Math.round(centerLat / stepDeg);
+    const baseCellLng = Math.round(centerLng / stepDeg);
+    const period = bedrock ? bedrock.period : 'Temps profond';
+    const litho = bedrock ? bedrock.lithology.toLowerCase() : 'roche-mère';
+    const age = bedrock ? bedrock.ageRangeMa : 'Ère géologique ancienne';
+    const kinds = ['geol', 'hydro', 'fossil', 'karst'] as const;
+
+    for (let dLatIdx = -1; dLatIdx <= 1; dLatIdx++) {
+      for (let dLngIdx = -1; dLngIdx <= 1; dLngIdx++) {
+        const cLatIdx = baseCellLat + dLatIdx;
+        const cLngIdx = baseCellLng + dLngIdx;
+        const h = Math.abs((cLatIdx * 73856093) ^ (cLngIdx * 19349663));
+        const jLat = (((h % 61) - 30) / 100) * stepDeg * 0.65;
+        const jLng = ((((h >> 6) % 61) - 30) / 100) * stepDeg * 0.65;
+        const gLat = cLatIdx * stepDeg + jLat;
+        const gLng = cLngIdx * stepDeg + jLng;
+        if (hasNearbySubPoi(gLat, gLng, 220)) continue;
+
+        const kind = kinds[h % kinds.length];
+        subterraneanPois.push({
+          id: `subpoi_bed_${cLatIdx}_${cLngIdx}`,
+          name:
+            kind === 'geol'
+              ? `Banc rocheux (${period})`
+              : kind === 'hydro'
+              ? `Infiltration & veine phréatique`
+              : kind === 'fossil'
+              ? `Horizon sédimentaire ancien`
+              : `Diaclase & poche minérale`,
+          mysteryTitle: 'Strate du temps profond',
+          category: kind === 'karst' ? 'etrange' : 'geographie',
+          subType: 'Géologie souterraine',
+          stratum: 'temps_profond',
+          eraLabel: `${period} (${age})`,
+          source: bedrock ? 'Macrostrat · Coupe du Sous-sol' : 'Coupe Géologique Locale',
+          lat: gLat,
+          lng: gLng,
+          summary: `Observation souterraine du socle régional composé de ${litho}${
+            bedrock?.environment ? ` (ancien milieu : ${bedrock.environment.toLowerCase()})` : ''
+          }, daté de ${age}.`,
+          nearWaterway: kind === 'hydro',
+          waterwayName: '',
+          safetyNotice: '',
+          externalUrl: '',
+          xpReward: 50,
+          unlockRadiusMeters: 65,
+          relatedPoiIds: [],
+          relatedPoiTitles: [],
+          isSubterranean: true,
+        });
+      }
+    }
+  }
+
+  return { surfacePois, subterraneanPois };
+}

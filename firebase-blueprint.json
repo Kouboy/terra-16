@@ -1,0 +1,566 @@
+{
+  "entities": {
+    "ExplorerProfile": {
+      "title": "ExplorerProfile",
+      "description": "Progression profile, 5-branch XP totals, cumulative walked distance, and 16-bit avatar & cosmetic equipment selection for an authenticated explorer without PII.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the explorer owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Explorer callsign or first name.",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "totalXp": {
+          "type": "number",
+          "description": "Cumulative XP earned across all exploration categories."
+        },
+        "xpHistoire": {
+          "type": "number",
+          "description": "XP earned in Histoire & Strates."
+        },
+        "xpGeographie": {
+          "type": "number",
+          "description": "XP earned in Geologie, Reliefs & Eaux."
+        },
+        "xpEcosysteme": {
+          "type": "number",
+          "description": "XP earned in Ecosysteme & Vivant."
+        },
+        "xpEtrange": {
+          "type": "number",
+          "description": "XP earned in Souterrains, Ruines & Friches."
+        },
+        "xpLegende": {
+          "type": "number",
+          "description": "XP earned in Legendes, Folklore & Insolite."
+        },
+        "gender": {
+          "type": "string",
+          "description": "Selected explorer gender and silhouette ('feminin', 'masculin', 'neutre').",
+          "enum": ["feminin", "masculin", "neutre"],
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "avatarPreset": {
+          "type": "string",
+          "description": "Selected 16-bit explorer face and hairstyle preset.",
+          "enum": ["cartographe", "eclaireur", "archiviste", "forgeron", "oracle", "botaniste"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "skinTone": {
+          "type": "string",
+          "description": "Selected 16-bit explorer skin tone palette.",
+          "enum": ["clair", "hale", "ambre", "ebene", "porcelaine"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "headgearId": {
+          "type": "string",
+          "description": "Equipped 16-bit cosmetic headgear identifier.",
+          "enum": [
+            "tricorne_fauve",
+            "beret_chroniqueur",
+            "casque_mineur",
+            "capuche_sylvestre",
+            "couronne_menhir",
+            "lunettes_astro"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "outfitId": {
+          "type": "string",
+          "description": "Selected 16-bit explorer sprite outfit identifier.",
+          "enum": ["arpenteur", "chroniqueur", "geomancien", "sylvestre", "ombres", "barde"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "toolId": {
+          "type": "string",
+          "description": "Equipped 16-bit cosmetic field tool or relic identifier.",
+          "enum": [
+            "lanterne_laiton",
+            "boussole_astrale",
+            "marteau_geologue",
+            "plume_enluminee",
+            "fiole_spectrale"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "packId": {
+          "type": "string",
+          "description": "Equipped 16-bit cosmetic dorsal pack identifier.",
+          "enum": ["besace_cuir", "rouleau_cartes", "hotte_cristaux", "ailerons_automate"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "walkedMeters": {
+          "type": "number",
+          "description": "Cumulative distance walked by the explorer in meters."
+        },
+        "discoveriesCount": {
+          "type": "number",
+          "description": "Total number of discovered points of interest."
+        },
+        "completedMissions": {
+          "type": "array",
+          "description": "Bounded list (max 50) of completed mission identifiers."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of profile creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last profile update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "displayName",
+        "totalXp",
+        "xpHistoire",
+        "xpGeographie",
+        "xpEcosysteme",
+        "xpEtrange",
+        "discoveriesCount",
+        "completedMissions",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "JournalDiscovery": {
+      "title": "JournalDiscovery",
+      "description": "Unlocked point of interest entry in the explorer's Carnet d'exploration.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the explorer owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "poiId": {
+          "type": "string",
+          "description": "Unique sanitized identifier of the point of interest.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Real-world title of the discovered point of interest.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "category": {
+          "type": "string",
+          "description": "Thematic exploration category.",
+          "enum": ["histoire", "geographie", "ecosysteme", "etrange", "legende"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "subType": {
+          "type": "string",
+          "description": "Specific real-world feature classification.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "eraLabel": {
+          "type": "string",
+          "description": "Historical or geological stratum label (e.g., Moyen Age, Lutetien -45 Ma).",
+          "minLength": 0,
+          "maxLength": 100
+        },
+        "source": {
+          "type": "string",
+          "description": "Data provider attribution.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "lat": {
+          "type": "number",
+          "description": "Latitude in WGS84 decimal degrees."
+        },
+        "lng": {
+          "type": "number",
+          "description": "Longitude in WGS84 decimal degrees."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Detailed factual description unlocked upon physical proximity.",
+          "minLength": 1,
+          "maxLength": 2500
+        },
+        "nearWaterway": {
+          "type": "boolean",
+          "description": "Whether the POI lies within 165m of a mapped river, stream, or canal."
+        },
+        "waterwayName": {
+          "type": "string",
+          "description": "Name of adjacent waterway if present, or empty string.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "safetyNotice": {
+          "type": "string",
+          "description": "Ethical or physical safety advisory.",
+          "minLength": 0,
+          "maxLength": 400
+        },
+        "externalUrl": {
+          "type": "string",
+          "description": "Reference link to source record.",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "xpAwarded": {
+          "type": "number",
+          "description": "XP granted upon discovery."
+        },
+        "relatedPoiIds": {
+          "type": "array",
+          "description": "Bounded list (max 10) of connected POI IDs."
+        },
+        "relatedPoiTitles": {
+          "type": "array",
+          "description": "Bounded list (max 10) of connected POI display titles."
+        },
+        "personalNote": {
+          "type": "string",
+          "description": "Personal field comment written by the explorer.",
+          "minLength": 0,
+          "maxLength": 2000
+        },
+        "photoCount": {
+          "type": "number",
+          "description": "Count of local field photos attached in device IndexedDB."
+        },
+        "discoveredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when unlocked."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest journal annotation."
+        }
+      },
+      "required": [
+        "ownerId",
+        "poiId",
+        "name",
+        "category",
+        "subType",
+        "source",
+        "lat",
+        "lng",
+        "summary",
+        "nearWaterway",
+        "waterwayName",
+        "safetyNotice",
+        "externalUrl",
+        "xpAwarded",
+        "relatedPoiIds",
+        "relatedPoiTitles",
+        "personalNote",
+        "photoCount",
+        "discoveredAt",
+        "updatedAt"
+      ]
+    },
+    "ExplorerCairn": {
+      "title": "ExplorerCairn",
+      "description": "Asynchronous structured field cairn left by an authenticated explorer on a discovered point of interest without PII.",
+      "type": "object",
+      "properties": {
+        "authorId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the explorer who placed the cairn.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorCallsign": {
+          "type": "string",
+          "description": "Public explorer callsign (non-PII).",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "authorGender": {
+          "type": "string",
+          "description": "Optional 16-bit silhouette gender of the cairn author.",
+          "enum": ["feminin", "masculin", "neutre"],
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "authorAvatarPreset": {
+          "type": "string",
+          "description": "Optional 16-bit face/hairstyle preset of the cairn author.",
+          "enum": ["cartographe", "eclaireur", "archiviste", "forgeron", "oracle", "botaniste"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "authorSkinTone": {
+          "type": "string",
+          "description": "Optional 16-bit skin tone palette of the cairn author.",
+          "enum": ["clair", "hale", "ambre", "ebene", "porcelaine"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "authorHeadgearId": {
+          "type": "string",
+          "description": "Optional 16-bit headgear identifier of the cairn author.",
+          "enum": [
+            "tricorne_fauve",
+            "beret_chroniqueur",
+            "casque_mineur",
+            "capuche_sylvestre",
+            "couronne_menhir",
+            "lunettes_astro"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "authorOutfitId": {
+          "type": "string",
+          "description": "Optional 16-bit outfit identifier of the cairn author.",
+          "enum": ["arpenteur", "chroniqueur", "geomancien", "sylvestre", "ombres", "barde"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "poiId": {
+          "type": "string",
+          "description": "Sanitized identifier of the unlocked point of interest.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "poiName": {
+          "type": "string",
+          "description": "Display name of the point of interest.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "tag": {
+          "type": "string",
+          "description": "Curated field observation tag.",
+          "enum": ["architecture", "acces", "point_de_vue", "conseil_heure", "secret"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "message": {
+          "type": "string",
+          "description": "Concise field note left inside the stone cairn.",
+          "minLength": 3,
+          "maxLength": 280
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Visibility scope for query-enforced listing.",
+          "enum": ["public"],
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the cairn was placed."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of cairn update."
+        }
+      },
+      "required": [
+        "authorId",
+        "authorCallsign",
+        "poiId",
+        "poiName",
+        "tag",
+        "message",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ExplorerSpecimen": {
+      "title": "ExplorerSpecimen",
+      "description": "Botanical herbarium sketch or geological hand-specimen harvested on real regional bedrock.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the explorer.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "specimenId": {
+          "type": "string",
+          "description": "Catalog identifier of the specimen (e.g. bot_ophrys_abeille, geo_calcaire_fossile).",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "domain": {
+          "type": "string",
+          "description": "Naturalist domain of the plate.",
+          "enum": ["botanique", "geologie"],
+          "minLength": 8,
+          "maxLength": 16
+        },
+        "affinity": {
+          "type": "string",
+          "description": "Real bedrock lithology affinity.",
+          "enum": ["calcaire", "granit", "schiste", "gres", "alluvions", "volcanique", "souterrain"],
+          "minLength": 4,
+          "maxLength": 16
+        },
+        "name": {
+          "type": "string",
+          "description": "French display name of the plant or rock.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "latinOrMineralName": {
+          "type": "string",
+          "description": "Binomial Latin name or mineralogical composition.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "familyLabel": {
+          "type": "string",
+          "description": "Botanical or petrographic family label.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "lithologyLabel": {
+          "type": "string",
+          "description": "French description of the local bedrock lithology.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "bedrockPeriod": {
+          "type": "string",
+          "description": "Geological period of the host bedrock.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "bedrockAgeMa": {
+          "type": "string",
+          "description": "Age range in millions of years.",
+          "maxLength": 60
+        },
+        "regionLabel": {
+          "type": "string",
+          "description": "Locality or region where the specimen was harvested.",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "habitatLabel": {
+          "type": "string",
+          "description": "Field biotope or outcrop context.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "lat": {
+          "type": "number",
+          "description": "Latitude of harvest.",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "lng": {
+          "type": "number",
+          "description": "Longitude of harvest.",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "altitudeMeters": {
+          "type": "number",
+          "description": "Optional altitude in meters NGF.",
+          "minimum": -500,
+          "maximum": 9000
+        },
+        "isSubterranean": {
+          "type": "boolean",
+          "description": "Whether the specimen was harvested in the subterranean layer."
+        },
+        "harvestCount": {
+          "type": "number",
+          "description": "Number of times this specimen type was harvested.",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "description": {
+          "type": "string",
+          "description": "Naturalist and geological field note.",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "firstCollectedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of first harvest."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest harvest."
+        }
+      },
+      "required": [
+        "ownerId",
+        "specimenId",
+        "domain",
+        "affinity",
+        "name",
+        "latinOrMineralName",
+        "familyLabel",
+        "lithologyLabel",
+        "bedrockPeriod",
+        "bedrockAgeMa",
+        "regionLabel",
+        "habitatLabel",
+        "lat",
+        "lng",
+        "isSubterranean",
+        "harvestCount",
+        "description",
+        "firstCollectedAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/explorers/{userId}": {
+      "schema": "ExplorerProfile",
+      "description": "Owner-isolated explorer profile storing XP per category, outfit, and completed missions."
+    },
+    "/explorers/{userId}/discoveries/{discoveryId}": {
+      "schema": "JournalDiscovery",
+      "description": "Subcollection of unlocked POI entries and personal notes belonging to the explorer."
+    },
+    "/explorers/{userId}/specimens/{specimenId}": {
+      "schema": "ExplorerSpecimen",
+      "description": "Subcollection of botanical herbarium sketches and geological rock specimens belonging to the explorer."
+    },
+    "/cairns/{cairnId}": {
+      "schema": "ExplorerCairn",
+      "description": "Shared field cairns placed on unlocked points of interest by verified explorers."
+    }
+  }
+}

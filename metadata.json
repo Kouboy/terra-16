@@ -1,0 +1,6 @@
+{
+  "name": "Terra 16",
+  "description": "Jeu d'exploration géolocalisé sur carte 16-bit avec points d'intérêt réels, brouillard de proximité, missions thématiques et carnet d'exploration.",
+  "requestFramePermissions": ["geolocation", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

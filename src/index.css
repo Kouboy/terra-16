@@ -1,0 +1,324 @@
+@import "tailwindcss";
+
+@theme {
+  --breakpoint-xs: 24rem;
+  --font-display: "Pixelify Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    overscroll-behavior-y: none;
+    -webkit-text-size-adjust: 100%;
+    background-color: #28160d;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #6b3e1e #e4cfa3;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #e3c89b;
+    color: #24160c;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    /* Warm sunlit cartographer's desk: golden-hour glow + vellum cartographic grid */
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(254, 240, 185, 0.55) 0%, rgba(196, 146, 82, 0.18) 65%, rgba(120, 76, 34, 0.22) 100%),
+      linear-gradient(90deg, rgba(84, 52, 24, 0.06) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(84, 52, 24, 0.06) 1px, transparent 1px),
+      radial-gradient(rgba(138, 92, 44, 0.085) 1px, transparent 1px);
+    background-size: 100% 100%, 28px 28px, 28px 28px, 8px 8px;
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: 0.015em;
+  }
+
+  /* Banish default OS rounded chrome, dark autofill & blue focus rings */
+  button,
+  input,
+  textarea,
+  select {
+    border-radius: 0px;
+    font-family: inherit;
+  }
+
+  textarea {
+    resize: none;
+  }
+
+  input[type="search"]::-webkit-search-decoration,
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-results-button,
+  input[type="search"]::-webkit-search-results-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid #f59e0b;
+    outline-offset: 1px;
+  }
+}
+
+/* ============================================================================
+ * 16-BIT CARTOGRAPHER SCROLLBARS & HIDDEN HORIZONTAL STRIPS
+ * Eliminates white/grey OS scrollbars while dressing vertical scrollbars in
+ * carved oak, antique brass, and honey vellum.
+ * ============================================================================ */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: #e4cfa3;
+  border-left: 2px solid #5c3d22;
+  border-top: 2px solid #5c3d22;
+  box-shadow: inset 1px 1px 0 rgba(43, 26, 14, 0.16);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #6b3e1e;
+  background-image: linear-gradient(180deg, #925427 0%, #583115 100%);
+  border: 2px solid #2b1a0e;
+  border-radius: 0px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #b45309;
+  background-image: linear-gradient(180deg, #d97706 0%, #92400e 100%);
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+::-webkit-scrollbar-corner {
+  background-color: #28160d;
+}
+
+/* Completely mask native scrollbars on horizontal filter/tab strips */
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Safe-area helpers for notched smartphones & standalone fullscreen mode */
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.pl-safe {
+  padding-left: max(0.5rem, env(safe-area-inset-left));
+}
+
+.pr-safe {
+  padding-right: max(0.5rem, env(safe-area-inset-right));
+}
+
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ============================================================================
+ * WARM, LIVING 16-BIT JRPG GRIMOIRE & CARTOGRAPHER'S STUDY DESIGN SYSTEM
+ * Rich honey-vellum pages, candlelit inner warmth, mahogany leather spine,
+ * antique brass clasps & crimson wax seals.
+ * ============================================================================ */
+
+/* Embossed Mahogany Leather Book Spine (Top & Mobile Bottom Navigation) */
+.grimoire-spine {
+  background-color: #28160d;
+  background-image:
+    linear-gradient(180deg, rgba(251, 191, 36, 0.09) 0%, rgba(20, 10, 5, 0.35) 100%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(251, 191, 36, 0.035) 0px,
+      rgba(251, 191, 36, 0.035) 2px,
+      transparent 2px,
+      transparent 8px
+    );
+  border-bottom: 3px solid #eab308;
+  box-shadow:
+    inset 0 -2px 0 #78350f,
+    0 4px 0 rgba(36, 20, 11, 0.32);
+}
+
+.grimoire-bottom-dock {
+  background-color: #28160d;
+  background-image:
+    linear-gradient(0deg, rgba(20, 10, 5, 0.45) 0%, rgba(251, 191, 36, 0.08) 100%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(251, 191, 36, 0.035) 0px,
+      rgba(251, 191, 36, 0.035) 2px,
+      transparent 2px,
+      transparent 8px
+    );
+  border-top: 3px solid #eab308;
+  box-shadow:
+    inset 0 2px 0 #78350f,
+    0 -4px 12px rgba(24, 13, 7, 0.42);
+}
+
+/* Primary Warm Honey-Parchment Folio Sheet */
+.grimoire-folio {
+  background-color: #f8edd6;
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 251, 235, 0.72) 0%, rgba(235, 212, 170, 0.32) 100%),
+    radial-gradient(rgba(138, 92, 44, 0.07) 1px, transparent 1px);
+  background-size: 100% 100%, 8px 8px;
+  border: 2px solid #2b1a0e;
+  box-shadow:
+    inset 0 0 0 2px #fdf6e7,
+    inset 0 0 0 4px #c89d62,
+    inset 0 0 24px rgba(180, 118, 42, 0.1),
+    4px 4px 0px #2b1a0e;
+}
+
+/* Gold-Leaf Illuminated Master Folio (Explorer Companion & Guild Header) */
+.grimoire-folio-gold {
+  background-color: #faf1dc;
+  background-image:
+    radial-gradient(ellipse at 25% 15%, rgba(255, 252, 235, 0.85) 0%, rgba(242, 217, 167, 0.42) 100%),
+    radial-gradient(rgba(146, 98, 42, 0.075) 1px, transparent 1px);
+  background-size: 100% 100%, 8px 8px;
+  border: 2px solid #2b1a0e;
+  box-shadow:
+    inset 0 0 0 2px #fffbeb,
+    inset 0 0 0 4px #d97706,
+    inset 0 0 28px rgba(217, 119, 6, 0.12),
+    4px 4px 0px #2b1a0e;
+}
+
+/* Crimson Wax-Seal Discovery Folio */
+.grimoire-folio-crimson {
+  background-color: #fbf2de;
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 251, 240, 0.82) 0%, rgba(241, 216, 174, 0.36) 100%),
+    radial-gradient(rgba(124, 88, 48, 0.07) 1px, transparent 1px);
+  background-size: 100% 100%, 8px 8px;
+  border: 2px solid #2b1a0e;
+  box-shadow:
+    inset 0 0 0 2px #fffbeb,
+    inset 0 0 0 4px #b91c1c,
+    inset 0 0 26px rgba(185, 28, 28, 0.08),
+    5px 5px 0px #691414;
+}
+
+/* Cozy Tavern / Cartographer's Speech Scroll Quote Box */
+.grimoire-whisper {
+  background-color: #f2dfb9;
+  background-image: linear-gradient(90deg, rgba(217, 119, 6, 0.12) 0%, rgba(255, 251, 235, 0.35) 50%, rgba(217, 119, 6, 0.08) 100%);
+  border: 2px solid #784f2b;
+  box-shadow: inset 0 1px 0 rgba(255, 251, 235, 0.75);
+}
+
+/* Recessed Warm Vellum Well (Toolbars, Filter Trays, Inputs) */
+.grimoire-well {
+  background-color: #ecd8b1;
+  border: 2px solid #6b4928;
+  box-shadow:
+    inset 0 2px 0 rgba(43, 26, 14, 0.1),
+    2px 2px 0px rgba(43, 26, 14, 0.18);
+}
+
+/* Sharp 16-bit Pixel Drop Shadows */
+.jrpg-shadow {
+  box-shadow: 3px 3px 0px #2b1a0e;
+}
+
+.jrpg-shadow-crimson {
+  box-shadow: 4px 4px 0px #881337;
+}
+
+.jrpg-shadow-gold {
+  box-shadow: 3px 3px 0px #92400e;
+}
+
+/* Decorative 16-bit Illuminated Manuscript Frieze (Gold Leaf + Crimson Wax + Emerald + Sepia) */
+.pixel-frieze {
+  height: 5px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    #f59e0b 0px,
+    #f59e0b 6px,
+    #b91c1c 6px,
+    #b91c1c 12px,
+    #15803d 12px,
+    #15803d 16px,
+    #2b1a0e 16px,
+    #2b1a0e 20px,
+    #fef08a 20px,
+    #fef08a 24px
+  );
+}
+
+.pixel-checker-border {
+  height: 4px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    #5c3d22 0px,
+    #5c3d22 4px,
+    #d97706 4px,
+    #d97706 8px,
+    transparent 8px,
+    transparent 12px
+  );
+}
+
+/* Segmented 16-bit Inkwell Stat Gauge */
+.pixel-gauge-track {
+  background-color: #24150c;
+  border: 2px solid #2b1a0e;
+  position: relative;
+}
+
+.pixel-gauge-segments {
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0px,
+    transparent 6px,
+    rgba(24, 14, 9, 0.62) 6px,
+    rgba(24, 14, 9, 0.62) 8px
+  );
+}
+
+/* Gentle compositor-only candle / lantern warmth breathe */
+@keyframes lanternBreathe {
+  0%, 100% {
+    opacity: 0.92;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+.lantern-breathe {
+  animation: lanternBreathe 2.8s ease-in-out infinite;
+}

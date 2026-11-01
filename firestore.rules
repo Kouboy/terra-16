@@ -1,0 +1,564 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 4.1: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isBoundedStringArray(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || (arr[0] is string && arr[0].size() <= 200));
+    }
+
+    // Validation Blueprint: ExplorerProfile (synced verbatim with firebase-blueprint.json)
+    function isValidExplorerProfile(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'displayName',
+          'totalXp',
+          'xpHistoire',
+          'xpGeographie',
+          'xpEcosysteme',
+          'xpEtrange',
+          'discoveriesCount',
+          'completedMissions',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId',
+          'displayName',
+          'totalXp',
+          'xpHistoire',
+          'xpGeographie',
+          'xpEcosysteme',
+          'xpEtrange',
+          'xpLegende',
+          'gender',
+          'avatarPreset',
+          'skinTone',
+          'headgearId',
+          'outfitId',
+          'toolId',
+          'packId',
+          'walkedMeters',
+          'discoveriesCount',
+          'completedMissions',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 60
+        && data.totalXp is number && data.totalXp >= 0 && data.totalXp <= 10000000
+        && data.xpHistoire is number && data.xpHistoire >= 0 && data.xpHistoire <= 10000000
+        && data.xpGeographie is number && data.xpGeographie >= 0 && data.xpGeographie <= 10000000
+        && data.xpEcosysteme is number && data.xpEcosysteme >= 0 && data.xpEcosysteme <= 10000000
+        && data.xpEtrange is number && data.xpEtrange >= 0 && data.xpEtrange <= 10000000
+        && (!('xpLegende' in data) || (data.xpLegende is number && data.xpLegende >= 0 && data.xpLegende <= 10000000))
+        && (!('gender' in data) || (data.gender is string && data.gender.size() >= 1 && data.gender.size() <= 16 && data.gender in ['feminin', 'masculin', 'neutre']))
+        && (!('avatarPreset' in data) || (data.avatarPreset is string && data.avatarPreset.size() >= 1 && data.avatarPreset.size() <= 32 && data.avatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
+        && (!('skinTone' in data) || (data.skinTone is string && data.skinTone.size() >= 1 && data.skinTone.size() <= 32 && data.skinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
+        && (!('headgearId' in data) || (data.headgearId is string && data.headgearId.size() >= 1 && data.headgearId.size() <= 32 && data.headgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro']))
+        && (!('outfitId' in data) || (data.outfitId is string && data.outfitId.size() >= 1 && data.outfitId.size() <= 32 && data.outfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
+        && (!('toolId' in data) || (data.toolId is string && data.toolId.size() >= 1 && data.toolId.size() <= 32 && data.toolId in ['lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee', 'fiole_spectrale']))
+        && (!('packId' in data) || (data.packId is string && data.packId.size() >= 1 && data.packId.size() <= 32 && data.packId in ['besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate']))
+        && (!('walkedMeters' in data) || (data.walkedMeters is number && data.walkedMeters >= 0 && data.walkedMeters <= 100000000))
+        && data.discoveriesCount is number && data.discoveriesCount >= 0 && data.discoveriesCount <= 100000
+        && isBoundedStringArray(data.completedMissions, 50)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: JournalDiscovery (synced verbatim with firebase-blueprint.json)
+    function isValidJournalDiscovery(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'poiId',
+          'name',
+          'category',
+          'subType',
+          'source',
+          'lat',
+          'lng',
+          'summary',
+          'nearWaterway',
+          'waterwayName',
+          'safetyNotice',
+          'externalUrl',
+          'xpAwarded',
+          'relatedPoiIds',
+          'relatedPoiTitles',
+          'personalNote',
+          'photoCount',
+          'discoveredAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId',
+          'poiId',
+          'name',
+          'category',
+          'subType',
+          'eraLabel',
+          'source',
+          'lat',
+          'lng',
+          'summary',
+          'nearWaterway',
+          'waterwayName',
+          'safetyNotice',
+          'externalUrl',
+          'xpAwarded',
+          'relatedPoiIds',
+          'relatedPoiTitles',
+          'personalNote',
+          'photoCount',
+          'discoveredAt',
+          'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && isValidId(data.poiId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 200
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 32
+        && data.category in ['histoire', 'geographie', 'ecosysteme', 'etrange', 'legende']
+        && data.subType is string && data.subType.size() >= 1 && data.subType.size() <= 80
+        && (!('eraLabel' in data) || (data.eraLabel is string && data.eraLabel.size() <= 100))
+        && data.source is string && data.source.size() >= 1 && data.source.size() <= 80
+        && data.lat is number && data.lat >= -90 && data.lat <= 90
+        && data.lng is number && data.lng >= -180 && data.lng <= 180
+        && data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 2500
+        && data.nearWaterway is bool
+        && data.waterwayName is string && data.waterwayName.size() <= 120
+        && data.safetyNotice is string && data.safetyNotice.size() <= 400
+        && data.externalUrl is string && data.externalUrl.size() <= 500
+        && data.xpAwarded is number && data.xpAwarded >= 0 && data.xpAwarded <= 5000
+        && isBoundedStringArray(data.relatedPoiIds, 10)
+        && isBoundedStringArray(data.relatedPoiTitles, 10)
+        && data.personalNote is string && data.personalNote.size() <= 2000
+        && data.photoCount is number && data.photoCount >= 0 && data.photoCount <= 20
+        && data.discoveredAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: ExplorerCairn (synced verbatim with firebase-blueprint.json)
+    function isValidExplorerCairn(data) {
+      return data.keys().hasAll([
+          'authorId',
+          'authorCallsign',
+          'poiId',
+          'poiName',
+          'tag',
+          'message',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'authorId',
+          'authorCallsign',
+          'authorGender',
+          'authorAvatarPreset',
+          'authorSkinTone',
+          'authorHeadgearId',
+          'authorOutfitId',
+          'poiId',
+          'poiName',
+          'tag',
+          'message',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.authorId)
+        && data.authorId == request.auth.uid
+        && data.authorCallsign is string && data.authorCallsign.size() >= 1 && data.authorCallsign.size() <= 60
+        && (!('authorGender' in data) || (data.authorGender is string && data.authorGender.size() >= 1 && data.authorGender.size() <= 16 && data.authorGender in ['feminin', 'masculin', 'neutre']))
+        && (!('authorAvatarPreset' in data) || (data.authorAvatarPreset is string && data.authorAvatarPreset.size() >= 1 && data.authorAvatarPreset.size() <= 32 && data.authorAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
+        && (!('authorSkinTone' in data) || (data.authorSkinTone is string && data.authorSkinTone.size() >= 1 && data.authorSkinTone.size() <= 32 && data.authorSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
+        && (!('authorHeadgearId' in data) || (data.authorHeadgearId is string && data.authorHeadgearId.size() >= 1 && data.authorHeadgearId.size() <= 32 && data.authorHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro']))
+        && (!('authorOutfitId' in data) || (data.authorOutfitId is string && data.authorOutfitId.size() >= 1 && data.authorOutfitId.size() <= 32 && data.authorOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
+        && isValidId(data.poiId)
+        && data.poiName is string && data.poiName.size() >= 1 && data.poiName.size() <= 200
+        && data.tag is string && data.tag.size() >= 1 && data.tag.size() <= 32 && data.tag in ['architecture', 'acces', 'point_de_vue', 'conseil_heure', 'secret']
+        && data.message is string && data.message.size() >= 3 && data.message.size() <= 280
+        && data.visibility is string && data.visibility.size() == 6 && data.visibility == 'public'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: ExplorerSpecimen (synced verbatim with firebase-blueprint.json)
+    function isValidExplorerSpecimen(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'specimenId',
+          'domain',
+          'affinity',
+          'name',
+          'latinOrMineralName',
+          'familyLabel',
+          'lithologyLabel',
+          'bedrockPeriod',
+          'bedrockAgeMa',
+          'regionLabel',
+          'habitatLabel',
+          'lat',
+          'lng',
+          'isSubterranean',
+          'harvestCount',
+          'description',
+          'firstCollectedAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId',
+          'specimenId',
+          'domain',
+          'affinity',
+          'name',
+          'latinOrMineralName',
+          'familyLabel',
+          'lithologyLabel',
+          'bedrockPeriod',
+          'bedrockAgeMa',
+          'regionLabel',
+          'habitatLabel',
+          'lat',
+          'lng',
+          'altitudeMeters',
+          'isSubterranean',
+          'harvestCount',
+          'description',
+          'firstCollectedAt',
+          'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && isValidId(data.specimenId)
+        && data.specimenId.size() <= 64
+        && data.domain is string && data.domain.size() >= 8 && data.domain.size() <= 16 && data.domain in ['botanique', 'geologie']
+        && data.affinity is string && data.affinity.size() >= 4 && data.affinity.size() <= 16 && data.affinity in ['calcaire', 'granit', 'schiste', 'gres', 'alluvions', 'volcanique', 'souterrain']
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.latinOrMineralName is string && data.latinOrMineralName.size() >= 1 && data.latinOrMineralName.size() <= 160
+        && data.familyLabel is string && data.familyLabel.size() >= 1 && data.familyLabel.size() <= 120
+        && data.lithologyLabel is string && data.lithologyLabel.size() >= 1 && data.lithologyLabel.size() <= 160
+        && data.bedrockPeriod is string && data.bedrockPeriod.size() >= 1 && data.bedrockPeriod.size() <= 100
+        && data.bedrockAgeMa is string && data.bedrockAgeMa.size() <= 60
+        && data.regionLabel is string && data.regionLabel.size() >= 1 && data.regionLabel.size() <= 140
+        && data.habitatLabel is string && data.habitatLabel.size() >= 1 && data.habitatLabel.size() <= 160
+        && data.lat is number && data.lat >= -90 && data.lat <= 90
+        && data.lng is number && data.lng >= -180 && data.lng <= 180
+        && (!('altitudeMeters' in data) || (data.altitudeMeters is number && data.altitudeMeters >= -500 && data.altitudeMeters <= 9000))
+        && data.isSubterranean is bool
+        && data.harvestCount is number && data.harvestCount >= 1 && data.harvestCount <= 100000
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 1000
+        && data.firstCollectedAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function hasExistingExplorerParent(userId) {
+      return exists(/databases/$(database)/documents/explorers/$(userId))
+        && get(/databases/$(database)/documents/explorers/$(userId)).data.ownerId == request.auth.uid;
+    }
+
+    function hasValidExplorerParent(userId) {
+      return hasExistingExplorerParent(userId) || (
+        existsAfter(/databases/$(database)/documents/explorers/$(userId))
+        && getAfter(/databases/$(database)/documents/explorers/$(userId)).data.ownerId == request.auth.uid
+      );
+    }
+
+    function hasUnlockedPoi(userId, poiId) {
+      return (
+        exists(/databases/$(database)/documents/explorers/$(userId)/discoveries/$(poiId))
+        && get(/databases/$(database)/documents/explorers/$(userId)/discoveries/$(poiId)).data.ownerId == request.auth.uid
+      );
+    }
+
+    // Master Resource: Explorer Profile
+    match /explorers/{userId} {
+      allow get: if isVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && (resource == null || existing().ownerId == request.auth.uid);
+      allow list: if false;
+
+      allow create: if isVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidExplorerProfile(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidExplorerProfile(incoming())
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Award XP, increment discoveries/walked distance, complete missions, or sync cosmetics & gender
+          (
+            incoming().totalXp >= existing().totalXp
+            && incoming().discoveriesCount >= existing().discoveriesCount
+            && (!('walkedMeters' in existing()) || ('walkedMeters' in incoming() && incoming().walkedMeters >= existing().walkedMeters))
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'totalXp',
+              'xpHistoire',
+              'xpGeographie',
+              'xpEcosysteme',
+              'xpEtrange',
+              'xpLegende',
+              'gender',
+              'avatarPreset',
+              'skinTone',
+              'headgearId',
+              'outfitId',
+              'toolId',
+              'packId',
+              'walkedMeters',
+              'discoveriesCount',
+              'completedMissions',
+              'updatedAt'
+            ])
+          )
+          ||
+          // Action 2: Rename explorer callsign or customize 16-bit gender, avatar & cosmetic equipment
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName',
+              'gender',
+              'avatarPreset',
+              'skinTone',
+              'headgearId',
+              'outfitId',
+              'toolId',
+              'packId',
+              'updatedAt'
+            ])
+          )
+          ||
+          // Action 3: Complete Character Reset back to Level 1 / zero progression
+          (
+            incoming().totalXp == 0
+            && incoming().xpHistoire == 0
+            && incoming().xpGeographie == 0
+            && incoming().xpEcosysteme == 0
+            && incoming().xpEtrange == 0
+            && (!('xpLegende' in incoming()) || incoming().xpLegende == 0)
+            && (!('walkedMeters' in incoming()) || incoming().walkedMeters == 0)
+            && incoming().discoveriesCount == 0
+            && incoming().completedMissions.size() == 0
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName',
+              'totalXp',
+              'xpHistoire',
+              'xpGeographie',
+              'xpEcosysteme',
+              'xpEtrange',
+              'xpLegende',
+              'gender',
+              'avatarPreset',
+              'skinTone',
+              'headgearId',
+              'outfitId',
+              'toolId',
+              'packId',
+              'walkedMeters',
+              'discoveriesCount',
+              'completedMissions',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if false;
+
+      // Subcollection: Carnet d'Exploration Discoveries
+      match /discoveries/{discoveryId} {
+        allow get: if isVerified()
+          && isValidId(userId)
+          && isValidId(discoveryId)
+          && request.auth.uid == userId
+          && (resource == null || existing().ownerId == request.auth.uid)
+          && hasValidExplorerParent(userId);
+
+        // Pillar 8: Secure List Enforcer without get()/exists() O(n) reads
+        allow list: if isVerified()
+          && request.auth.uid == userId
+          && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerified()
+          && isValidId(userId)
+          && isValidId(discoveryId)
+          && request.auth.uid == userId
+          && isValidJournalDiscovery(incoming())
+          && incoming().poiId == discoveryId
+          && incoming().discoveredAt == request.time
+          && incoming().updatedAt == request.time
+          && hasValidExplorerParent(userId);
+
+        allow update: if isVerified()
+          && isValidJournalDiscovery(incoming())
+          && isValidId(userId)
+          && isValidId(discoveryId)
+          && request.auth.uid == userId
+          && existing().ownerId == request.auth.uid
+          && incoming().ownerId == existing().ownerId
+          && incoming().poiId == existing().poiId
+          && incoming().discoveredAt == existing().discoveredAt
+          && incoming().updatedAt == request.time
+          && hasValidExplorerParent(userId)
+          && (
+            // Action 1: Save personal field note and/or photo count in Carnet
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'personalNote',
+              'photoCount',
+              'updatedAt'
+            ])
+          );
+
+        // Owner-isolated deletion during Character Reset
+        allow delete: if isVerified()
+          && isValidId(userId)
+          && isValidId(discoveryId)
+          && request.auth.uid == userId
+          && existing().ownerId == request.auth.uid
+          && hasExistingExplorerParent(userId);
+      }
+
+      // Subcollection: Herbarium & Lithothèque Specimens
+      match /specimens/{specimenId} {
+        allow get: if isVerified()
+          && isValidId(userId)
+          && isValidId(specimenId)
+          && request.auth.uid == userId
+          && (resource == null || existing().ownerId == request.auth.uid)
+          && hasValidExplorerParent(userId);
+
+        // Pillar 8: Cost-Optimized Query Enforcer without get()/exists() O(n) reads
+        allow list: if isVerified()
+          && request.auth.uid == userId
+          && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerified()
+          && isValidId(userId)
+          && isValidId(specimenId)
+          && request.auth.uid == userId
+          && isValidExplorerSpecimen(incoming())
+          && incoming().specimenId == specimenId
+          && incoming().firstCollectedAt == request.time
+          && incoming().updatedAt == request.time
+          && hasValidExplorerParent(userId);
+
+        allow update: if isVerified()
+          && isValidExplorerSpecimen(incoming())
+          && isValidId(userId)
+          && isValidId(specimenId)
+          && request.auth.uid == userId
+          && existing().ownerId == request.auth.uid
+          && incoming().ownerId == existing().ownerId
+          && incoming().specimenId == existing().specimenId
+          && incoming().domain == existing().domain
+          && incoming().firstCollectedAt == existing().firstCollectedAt
+          && incoming().harvestCount >= existing().harvestCount
+          && incoming().updatedAt == request.time
+          && hasValidExplorerParent(userId)
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'affinity',
+            'lithologyLabel',
+            'bedrockPeriod',
+            'bedrockAgeMa',
+            'regionLabel',
+            'habitatLabel',
+            'lat',
+            'lng',
+            'altitudeMeters',
+            'isSubterranean',
+            'harvestCount',
+            'description',
+            'updatedAt'
+          ]);
+
+        // Owner-isolated deletion during Character Reset
+        allow delete: if isVerified()
+          && isValidId(userId)
+          && isValidId(specimenId)
+          && request.auth.uid == userId
+          && existing().ownerId == request.auth.uid
+          && hasExistingExplorerParent(userId);
+      }
+    }
+
+    // Asynchronous Field Cairns left by verified explorers on unlocked POIs
+    match /cairns/{cairnId} {
+      allow get: if isVerified()
+        && isValidId(cairnId)
+        && (resource == null || existing().visibility == 'public');
+
+      // Pillar 8: Cost-Optimized Query Enforcer without get()/exists() inside list
+      allow list: if isVerified()
+        && existing().visibility == 'public';
+
+      allow create: if isVerified()
+        && isValidId(cairnId)
+        && isValidExplorerCairn(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasValidExplorerParent(request.auth.uid)
+        && hasUnlockedPoi(request.auth.uid, incoming().poiId);
+
+      allow update: if isVerified()
+        && isValidId(cairnId)
+        && isValidExplorerCairn(incoming())
+        && existing().authorId == request.auth.uid
+        && incoming().authorId == existing().authorId
+        && incoming().poiId == existing().poiId
+        && incoming().poiName == existing().poiName
+        && incoming().visibility == existing().visibility
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && hasUnlockedPoi(request.auth.uid, existing().poiId)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'authorCallsign',
+          'authorGender',
+          'authorAvatarPreset',
+          'authorSkinTone',
+          'authorHeadgearId',
+          'authorOutfitId',
+          'tag',
+          'message',
+          'updatedAt'
+        ]);
+
+      allow delete: if isVerified()
+        && isValidId(cairnId)
+        && existing().authorId == request.auth.uid;
+    }
+  }
+}
