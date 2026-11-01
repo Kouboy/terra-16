@@ -301,6 +301,72 @@ export const MISSIONS_CATALOG: MissionDefinition[] = [
       target: 3,
     }),
   },
+  {
+    id: 'm_ign_geodesic_hunter',
+    arcName: 'Géodésie IGN',
+    title: 'Chasseur de Médaillons & Bornes IGN',
+    description:
+      'Dénichez en marchant un repère de nivellement en bronze scellé sur un mur ou une borne géodésique de triangulation IGN.',
+    category: 'geographie',
+    requiredCategoryLevel: 1,
+    requiredGlobalLevel: 1,
+    xpBonus: 185,
+    evaluate: (entries) => ({
+      current: Math.min(
+        1,
+        entries.filter((e) =>
+          /nivellement|géodésique|geodesique|médaillon|repère ign|triangulation|rbf|rdf/i.test(
+            `${e.source} ${e.subType} ${e.name} ${e.summary}`
+          )
+        ).length
+      ),
+      target: 1,
+    }),
+  },
+  {
+    id: 'm_rural_vernacular',
+    arcName: 'Petit Patrimoine',
+    title: 'Veilleur des Lavoirs, Fours & Fontaines',
+    description:
+      'Découvrez 2 trésors du petit patrimoine : lavoir communal, four à pain, moulin à eau ou à vent, calvaire, pigeonnier ou fontaine miraculeuse.',
+    category: 'histoire',
+    requiredCategoryLevel: 1,
+    requiredGlobalLevel: 1,
+    xpBonus: 210,
+    evaluate: (entries) => ({
+      current: Math.min(
+        2,
+        entries.filter((e) =>
+          /lavoir|four banal|four à pain|fournil|moulin|calvaire|croix de chemin|oratoire|pigeonnier|colombier|fontaine miraculeuse|source sacrée|bonne fontaine|puits ancien/i.test(
+            `${e.subType} ${e.name} ${e.summary}`
+          )
+        ).length
+      ),
+      target: 2,
+    }),
+  },
+  {
+    id: 'm_buried_rivers_faults',
+    arcName: 'Hydrogéologie & Filons',
+    title: 'Rivières Enfouies, Failles & Cryptes',
+    description:
+      'Explorez une rivière enterrée ou busée, une faille géologique, un filon minier BRGM ou une crypte voûtée sous un édifice ancien.',
+    category: 'geographie',
+    requiredCategoryLevel: 1,
+    requiredGlobalLevel: 1,
+    xpBonus: 205,
+    evaluate: (entries) => ({
+      current: Math.min(
+        1,
+        entries.filter((e) =>
+          /enterré|busé|pertuis|aqueduc|faille|filon|gîte|crypte|hypogée|karstique/i.test(
+            `${e.subType} ${e.name} ${e.summary}`
+          )
+        ).length
+      ),
+      target: 1,
+    }),
+  },
 ];
 
 export function isMissionUnlocked(mission: MissionDefinition, progress: ExplorerProgress): boolean {

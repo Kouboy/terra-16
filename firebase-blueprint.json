@@ -104,9 +104,42 @@
           "minLength": 1,
           "maxLength": 32
         },
+        "pinnedTrophyId": {
+          "type": "string",
+          "description": "Optional pinned 16-bit trophy identifier displayed on explorer profile and souvenir postcards.",
+          "enum": [
+            "",
+            "oiseau_de_nuit",
+            "marcheur_orage",
+            "speleologue",
+            "arpenteur_10km",
+            "grand_randonneur_50km",
+            "maitre_7_roches",
+            "chasseur_geodesique",
+            "gardien_petit_patrimoine",
+            "ouvreur_reliques",
+            "leveur_brumes",
+            "naturaliste_complet",
+            "champion_contrats"
+          ],
+          "minLength": 0,
+          "maxLength": 40
+        },
         "walkedMeters": {
           "type": "number",
           "description": "Cumulative distance walked by the explorer in meters."
+        },
+        "nightFeatsCount": {
+          "type": "number",
+          "description": "Cumulative count of nocturnal discoveries and opened chests."
+        },
+        "stormFeatsCount": {
+          "type": "number",
+          "description": "Cumulative count of discoveries and opened chests during rain, storm, snow, or fog."
+        },
+        "completedContractsCount": {
+          "type": "number",
+          "description": "Cumulative count of dynamically generated local sector contracts completed."
         },
         "discoveriesCount": {
           "type": "number",

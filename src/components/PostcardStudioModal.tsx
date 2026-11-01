@@ -11,8 +11,10 @@ import {
   ExplorerAppearance,
   ExplorerProgress,
   PostcardSubject,
+  TrophyId,
   WeatherInfo,
 } from '../types';
+import { getGenderedTrophyTitle, TROPHIES_CATALOG } from '../trophies';
 import { PixelCornerRivets, PixelUiIcon } from './PixelIcons';
 
 function getInitialPostcardMood(
@@ -49,6 +51,8 @@ export const PostcardStudioModal: React.FC<{
   effectiveTime: EffectiveTimeOfDay;
   weather: WeatherInfo | null;
   muted: boolean;
+  unlockedTrophyIds?: ReadonlySet<TrophyId>;
+  onPinTrophy?: (trophyId: TrophyId | '') => void;
   onClose: () => void;
 }> = ({
   subject,
@@ -60,20 +64,35 @@ export const PostcardStudioModal: React.FC<{
   effectiveTime,
   weather,
   muted,
+  unlockedTrophyIds,
+  onPinTrophy,
   onClose,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [mood, setMood] = useState<PostcardMood>('day');
   const [customNote, setCustomNote] = useState('');
+  const [selectedTrophyId, setSelectedTrophyId] = useState<TrophyId | ''>(
+    progress.pinnedTrophyId || ''
+  );
   const [statusMsg, setStatusMsg] = useState('');
   const [animTick, setAnimTick] = useState(0);
+
+  const unlockedTrophies = useMemo(() => {
+    if (!unlockedTrophyIds) return [];
+    return TROPHIES_CATALOG.filter((t) => unlockedTrophyIds.has(t.id));
+  }, [unlockedTrophyIds]);
 
   useEffect(() => {
     if (!subject) return;
     setMood(getInitialPostcardMood(subject, effectiveTime, weather));
     setCustomNote('');
+    setSelectedTrophyId(
+      progress.pinnedTrophyId && (!unlockedTrophyIds || unlockedTrophyIds.has(progress.pinnedTrophyId))
+        ? progress.pinnedTrophyId
+        : ''
+    );
     setStatusMsg('');
-  }, [subject, effectiveTime, weather]);
+  }, [subject, effectiveTime, weather, progress.pinnedTrophyId, unlockedTrophyIds]);
 
   useEffect(() => {
     if (!subject) return;
@@ -104,6 +123,7 @@ export const PostcardStudioModal: React.FC<{
       mood,
       customNote,
       animTick,
+      overrideTrophyId: selectedTrophyId,
     });
   }, [
     subject,
@@ -115,6 +135,7 @@ export const PostcardStudioModal: React.FC<{
     mood,
     customNote,
     animTick,
+    selectedTrophyId,
   ]);
 
   const slugName = useMemo(() => {
@@ -257,9 +278,9 @@ export const PostcardStudioModal: React.FC<{
           />
         </div>
 
-        {/* Customization Controls: Ambiance + Handwritten Dedication */}
+        {/* Customization Controls: Ambiance + Trophy Medallion + Handwritten Dedication */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-          <div className="md:col-span-6 space-y-1.5">
+          <div className="md:col-span-5 space-y-1.5">
             <div className="text-xs font-bold text-[#24160c]">Lumière & ciel du croquis</div>
             <div className="flex flex-wrap gap-1.5">
               {MOOD_OPTIONS.map((opt) => (
@@ -279,7 +300,33 @@ export const PostcardStudioModal: React.FC<{
             </div>
           </div>
 
-          <div className="md:col-span-6 space-y-1.5">
+          <div className="md:col-span-3 space-y-1.5">
+            <label
+              htmlFor="postcard-trophy-select"
+              className="block text-xs font-bold text-[#24160c]"
+            >
+              Médaille & titre gravés
+            </label>
+            <select
+              id="postcard-trophy-select"
+              value={selectedTrophyId}
+              onChange={(e) => {
+                const nextId = e.target.value as TrophyId | '';
+                setSelectedTrophyId(nextId);
+                if (onPinTrophy) onPinTrophy(nextId);
+              }}
+              className="w-full min-h-[40px] px-2.5 py-2 text-xs font-bold bg-[#fffbeb] text-[#24160c] border-2 border-[#6b4928] focus:outline-none focus:border-[#991b1b]"
+            >
+              <option value="">Titre de Guilde (sans médaille)</option>
+              {unlockedTrophies.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} — {getGenderedTrophyTitle(t, progress.gender)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="md:col-span-4 space-y-1.5">
             <label htmlFor="postcard-note-input" className="block text-xs font-bold text-[#24160c]">
               Dédicace manuscrite (optionnelle)
             </label>
@@ -289,7 +336,7 @@ export const PostcardStudioModal: React.FC<{
               maxLength={110}
               value={customNote}
               onChange={(e) => setCustomNote(e.target.value)}
-              placeholder="Ex. : Halte au crépuscule près des vieilles pierres…"
+              placeholder="Ex. : Halte au crépuscule…"
               className="w-full min-h-[40px] px-3 py-2 text-xs sm:text-sm bg-[#fffbeb] text-[#24160c] border-2 border-[#6b4928] focus:outline-none focus:border-[#991b1b]"
             />
           </div>

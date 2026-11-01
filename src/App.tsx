@@ -108,18 +108,23 @@ const LazyGeocacheModal = React.lazy(() =>
     default: m.GeocacheModal,
   }))
 );
+import type { ProfileSectionTab } from './components/ExplorerProfileView';
 import { TelluricDetectorCard } from './components/TreasuresAndGeocachesView';
 import { isMissionUnlocked, MISSIONS_CATALOG } from './missions';
 import { resolveRegionalTheme } from './regionalBiomes';
 import {
   computeGuildPerks,
+  DynamicContractStep,
+  DynamicSectorContract,
   evaluateDynamicContract,
   generateDynamicSectorContracts,
   GUILD_PERK_DESCRIPTIONS,
   isOutfitUnlocked,
   loadClaimedSectorContracts,
+  loadVisitedContractSteps,
   OUTFITS_CATALOG,
   saveClaimedSectorContracts,
+  saveVisitedContractSteps,
 } from './rpgExtras';
 import {
   playChestOpenSfx,
@@ -146,6 +151,13 @@ import {
   spawnWorldArchivistChests,
   WorldArchivistChestNode,
 } from './treasures';
+import {
+  evaluateAllTrophies,
+  getGenderedTrophyTitle,
+  resolveExplorerDisplayTitle,
+  TROPHIES_CATALOG,
+  TrophyBadgeCanvas,
+} from './trophies';
 import {
   ActiveTab,
   BedrockInfo,
@@ -181,6 +193,7 @@ import {
   SurfaceType,
   TerrainFeature,
   TimeOfDayMode,
+  TrophyId,
   UnlockedEntry,
   WeatherInfo,
   ZOOM_LEVELS,
@@ -229,6 +242,7 @@ interface CutInAlert {
   emblemSrc?: string;
   poiId?: string;
   unlockedCosmeticName?: string;
+  unlockedTrophyId?: TrophyId;
   openReliquary?: boolean;
 }
 
@@ -562,6 +576,10 @@ export default function App() {
   const [claimedContracts, setClaimedContracts] = useState<Set<string>>(() =>
     loadClaimedSectorContracts()
   );
+  const [visitedContractSteps, setVisitedContractSteps] = useState<Set<string>>(() =>
+    loadVisitedContractSteps()
+  );
+  const [profileInitialTab, setProfileInitialTab] = useState<ProfileSectionTab>('atelier');
   const [encounters, setEncounters] = useState<NpcEncounterRecord[]>(() =>
     loadSavedEncounters()
   );
@@ -597,6 +615,7 @@ export default function App() {
   }>({ surface: 'stone', nearWater: false });
 
   const [cutIn, setCutIn] = useState<CutInAlert | null>(null);
+  const knownUnlockedTrophiesRef = useRef<Set<TrophyId> | null>(null);
   const unlockingGuardRef = useRef<Set<string>>(new Set());
   const suppressedPoiIdsUntilMoveRef = useRef<Set<string>>(new Set());
   const resetSuppressionAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -781,6 +800,10 @@ export default function App() {
   useEffect(() => {
     saveFoundGeocacheIds(foundGeocacheIds);
   }, [foundGeocacheIds]);
+
+  useEffect(() => {
+    saveVisitedContractSteps(visitedContractSteps);
+  }, [visitedContractSteps]);
 
   useEffect(() => {
     try {
@@ -1591,10 +1614,12 @@ export default function App() {
     if (newlyUnlockedPois.length === 0) return;
 
     const hour = new Date().getHours();
+    const effectiveTod = resolveEffectiveTimeOfDay(timeMode, weather);
     const isNocturnalOrDusk =
       timeMode === 'dusk' ||
       timeMode === 'night' ||
       (timeMode === 'auto' && ((weather && !weather.isDay) || hour >= 18 || hour < 7));
+    const isTrueNightFeat = effectiveTod === 'night' || hour >= 21 || hour < 6;
     const isInclementWeather =
       weather !== null && weather.condition !== 'clear' && weather.condition !== 'cloudy';
     const applyAtmosphereBonus = isNocturnalOrDusk || isInclementWeather;
@@ -1633,6 +1658,12 @@ export default function App() {
     setEntries(combinedEntries);
 
     const nextBase: ExplorerProgress = { ...progress };
+    if (isTrueNightFeat) {
+      nextBase.nightFeatsCount = (nextBase.nightFeatsCount || 0) + newEntries.length;
+    }
+    if (isInclementWeather) {
+      nextBase.stormFeatsCount = (nextBase.stormFeatsCount || 0) + newEntries.length;
+    }
     for (const e of newEntries) {
       nextBase.totalXp += e.xpAwarded;
       nextBase.discoveriesCount += 1;
@@ -1682,71 +1713,6 @@ export default function App() {
     guildPerks,
     timeMode,
     weather,
-  ]);
-
-  // Dynamic Local Sector Contracts (Contrats de Contrée)
-  const dynamicContracts = useMemo(
-    () => generateDynamicSectorContracts(playerPos.lat, playerPos.lng, pois, terrain),
-    [playerPos.lat, playerPos.lng, pois, terrain]
-  );
-
-  useEffect(() => {
-    if (dynamicContracts.length === 0 || entries.length === 0) return;
-    let newlyClaimed: { title: string; xpBonus: number; category: ExplorationCategory } | null =
-      null;
-    const nextClaimed = new Set(claimedContracts);
-
-    for (const c of dynamicContracts) {
-      if (nextClaimed.has(c.id)) continue;
-      const ev = evaluateDynamicContract(c, entries);
-      if (ev.current >= ev.target) {
-        nextClaimed.add(c.id);
-        newlyClaimed = { title: c.title, xpBonus: c.xpBonus, category: c.category };
-        break;
-      }
-    }
-
-    if (!newlyClaimed) return;
-    setClaimedContracts(nextClaimed);
-    saveClaimedSectorContracts(nextClaimed);
-
-    const updatedProgress: ExplorerProgress = {
-      ...progress,
-      totalXp: progress.totalXp + newlyClaimed.xpBonus,
-      xpHistoire:
-        progress.xpHistoire + (newlyClaimed.category === 'histoire' ? newlyClaimed.xpBonus : 0),
-      xpGeographie:
-        progress.xpGeographie + (newlyClaimed.category === 'geographie' ? newlyClaimed.xpBonus : 0),
-      xpEcosysteme:
-        progress.xpEcosysteme + (newlyClaimed.category === 'ecosysteme' ? newlyClaimed.xpBonus : 0),
-      xpEtrange:
-        progress.xpEtrange + (newlyClaimed.category === 'etrange' ? newlyClaimed.xpBonus : 0),
-      xpLegende:
-        (progress.xpLegende || 0) +
-        (newlyClaimed.category === 'legende' ? newlyClaimed.xpBonus : 0),
-    };
-    setProgress(updatedProgress);
-    playMissionFanfare(muted);
-    setCutIn({
-      id: `contract_${Date.now()}`,
-      kind: 'mission',
-      kicker: 'Contrat de Contrée accompli !',
-      title: newlyClaimed.title,
-      subtitle: `Prime d’exploration locale : +${newlyClaimed.xpBonus} XP`,
-    });
-
-    if (user && cloudOnline) {
-      syncProgressToCloud(user.uid, updatedProgress).catch(handleCloudSyncError);
-    }
-  }, [
-    dynamicContracts,
-    entries,
-    claimedContracts,
-    progress,
-    muted,
-    user,
-    cloudOnline,
-    handleCloudSyncError,
   ]);
 
   const handleSaveJournalAnnotation = async (poiId: string, note: string, photoCount: number) => {
@@ -1888,7 +1854,8 @@ export default function App() {
         await updateExplorerIdentityInCloud(
           user.uid,
           nextProgress.displayName,
-          resolveExplorerAppearance(nextProgress)
+          resolveExplorerAppearance(nextProgress),
+          nextProgress.pinnedTrophyId || ''
         );
       } catch (err) {
         handleCloudSyncError(err);
@@ -1913,6 +1880,7 @@ export default function App() {
     setExpeditionStops([]);
     unlockingGuardRef.current.clear();
     proximityChimeIdsRef.current.clear();
+    knownUnlockedTrophiesRef.current = new Set();
     setCutIn(null);
     setSelectedPoiId(null);
     setSelectedJournalPoiId(null);
@@ -1940,6 +1908,9 @@ export default function App() {
     const emptyContracts = new Set<string>();
     setClaimedContracts(emptyContracts);
     saveClaimedSectorContracts(emptyContracts);
+    const emptyVisitedSteps = new Set<string>();
+    setVisitedContractSteps(emptyVisitedSteps);
+    saveVisitedContractSteps(emptyVisitedSteps);
     setSessionMeters(0);
     setSessionElevGainM(0);
     setBreadcrumbTrail([{ lat: playerPos.lat, lng: playerPos.lng }]);
@@ -1995,7 +1966,8 @@ export default function App() {
         await updateExplorerIdentityInCloud(
           user.uid,
           cleaned,
-          resolveExplorerAppearance(nextProgress)
+          resolveExplorerAppearance(nextProgress),
+          nextProgress.pinnedTrophyId || ''
         );
       } catch (err) {
         handleCloudSyncError(err);
@@ -2583,6 +2555,11 @@ export default function App() {
       ]);
 
       setProgress((prev) => {
+        const hour = new Date().getHours();
+        const isNight =
+          resolveEffectiveTimeOfDay(timeMode, weather) === 'night' || hour >= 21 || hour < 6;
+        const isStorm =
+          weather !== null && weather.condition !== 'clear' && weather.condition !== 'cloudy';
         const next: ExplorerProgress = {
           ...prev,
           totalXp: prev.totalXp + chest.xpReward,
@@ -2591,6 +2568,8 @@ export default function App() {
           xpEcosysteme: prev.xpEcosysteme + (chest.category === 'ecosysteme' ? chest.xpReward : 0),
           xpEtrange: prev.xpEtrange + (chest.category === 'etrange' ? chest.xpReward : 0),
           xpLegende: (prev.xpLegende || 0) + (chest.category === 'legende' ? chest.xpReward : 0),
+          nightFeatsCount: (prev.nightFeatsCount || 0) + (isNight ? 1 : 0),
+          stormFeatsCount: (prev.stormFeatsCount || 0) + (isStorm ? 1 : 0),
         };
         if (user && cloudOnline) {
           syncProgressToCloud(user.uid, next).catch(handleCloudSyncError);
@@ -2622,6 +2601,8 @@ export default function App() {
       handleCloudSyncError,
       isFullscreenMap,
       exitFullscreenMap,
+      timeMode,
+      weather,
     ]
   );
 
@@ -2669,14 +2650,338 @@ export default function App() {
       if (dist <= 1800 && simulationMode) {
         setDashedTracesEnabled(true);
         setRouteRequest({ id: Date.now(), lat, lng });
-      } else {
+      } else if (simulationMode) {
         teleportToLocation(lat, lng);
+      } else {
+        setDashedTracesEnabled(true);
       }
       setActiveTab('carte');
       setMobileDrawer('none');
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [playerPos.lat, playerPos.lng, simulationMode]
+  );
+
+  // ==========================================================================
+  // PACK D : 3 CONTRATS DE TERRAIN LOCAUX DYNAMIQUES & SALLE DES TROPHÉES 16-BIT
+  // ==========================================================================
+  const effectiveTimeForContracts = useMemo(
+    () => resolveEffectiveTimeOfDay(timeMode, weather),
+    [timeMode, weather]
+  );
+
+  const dynamicContracts = useMemo(
+    () =>
+      generateDynamicSectorContracts({
+        centerLat: playerPos.lat,
+        centerLng: playerPos.lng,
+        surfacePois,
+        subterraneanPois,
+        terrain,
+        elevation,
+        bedrock,
+        worldChests,
+        weather,
+        effectiveTime: effectiveTimeForContracts,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      sectorAnchorQuantKey,
+      surfacePois,
+      subterraneanPois,
+      terrain,
+      elevation,
+      bedrock,
+      worldChests,
+      weather,
+      effectiveTimeForContracts,
+    ]
+  );
+
+  // Validate topographic summit / waypoint steps when the explorer physically reaches them
+  useEffect(() => {
+    if (dynamicContracts.length === 0) return;
+    let newlyVisitedStep: DynamicContractStep | null = null;
+    for (const contract of dynamicContracts) {
+      if (claimedContracts.has(contract.id)) continue;
+      for (const step of contract.steps) {
+        if (step.kind !== 'summit' || visitedContractSteps.has(step.id)) continue;
+        if (Boolean(step.isSubterranean) !== subterraneanMode) continue;
+        const dist = haversineMeters(playerPos.lat, playerPos.lng, step.lat, step.lng);
+        if (dist <= step.reachRadiusMeters) {
+          newlyVisitedStep = step;
+          break;
+        }
+      }
+      if (newlyVisitedStep) break;
+    }
+
+    if (!newlyVisitedStep) return;
+    const hitStep = newlyVisitedStep;
+    setVisitedContractSteps((prev) => {
+      const next = new Set(prev);
+      next.add(hitStep.id);
+      return next;
+    });
+    playProximityChimeSfx(muted);
+    setCutIn({
+      id: `summit_step_${hitStep.id}`,
+      kind: 'discovery',
+      kicker: 'Étape de Triangulation validée',
+      title: hitStep.label,
+      subtitle: `${hitStep.shortTag} atteint sur le terrain réel`,
+      emblemSrc: CATEGORY_META.geographie.emblemSrc,
+    });
+  }, [
+    playerPos.lat,
+    playerPos.lng,
+    subterraneanMode,
+    dynamicContracts,
+    claimedContracts,
+    visitedContractSteps,
+    muted,
+  ]);
+
+  // Auto-claim completed Dynamic Sector Contracts
+  useEffect(() => {
+    if (dynamicContracts.length === 0) return;
+    let newlyClaimed: {
+      title: string;
+      totalXp: number;
+      weatherBonusApplied: boolean;
+      category: ExplorationCategory;
+    } | null = null;
+    const nextClaimed = new Set(claimedContracts);
+
+    for (const c of dynamicContracts) {
+      if (nextClaimed.has(c.id)) continue;
+      const ev = evaluateDynamicContract(c, {
+        entries,
+        openedChests,
+        visitedStepIds: visitedContractSteps,
+      });
+      if (ev.current >= ev.target) {
+        nextClaimed.add(c.id);
+        const totalXp = c.xpBonus + (c.isWeatherBonusActive ? c.weatherBonusXp : 0);
+        newlyClaimed = {
+          title: c.title,
+          totalXp,
+          weatherBonusApplied: c.isWeatherBonusActive && c.weatherBonusXp > 0,
+          category: c.category,
+        };
+        break;
+      }
+    }
+
+    if (!newlyClaimed) return;
+    setClaimedContracts(nextClaimed);
+    saveClaimedSectorContracts(nextClaimed);
+
+    const isStormNow =
+      weather !== null && weather.condition !== 'clear' && weather.condition !== 'cloudy';
+    const updatedProgress: ExplorerProgress = {
+      ...progress,
+      totalXp: progress.totalXp + newlyClaimed.totalXp,
+      xpHistoire:
+        progress.xpHistoire + (newlyClaimed.category === 'histoire' ? newlyClaimed.totalXp : 0),
+      xpGeographie:
+        progress.xpGeographie + (newlyClaimed.category === 'geographie' ? newlyClaimed.totalXp : 0),
+      xpEcosysteme:
+        progress.xpEcosysteme + (newlyClaimed.category === 'ecosysteme' ? newlyClaimed.totalXp : 0),
+      xpEtrange:
+        progress.xpEtrange + (newlyClaimed.category === 'etrange' ? newlyClaimed.totalXp : 0),
+      xpLegende:
+        (progress.xpLegende || 0) +
+        (newlyClaimed.category === 'legende' ? newlyClaimed.totalXp : 0),
+      completedContractsCount: (progress.completedContractsCount || 0) + 1,
+      stormFeatsCount: (progress.stormFeatsCount || 0) + (isStormNow ? 1 : 0),
+    };
+    setProgress(updatedProgress);
+    playMissionFanfare(muted);
+    setCutIn({
+      id: `contract_${Date.now()}`,
+      kind: 'mission',
+      kicker: 'Contrat de Terrain accompli !',
+      title: newlyClaimed.title,
+      subtitle: `Prime d’exploration locale : +${newlyClaimed.totalXp} XP${
+        newlyClaimed.weatherBonusApplied ? ' (prime météo / nocturne incluse)' : ''
+      }`,
+    });
+
+    if (user && cloudOnline) {
+      syncProgressToCloud(user.uid, updatedProgress).catch(handleCloudSyncError);
+    }
+  }, [
+    dynamicContracts,
+    entries,
+    openedChests,
+    visitedContractSteps,
+    claimedContracts,
+    progress,
+    weather,
+    muted,
+    user,
+    cloudOnline,
+    handleCloudSyncError,
+  ]);
+
+  const handleTargetContractStep = useCallback(
+    (step: DynamicContractStep, contractCategory: ExplorationCategory) => {
+      setSubterraneanMode(Boolean(step.isSubterranean));
+      setCategoryFilter('all');
+      if (step.poiId) {
+        setSelectedPoiId(step.poiId);
+      } else {
+        setSelectedPoiId(null);
+      }
+      setDashedTracesEnabled(true);
+      const dist = haversineMeters(playerPos.lat, playerPos.lng, step.lat, step.lng);
+      if (simulationMode && dist <= 2400) {
+        setRouteRequest({ id: Date.now(), lat: step.lat, lng: step.lng });
+      } else if (simulationMode && dist > 2400) {
+        teleportToLocation(step.lat, step.lng);
+      } else if (!step.poiId) {
+        setCategoryFilter(contractCategory);
+      }
+      setActiveTab('carte');
+      setMobileDrawer('none');
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [playerPos.lat, playerPos.lng, simulationMode]
+  );
+
+  const handleLaunchContractLoop = useCallback(
+    (contract: DynamicSectorContract, completedStepIds: ReadonlySet<string>) => {
+      const remainingSteps = contract.steps.filter((s) => !completedStepIds.has(s.id));
+      const orderedSteps = remainingSteps.length > 0 ? remainingSteps : contract.steps;
+      if (orderedSteps.length === 0) {
+        setCategoryFilter(contract.category);
+        setActiveTab('carte');
+        return;
+      }
+      const first = orderedSteps[0];
+      setSubterraneanMode(Boolean(first.isSubterranean));
+      setCategoryFilter('all');
+      if (first.poiId) {
+        setSelectedPoiId(first.poiId);
+      }
+      const matchingPois = orderedSteps
+        .map((st) =>
+          st.poiId
+            ? [...surfacePois, ...subterraneanPois].find((p) => p.id === st.poiId) || null
+            : null
+        )
+        .filter((p): p is PoiItem => p !== null);
+      if (matchingPois.length > 0) {
+        setExpeditionStops(matchingPois.slice(0, 5));
+      }
+      setDashedTracesEnabled(true);
+      if (simulationMode) {
+        const sameLayerStops = orderedSteps
+          .filter((s) => Boolean(s.isSubterranean) === Boolean(first.isSubterranean))
+          .map((s) => ({ lat: s.lat, lng: s.lng }));
+        setRouteRequest({
+          id: Date.now(),
+          lat: first.lat,
+          lng: first.lng,
+          stops: sameLayerStops.length > 0 ? sameLayerStops : [{ lat: first.lat, lng: first.lng }],
+        });
+      }
+      setActiveTab('carte');
+      setMobileDrawer('none');
+    },
+    [simulationMode, surfacePois, subterraneanPois]
+  );
+
+  // 16-Bit Trophy Medallion Evaluation & Unlock Celebration
+  const evaluatedTrophies = useMemo(
+    () =>
+      evaluateAllTrophies({
+        progress,
+        entries,
+        specimens,
+        encounters,
+        openedChests,
+        foundGeocacheIdsCount: foundGeocacheIds.size,
+        fogCellsCount: fogSet.size,
+        claimedContractsCount: claimedContracts.size,
+      }),
+    [
+      progress,
+      entries,
+      specimens,
+      encounters,
+      openedChests,
+      foundGeocacheIds.size,
+      fogSet.size,
+      claimedContracts.size,
+    ]
+  );
+
+  const unlockedTrophyIds = useMemo(
+    () => new Set(evaluatedTrophies.filter((t) => t.unlocked).map((t) => t.trophy.id)),
+    [evaluatedTrophies]
+  );
+
+  const explorerTitleInfo = useMemo(
+    () => resolveExplorerDisplayTitle(progress, unlockedTrophyIds),
+    [progress, unlockedTrophyIds]
+  );
+
+  useEffect(() => {
+    if (knownUnlockedTrophiesRef.current === null) {
+      knownUnlockedTrophiesRef.current = new Set(unlockedTrophyIds);
+      return;
+    }
+    const prevKnown = knownUnlockedTrophiesRef.current;
+    let newlyUnlockedId: TrophyId | null = null;
+    for (const id of unlockedTrophyIds) {
+      if (!prevKnown.has(id)) {
+        prevKnown.add(id);
+        if (!newlyUnlockedId) newlyUnlockedId = id;
+      }
+    }
+    if (!newlyUnlockedId) return;
+    const trophyDef = TROPHIES_CATALOG.find((t) => t.id === newlyUnlockedId);
+    if (!trophyDef) return;
+    playMissionFanfare(muted);
+    const genderedTitle = getGenderedTrophyTitle(trophyDef, progress.gender);
+    setCutIn({
+      id: `trophy_${trophyDef.id}_${Date.now()}`,
+      kind: 'mission',
+      kicker: 'Nouveau Trophée 16-bit ciselé au Médaillier !',
+      title: trophyDef.name,
+      subtitle: `Titre débloqué : « ${genderedTitle} »`,
+      unlockedTrophyId: trophyDef.id,
+    });
+  }, [unlockedTrophyIds, progress.gender, muted]);
+
+  const handlePinTrophy = useCallback(
+    async (trophyId: TrophyId | '') => {
+      if (trophyId && !unlockedTrophyIds.has(trophyId)) return;
+      playStampSfx(muted);
+      const nextProgress: ExplorerProgress = {
+        ...progress,
+        pinnedTrophyId: trophyId,
+      };
+      setProgress(nextProgress);
+      if (user && cloudOnline) {
+        try {
+          await Promise.all([
+            updateExplorerIdentityInCloud(
+              user.uid,
+              nextProgress.displayName,
+              resolveExplorerAppearance(nextProgress),
+              trophyId
+            ),
+            syncProgressToCloud(user.uid, nextProgress),
+          ]);
+        } catch (err) {
+          handleCloudSyncError(err);
+        }
+      }
+    },
+    [unlockedTrophyIds, muted, progress, user, cloudOnline, handleCloudSyncError]
   );
 
   const handleOpenNpcPostcard = useCallback(
@@ -3779,6 +4084,8 @@ export default function App() {
           effectiveTime={resolveEffectiveTimeOfDay(timeMode, weather)}
           weather={weather}
           muted={muted}
+          unlockedTrophyIds={unlockedTrophyIds}
+          onPinTrophy={handlePinTrophy}
           onClose={() => setPostcardSubject(null)}
         />
       </Suspense>
@@ -3907,12 +4214,23 @@ export default function App() {
                 className="absolute top-14 left-2.5 right-2.5 sm:left-auto sm:right-4 sm:w-[440px] z-30 grimoire-folio-crimson p-3.5 flex items-center justify-between gap-3"
               >
                 <PixelCornerRivets className="bg-[#b91c1c]" />
-                <div className="min-w-0">
-                  <div className="text-[11px] font-bold text-rose-800 truncate">{cutIn.kicker}</div>
-                  <div className="text-base font-bold font-display text-[#24160c] truncate">
-                    {cutIn.title}
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {cutIn.unlockedTrophyId && (
+                    <div className="p-1 bg-[#28160d] border-2 border-[#d97706] shrink-0">
+                      <TrophyBadgeCanvas
+                        trophyId={cutIn.unlockedTrophyId}
+                        unlocked
+                        pixelScale={2}
+                      />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-bold text-rose-800 truncate">{cutIn.kicker}</div>
+                    <div className="text-base font-bold font-display text-[#24160c] truncate">
+                      {cutIn.title}
+                    </div>
+                    <div className="text-xs font-semibold text-[#5c4028]">{cutIn.subtitle}</div>
                   </div>
-                  <div className="text-xs font-semibold text-[#5c4028]">{cutIn.subtitle}</div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {cutIn.poiId && (
@@ -3928,12 +4246,27 @@ export default function App() {
                       Lire
                     </button>
                   )}
+                  {cutIn.unlockedTrophyId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCutIn(null);
+                        exitFullscreenMap();
+                        setProfileInitialTab('trophees');
+                        setActiveTab('profil');
+                      }}
+                      className="min-h-[44px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
+                    >
+                      Médaillier
+                    </button>
+                  )}
                   {cutIn.unlockedCosmeticName && (
                     <button
                       type="button"
                       onClick={() => {
                         setCutIn(null);
                         exitFullscreenMap();
+                        setProfileInitialTab('atelier');
                         setActiveTab('profil');
                       }}
                       className="min-h-[44px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
@@ -4173,6 +4506,7 @@ export default function App() {
                     unlockedIds={unlockedIds}
                     explorerCallsign={progress.displayName}
                     explorerAppearance={explorerAppearance}
+                    pinnedTrophyId={progress.pinnedTrophyId}
                     altitudeMeters={sampleElevationMeters(
                       elevation,
                       fullscreenModalEntry.lat,
@@ -4608,6 +4942,27 @@ export default function App() {
                           {progress.displayName}
                         </span>
                         <span aria-hidden="true">·</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfileInitialTab('trophees');
+                            setActiveTab('profil');
+                          }}
+                          title="Ouvrir la Salle des Trophées 16-bit & épingler votre titre"
+                          className="inline-flex items-center gap-1.5 font-bold text-rose-900 hover:text-rose-700 underline decoration-[#c89d62] underline-offset-4 transition-colors"
+                        >
+                          {explorerTitleInfo.pinnedTrophy ? (
+                            <TrophyBadgeCanvas
+                              trophyId={explorerTitleInfo.pinnedTrophy.id}
+                              unlocked
+                              pixelScale={1}
+                            />
+                          ) : (
+                            <PixelUiIcon name="trophy" className="w-3.5 h-3.5" />
+                          )}
+                          <span className="truncate max-w-[210px]">{explorerTitleInfo.title}</span>
+                        </button>
+                        <span aria-hidden="true">·</span>
                         <span className="inline-flex items-center gap-1.5 font-bold text-amber-950">
                           <PixelUiIcon name={daytimeMood.icon} className="w-4 h-4 lantern-breathe" />
                           <span>{daytimeMood.label}</span>
@@ -4774,16 +5129,29 @@ export default function App() {
             >
               <PixelCornerRivets className="bg-[#b91c1c]" />
               <div className="flex items-center gap-3 min-w-0">
-                {cutIn.emblemSrc && (
-                  <ResilientPixelImage
-                    src={cutIn.emblemSrc}
-                    alt={cutIn.title}
-                    className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-[#2b1a0e] shrink-0"
-                  />
+                {cutIn.unlockedTrophyId ? (
+                  <div className="p-1.5 bg-[#28160d] border-2 border-[#d97706] shrink-0">
+                    <TrophyBadgeCanvas
+                      trophyId={cutIn.unlockedTrophyId}
+                      unlocked
+                      pixelScale={2}
+                    />
+                  </div>
+                ) : (
+                  cutIn.emblemSrc && (
+                    <ResilientPixelImage
+                      src={cutIn.emblemSrc}
+                      alt={cutIn.title}
+                      className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-[#2b1a0e] shrink-0"
+                    />
+                  )
                 )}
                 <div className="min-w-0">
                   <div className="text-xs font-bold text-rose-800 inline-flex items-center gap-1.5">
-                    <PixelUiIcon name="star" className="w-3.5 h-3.5" />
+                    <PixelUiIcon
+                      name={cutIn.unlockedTrophyId ? 'trophy' : 'star'}
+                      className="w-3.5 h-3.5"
+                    />
                     <span className="truncate">{cutIn.kicker}</span>
                   </div>
                   <p className="text-base sm:text-lg font-bold font-display text-[#24160c] truncate">
@@ -4808,12 +5176,28 @@ export default function App() {
                     <span>Ouvrir au Carnet</span>
                   </button>
                 )}
+                {cutIn.unlockedTrophyId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCutIn(null);
+                      setUiCollapsed(false);
+                      setProfileInitialTab('trophees');
+                      setActiveTab('profil');
+                    }}
+                    className="min-h-[42px] sm:min-h-0 inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
+                  >
+                    <PixelUiIcon name="trophy" className="w-4 h-4" />
+                    <span>Voir & Épingler</span>
+                  </button>
+                )}
                 {cutIn.unlockedCosmeticName && (
                   <button
                     type="button"
                     onClick={() => {
                       setCutIn(null);
                       setUiCollapsed(false);
+                      setProfileInitialTab('atelier');
                       setActiveTab('profil');
                     }}
                     className="min-h-[42px] sm:min-h-0 inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
@@ -6120,6 +6504,7 @@ export default function App() {
                           unlockedIds={unlockedIds}
                           explorerCallsign={progress.displayName}
                           explorerAppearance={explorerAppearance}
+                          pinnedTrophyId={progress.pinnedTrophyId}
                           altitudeMeters={sampleElevationMeters(
                             elevation,
                             activeJournalEntry.lat,
@@ -6145,7 +6530,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* ==================== VIEW 3: MISSIONS & CONTRATS DE CONTRÉE ==================== */}
+          {/* ==================== VIEW 3: MISSIONS, CONTRATS DE TERRAIN & VITRINE DES TROPHÉES ==================== */}
           {activeTab === 'missions' && (
             <motion.div
               key="view-missions"
@@ -6155,107 +6540,302 @@ export default function App() {
               transition={{ duration: 0.16 }}
               className="space-y-5 sm:space-y-6"
             >
-              <div className="border-b-2 border-[#8c653b] pb-3.5 sm:pb-4 space-y-1">
-                <h1
-                  className="text-xl sm:text-3xl font-bold font-display text-[#24160c] flex items-center gap-2.5"
-                  style={{ textWrap: 'balance' }}
-                >
-                  <PixelUiIcon name="scroll" className="w-6 h-6" />
-                  <span>Parchemins de Quêtes & Contrats de Contrée</span>
-                </h1>
-                <p className="text-xs sm:text-sm text-[#54361d]">
-                  Relevez les mandats générés dynamiquement autour de votre position ainsi que les
-                  grandes quêtes de maîtrise des cinq Guildes.
-                </p>
+              <div className="border-b-2 border-[#8c653b] pb-3.5 sm:pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+                <div className="space-y-1">
+                  <h1
+                    className="text-xl sm:text-3xl font-bold font-display text-[#24160c] flex items-center gap-2.5"
+                    style={{ textWrap: 'balance' }}
+                  >
+                    <PixelUiIcon name="scroll" className="w-6 h-6" />
+                    <span>Contrats de Terrain & Parchemins de Quêtes</span>
+                  </h1>
+                  <p className="text-xs sm:text-sm text-[#54361d]">
+                    Trois mandats générés à la volée sur ce qui vous entoure réellement (relief,
+                    eaux, cavités, bornes IGN, météo) ainsi que les quêtes des cinq Guildes.
+                  </p>
+                </div>
+                <div className="text-xs font-mono tabular-nums text-[#54361d] shrink-0">
+                  <span>{Math.max(progress.completedContractsCount || 0, claimedContracts.size)} contrats honorés</span>
+                  <span aria-hidden="true"> · </span>
+                  <span className="font-bold text-rose-900">
+                    {progress.completedMissions.length} / {MISSIONS_CATALOG.length} quêtes
+                  </span>
+                </div>
               </div>
 
-              {/* Dynamic Local Sector Contracts */}
-              {dynamicContracts.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-base sm:text-lg font-bold font-display text-[#24160c] flex items-center gap-2">
-                      <PixelUiIcon name="pocket-compass" className="w-4 h-4" />
-                      <span>Contrats de cette Contrée ({localAtmosphereLabel})</span>
-                    </h2>
-                    <span className="text-xs font-mono text-rose-900 font-bold">
-                      Générés sur le secteur réel
+              {/* 16-Bit Trophy Showcase Strip */}
+              <div className="relative grimoire-folio-gold p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <PixelCornerRivets className="bg-[#d97706]" />
+                <div className="space-y-1.5 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-[#54361d]">
+                    <span className="font-bold text-rose-900 inline-flex items-center gap-1.5">
+                      <PixelUiIcon name="trophy" className="w-4 h-4" />
+                      <span>Médaillier d’Exploits 16-Bit</span>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-mono tabular-nums font-bold text-[#24160c]">
+                      {unlockedTrophyIds.size} / {TROPHIES_CATALOG.length} ciselées
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      Titre porté : <strong className="text-[#24160c]">{explorerTitleInfo.title}</strong>
                     </span>
                   </div>
+                  <p className="text-xs text-[#4a321d]">
+                    Débloquez les médailles de marcheur (Oiseau de nuit, Marcheur d’orage,
+                    Spéléologue, 10 km / 50 km, Maître des 7 roches, Bornes IGN) et épinglez votre
+                    titre sur votre profil et vos cartes postales.
+                  </p>
+                </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="flex flex-wrap items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-1.5 bg-[#28160d] border-2 border-[#6b4928] px-2.5 py-1.5">
+                    {evaluatedTrophies.slice(0, 6).map((item) => (
+                      <div
+                        key={item.trophy.id}
+                        title={`${item.trophy.name} (${item.current}/${item.target} ${item.trophy.unitLabel})`}
+                      >
+                        <TrophyBadgeCanvas
+                          trophyId={item.trophy.id}
+                          unlocked={item.unlocked}
+                          pixelScale={1}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileInitialTab('trophees');
+                      setActiveTab('profil');
+                    }}
+                    className="min-h-[42px] px-4 py-2 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] inline-flex items-center gap-2 jrpg-shadow whitespace-nowrap"
+                  >
+                    <PixelUiIcon name="trophy" className="w-4 h-4" />
+                    <span>Ouvrir la Salle des Trophées</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 3 Dynamic Local Sector Contracts */}
+              {dynamicContracts.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-base sm:text-lg font-bold font-display text-[#24160c] flex items-center gap-2">
+                      <PixelUiIcon name="pocket-compass" className="w-4 h-4" />
+                      <span>Contrats de Terrain · {localAtmosphereLabel}</span>
+                    </h2>
+                    <div className="text-xs text-[#54361d] flex items-center gap-2">
+                      <span>Secteur réel</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-mono tabular-nums font-bold text-rose-900">
+                        {weather ? `${Math.round(weather.tempC)}°C · ${weather.labelFr}` : daytimeMood.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                     {dynamicContracts.map((contract) => {
-                      const ev = evaluateDynamicContract(contract, entries);
+                      const ev = evaluateDynamicContract(contract, {
+                        entries,
+                        openedChests,
+                        visitedStepIds: visitedContractSteps,
+                      });
                       const isDone = claimedContracts.has(contract.id) || ev.current >= ev.target;
                       const catMeta = CATEGORY_META[contract.category];
+                      const effectiveXp =
+                        contract.xpBonus +
+                        (contract.isWeatherBonusActive ? contract.weatherBonusXp : 0);
+
                       return (
                         <div
                           key={contract.id}
-                          className={`relative p-4 space-y-2.5 ${
+                          className={`relative p-4 sm:p-5 flex flex-col justify-between gap-3 ${
                             isDone
                               ? 'bg-[#ecfdf5] border-2 border-emerald-800 jrpg-shadow'
-                              : 'grimoire-folio-gold'
+                              : 'grimoire-folio'
                           }`}
                         >
                           <PixelCornerRivets
                             className={isDone ? 'bg-emerald-600' : 'bg-[#d97706]'}
                           />
-                          <div className="flex items-center justify-between gap-2 text-xs">
-                            <span
-                              className={`font-bold inline-flex items-center gap-1.5 ${catMeta.mapTextClass}`}
-                            >
-                              <PixelGuildIcon category={contract.category} className="w-4 h-4" />
-                              <span>{catMeta.shortLabel}</span>
-                            </span>
-                            <span className="font-mono font-bold text-emerald-800">
-                              +{contract.xpBonus} XP
-                            </span>
-                          </div>
-                          <h3 className="text-base font-bold font-display text-[#24160c]">
-                            {contract.title}
-                          </h3>
-                          <p className="text-xs text-[#4a321d] leading-relaxed">
-                            {contract.description}
-                          </p>
-                          <div className="pt-1 space-y-1">
-                            <div className="flex items-center justify-between text-xs font-mono tabular-nums">
-                              <span
-                                className={
-                                  isDone
-                                    ? 'text-emerald-800 font-sans font-bold'
-                                    : 'text-[#54361d] font-sans font-semibold'
-                                }
-                              >
-                                {isDone ? 'Contrat honoré !' : 'Progression locale'}
-                              </span>
-                              <span className="font-bold text-[#24160c]">
-                                {ev.current} / {ev.target}
+
+                          <div className="space-y-2.5">
+                            <div className="flex items-center justify-between gap-2 text-xs text-[#54361d]">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <PixelGuildIcon category={contract.category} className="w-4 h-4 shrink-0" />
+                                <span className="truncate font-semibold">{contract.kicker}</span>
+                                <span aria-hidden="true">·</span>
+                                <span className={`font-bold shrink-0 ${catMeta.mapTextClass}`}>
+                                  {catMeta.shortLabel}
+                                </span>
+                              </div>
+                              <span className="font-mono tabular-nums font-bold text-emerald-800 shrink-0">
+                                +{effectiveXp} XP
                               </span>
                             </div>
-                            <div className="w-full h-2 pixel-gauge-track overflow-hidden">
+
+                            <h3 className="text-base sm:text-lg font-bold font-display text-[#24160c] leading-snug">
+                              {contract.title}
+                            </h3>
+
+                            <p className="text-xs text-[#4a321d] leading-relaxed">
+                              {contract.description}
+                            </p>
+
+                            {contract.weatherConditionLabel && (
                               <div
-                                className={`h-full ${isDone ? 'bg-emerald-500' : 'bg-[#d97706]'}`}
-                                style={{
-                                  width: `${Math.min(
-                                    100,
-                                    Math.round((ev.current / Math.max(1, ev.target)) * 100)
-                                  )}%`,
-                                }}
-                              />
-                            </div>
+                                className={`text-[11px] flex items-center gap-1.5 ${
+                                  contract.isWeatherBonusActive
+                                    ? 'text-emerald-900 font-bold'
+                                    : 'text-[#6b4928]'
+                                }`}
+                              >
+                                <PixelUiIcon
+                                  name={contract.isWeatherBonusActive ? 'rain' : 'sun-cloud'}
+                                  className="w-3.5 h-3.5 shrink-0"
+                                />
+                                <span>{contract.weatherConditionLabel}</span>
+                              </div>
+                            )}
+
+                            {/* Step-by-step real-world anchors */}
+                            {contract.steps.length > 0 && (
+                              <div className="pt-2 border-t border-[#c89d62]/70 space-y-1.5">
+                                {contract.steps.map((step, sIdx) => {
+                                  const stepDone = isDone || ev.completedStepIds.has(step.id);
+                                  const distM = Math.round(
+                                    haversineMeters(
+                                      playerPos.lat,
+                                      playerPos.lng,
+                                      step.lat,
+                                      step.lng
+                                    )
+                                  );
+                                  return (
+                                    <div
+                                      key={step.id}
+                                      className="flex items-center justify-between gap-2 text-xs py-1"
+                                    >
+                                      <div className="min-w-0 flex items-baseline gap-1.5">
+                                        <span className="font-mono tabular-nums font-bold text-rose-900 shrink-0">
+                                          {stepDone ? '✓' : `${String(sIdx + 1).padStart(2, '0')}.`}
+                                        </span>
+                                        <span
+                                          className={`truncate ${
+                                            stepDone
+                                              ? 'line-through text-emerald-900/80 font-medium'
+                                              : 'text-[#24160c] font-semibold'
+                                          }`}
+                                        >
+                                          {step.label}
+                                        </span>
+                                        <span aria-hidden="true" className="text-[#8c653b]">
+                                          ·
+                                        </span>
+                                        <span className="text-[11px] text-[#6b4928] shrink-0">
+                                          {step.shortTag}
+                                        </span>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="font-mono tabular-nums text-[11px] text-[#54361d]">
+                                          {distM >= 1000
+                                            ? `${(distM / 1000).toFixed(1)} km`
+                                            : `${distM} m`}
+                                        </span>
+                                        {!stepDone && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleTargetContractStep(step, contract.category)
+                                            }
+                                            className="px-2 py-0.5 text-[11px] font-bold bg-[#ecd8b1] hover:bg-amber-300 text-[#24160c] border border-[#2b1a0e] transition-colors"
+                                          >
+                                            Cibler
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
-                          {!isDone && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCategoryFilter(contract.category);
-                                setActiveTab('carte');
-                              }}
-                              className="text-xs font-bold text-rose-900 hover:text-rose-700 underline underline-offset-4 inline-flex items-center gap-1 pt-1"
-                            >
-                              <PixelUiIcon name="cursor" className="w-3 h-3" />
-                              <span>Traquer sur la carte 16-bit</span>
-                            </button>
-                          )}
+
+                          <div className="pt-2 border-t border-[#c89d62]/70 space-y-2.5">
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs font-mono tabular-nums">
+                                <span
+                                  className={
+                                    isDone
+                                      ? 'text-emerald-800 font-sans font-bold'
+                                      : 'text-[#54361d] font-sans font-semibold'
+                                  }
+                                >
+                                  {isDone ? 'Contrat honoré ✓' : 'Avancement sur le secteur'}
+                                </span>
+                                <span className="font-bold text-[#24160c]">
+                                  {ev.current} / {ev.target}
+                                </span>
+                              </div>
+                              <div className="w-full h-2 pixel-gauge-track overflow-hidden">
+                                <div
+                                  className={`h-full ${isDone ? 'bg-emerald-500' : 'bg-[#d97706]'}`}
+                                  style={{
+                                    width: `${Math.min(
+                                      100,
+                                      Math.round((ev.current / Math.max(1, ev.target)) * 100)
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            {!isDone && (
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                {contract.steps.length > 1 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleLaunchContractLoop(contract, ev.completedStepIds)
+                                    }
+                                    className="min-h-[38px] px-3 py-1.5 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 jrpg-shadow"
+                                  >
+                                    <PixelUiIcon name="pocket-compass" className="w-3.5 h-3.5" />
+                                    <span>Lancer la boucle</span>
+                                  </button>
+                                ) : contract.steps.length === 1 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleTargetContractStep(
+                                        contract.steps[0],
+                                        contract.category
+                                      )
+                                    }
+                                    className="min-h-[38px] px-3 py-1.5 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 jrpg-shadow"
+                                  >
+                                    <PixelUiIcon name="cursor" className="w-3.5 h-3.5" />
+                                    <span>Localiser sur la carte</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCategoryFilter(contract.category);
+                                      setActiveTab('carte');
+                                    }}
+                                    className="text-xs font-bold text-rose-900 hover:text-rose-700 underline underline-offset-4 inline-flex items-center gap-1"
+                                  >
+                                    <PixelUiIcon name="cursor" className="w-3 h-3" />
+                                    <span>Filtrer sur la carte 16-bit</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -6640,6 +7220,9 @@ export default function App() {
                   timeMode={timeMode}
                   muted={muted}
                   user={user}
+                  evaluatedTrophies={evaluatedTrophies}
+                  initialSectionTab={profileInitialTab}
+                  onPinTrophy={handlePinTrophy}
                   onUpdateAppearance={handleUpdateAppearance}
                   onSaveCallsign={handleSaveCallsignDirect}
                   onAuthAction={handleAuthAction}

@@ -37,14 +37,24 @@ import {
   STRATUM_META,
   STRATUM_ORDER,
   TimeOfDayMode,
+  TrophyId,
   UnlockedEntry,
 } from '../types';
+import {
+  EvaluatedTrophy,
+  getGenderedTrophyTitle,
+  resolveExplorerDisplayTitle,
+  TROPHIES_CATALOG,
+  TROPHY_TIER_META,
+  TrophyBadgeCanvas,
+} from '../trophies';
 import { ExplorerSpriteCanvas } from './ExplorerAvatarCanvas';
 import { ParchmentScrollStrip } from './ParchmentScrollStrip';
 import { PixelCornerRivets, PixelGuildIcon, PixelStratumIcon, PixelUiIcon } from './PixelIcons';
 
-type ProfileSectionTab = 'atelier' | 'historique' | 'hauts_faits';
+export type ProfileSectionTab = 'atelier' | 'trophees' | 'historique' | 'hauts_faits';
 type WorkshopSlotTab = 'visage' | 'headgear' | 'outfit' | 'tool' | 'pack';
+type TrophyFilterMode = 'all' | 'unlocked' | 'locked';
 
 interface ExplorerProfileViewProps {
   progress: ExplorerProgress;
@@ -56,6 +66,9 @@ interface ExplorerProfileViewProps {
   timeMode: TimeOfDayMode;
   muted: boolean;
   user: User | null;
+  evaluatedTrophies: EvaluatedTrophy[];
+  initialSectionTab?: ProfileSectionTab;
+  onPinTrophy: (trophyId: TrophyId | '') => void;
   onUpdateAppearance: (patch: Partial<ExplorerAppearance>) => void;
   onSaveCallsign: (newName: string) => void;
   onAuthAction: () => void;
@@ -99,6 +112,9 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
   timeMode,
   muted,
   user,
+  evaluatedTrophies,
+  initialSectionTab = 'atelier',
+  onPinTrophy,
   onUpdateAppearance,
   onSaveCallsign,
   onAuthAction,
@@ -108,7 +124,8 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
   onResetCharacter,
   onExportBackup,
 }) => {
-  const [sectionTab, setSectionTab] = useState<ProfileSectionTab>('atelier');
+  const [sectionTab, setSectionTab] = useState<ProfileSectionTab>(initialSectionTab);
+  const [trophyFilter, setTrophyFilter] = useState<TrophyFilterMode>('all');
   const [workshopTab, setWorkshopTab] = useState<WorkshopSlotTab>('headgear');
   const [previewDir, setPreviewDir] = useState<'down' | 'right' | 'up' | 'left'>('down');
   const [previewWalking, setPreviewWalking] = useState<boolean>(true);
@@ -121,6 +138,10 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
   const [resetError, setResetError] = useState<string>('');
   const [resetSuccessBanner, setResetSuccessBanner] = useState<boolean>(false);
   const [exportingBackup, setExportingBackup] = useState<boolean>(false);
+
+  useEffect(() => {
+    setSectionTab(initialSectionTab);
+  }, [initialSectionTab]);
 
   useEffect(() => {
     setNameDraft(progress.displayName);
@@ -141,7 +162,24 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
 
   const appearance = useMemo(() => resolveExplorerAppearance(progress), [progress]);
   const globalLevel = useMemo(() => computeLevelFromXp(progress.totalXp), [progress.totalXp]);
-  const honorificTitle = useMemo(() => computeExplorerHonorificTitle(progress), [progress]);
+  const guildHonorificTitle = useMemo(() => computeExplorerHonorificTitle(progress), [progress]);
+
+  const unlockedTrophySet = useMemo(
+    () => new Set(evaluatedTrophies.filter((t) => t.unlocked).map((t) => t.trophy.id)),
+    [evaluatedTrophies]
+  );
+  const unlockedTrophiesCount = unlockedTrophySet.size;
+
+  const { title: honorificTitle, pinnedTrophy } = useMemo(
+    () => resolveExplorerDisplayTitle(progress, unlockedTrophySet),
+    [progress, unlockedTrophySet]
+  );
+
+  const filteredTrophies = useMemo(() => {
+    if (trophyFilter === 'unlocked') return evaluatedTrophies.filter((t) => t.unlocked);
+    if (trophyFilter === 'locked') return evaluatedTrophies.filter((t) => !t.unlocked);
+    return evaluatedTrophies;
+  }, [evaluatedTrophies, trophyFilter]);
 
   const unlockedCosmeticsCount = useMemo(
     () => ALL_COSMETIC_ITEMS.filter((item) => isCosmeticUnlocked(item, progress, entries)).length,
@@ -485,24 +523,59 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
         <div className="lg:col-span-7 min-w-0 overflow-hidden flex flex-col justify-between space-y-4">
           <div className="space-y-3 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b-2 border-[#c89d62] pb-3.5 min-w-0">
-              <div className="space-y-1 min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#54361d] font-semibold">
-                  <span className="font-mono tabular-nums font-bold text-rose-900">
-                    Niveau {globalLevel.level}
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span className="font-bold text-amber-950">{honorificTitle}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>
-                    {user ? 'Sauvegarde Cloud active' : 'Sauvegarde locale sur cet appareil'}
-                  </span>
+              <div className="flex items-start gap-3 min-w-0 flex-1">
+                {pinnedTrophy && (
+                  <button
+                    type="button"
+                    onClick={() => setSectionTab('trophees')}
+                    title={`Trophée épinglé : ${pinnedTrophy.name} — Cliquer pour ouvrir la Salle des Trophées`}
+                    className="p-1.5 bg-[#1b1109] border-2 border-[#d97706] hover:border-[#991b1b] jrpg-shadow shrink-0 transition-colors"
+                  >
+                    <TrophyBadgeCanvas trophyId={pinnedTrophy.id} unlocked pixelScale={2} />
+                  </button>
+                )}
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#54361d] font-semibold">
+                    <span className="font-mono tabular-nums font-bold text-rose-900">
+                      Niveau {globalLevel.level}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <button
+                      type="button"
+                      onClick={() => setSectionTab('trophees')}
+                      className="font-bold text-amber-950 hover:text-[#991b1b] underline decoration-[#c89d62] underline-offset-2 text-left"
+                    >
+                      {honorificTitle}
+                    </button>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      {user ? 'Sauvegarde Cloud active' : 'Sauvegarde locale sur cet appareil'}
+                    </span>
+                  </div>
+                  <h1
+                    className="text-2xl sm:text-3xl font-bold font-display text-[#24160c] break-words leading-tight"
+                    style={{ textWrap: 'balance' }}
+                  >
+                    {progress.displayName}
+                  </h1>
+                  <div className="text-[11px] text-[#5c4028]">
+                    {pinnedTrophy ? (
+                      <span>
+                        Médaille épinglée : <strong>{pinnedTrophy.name}</strong> · Gravée sur vos
+                        cartes postales
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setSectionTab('trophees')}
+                        className="font-semibold text-rose-900 hover:text-rose-700 underline underline-offset-2"
+                      >
+                        Salle des Trophées ({unlockedTrophiesCount}/{TROPHIES_CATALOG.length}{' '}
+                        médailles) — épingler un titre
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <h1
-                  className="text-2xl sm:text-3xl font-bold font-display text-[#24160c] break-words leading-tight"
-                  style={{ textWrap: 'balance' }}
-                >
-                  {progress.displayName}
-                </h1>
               </div>
 
               <button
@@ -655,7 +728,7 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
       </div>
 
       {/* ====================================================================
-          SUB-NAVIGATION TABS: ATELIER COSMÉTIQUE | HISTORIQUE | HAUTS FAITS
+          SUB-NAVIGATION TABS: ATELIER | TROPHÉES 16-BIT | HISTORIQUE | QUÊTES
           ==================================================================== */}
       <div className="grimoire-folio p-2 sm:p-2.5">
         <ParchmentScrollStrip fadeColorFrom="vellum" innerClassName="gap-2">
@@ -671,6 +744,21 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
             <PixelUiIcon name="hat" className="w-4 h-4" />
             <span>
               Avatar & Équipement ({unlockedCosmeticsCount}/{ALL_COSMETIC_ITEMS.length})
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSectionTab('trophees')}
+            className={`min-h-[44px] px-4 py-2 text-xs sm:text-sm font-bold border-2 border-[#2b1a0e] inline-flex items-center gap-2 whitespace-nowrap shrink-0 ${
+              sectionTab === 'trophees'
+                ? 'bg-[#991b1b] text-[#fffbeb] jrpg-shadow'
+                : 'bg-[#ecd8b1] text-[#24160c] hover:bg-[#fffbeb]'
+            }`}
+          >
+            <PixelUiIcon name="trophy" className="w-4 h-4" />
+            <span>
+              Salle des Trophées ({unlockedTrophiesCount}/{TROPHIES_CATALOG.length})
             </span>
           </button>
 
@@ -703,6 +791,232 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
           </button>
         </ParchmentScrollStrip>
       </div>
+
+      {/* ====================================================================
+          TAB: SALLE DES TROPHÉES & MÉDAILLIER 16-BIT
+          ==================================================================== */}
+      {sectionTab === 'trophees' && (
+        <div className="relative grimoire-folio p-4 sm:p-6 space-y-5">
+          <PixelCornerRivets className="bg-[#f59e0b]" />
+
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b-2 border-[#c89d62] pb-4">
+            <div className="space-y-1.5 max-w-3xl">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-mono tabular-nums text-rose-900 font-bold">
+                <PixelUiIcon name="trophy" className="w-4 h-4" />
+                <span>
+                  {unlockedTrophiesCount} / {TROPHIES_CATALOG.length} médailles ciselées
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>Profil & Cartes postales 16-bit</span>
+              </div>
+              <h2 className="text-lg sm:text-2xl font-bold font-display text-[#24160c]">
+                Médaillier des Exploits de Marcheur
+              </h2>
+              <p className="text-xs sm:text-sm text-[#54361d] leading-relaxed">
+                Chaque trophée récompense un véritable exploit sur le terrain — marche nocturne,
+                sortie sous l’averse, spéléologie, géodésie IGN ou maîtrise des sept socles rocheux.
+                Épinglez votre médaille favorite pour arborer son titre sur votre profil, vos
+                cartes postales et vos fiches d’archive.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {(
+                [
+                  { id: 'all', label: `Toutes (${TROPHIES_CATALOG.length})` },
+                  { id: 'unlocked', label: `Ciselées (${unlockedTrophiesCount})` },
+                  {
+                    id: 'locked',
+                    label: `À conquérir (${TROPHIES_CATALOG.length - unlockedTrophiesCount})`,
+                  },
+                ] as const
+              ).map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setTrophyFilter(f.id)}
+                  className={`min-h-[40px] px-3.5 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] whitespace-nowrap ${
+                    trophyFilter === f.id
+                      ? 'bg-[#28160d] text-amber-300 jrpg-shadow'
+                      : 'bg-[#ecd8b1] text-[#3d2512] hover:bg-[#fffbeb]'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Active Title & Pinned Medallion Banner */}
+          <div className="p-3.5 sm:p-4 bg-[#24140b] text-[#f8edd6] border-2 border-[#b47b38] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              {pinnedTrophy ? (
+                <div className="p-1.5 bg-[#140b05] border border-[#d97706] shrink-0">
+                  <TrophyBadgeCanvas trophyId={pinnedTrophy.id} unlocked pixelScale={2} />
+                </div>
+              ) : (
+                <div className="w-12 h-12 bg-[#140b05] border border-[#6b4928] flex items-center justify-center shrink-0">
+                  <PixelUiIcon name="trophy" className="w-6 h-6" />
+                </div>
+              )}
+              <div className="min-w-0 space-y-0.5">
+                <div className="text-xs text-amber-300 font-semibold">
+                  {pinnedTrophy
+                    ? `Médaille épinglée · ${pinnedTrophy.name}`
+                    : 'Aucune médaille épinglée · Titre de Guilde par défaut'}
+                </div>
+                <div className="text-sm sm:text-base font-bold font-display text-[#fffbeb] truncate">
+                  {progress.displayName} — {honorificTitle}
+                </div>
+              </div>
+            </div>
+
+            {pinnedTrophy && (
+              <button
+                type="button"
+                onClick={() => {
+                  playStampSfx(muted);
+                  onPinTrophy('');
+                }}
+                className="min-h-[40px] px-3.5 py-1.5 text-xs font-bold bg-[#382012] hover:bg-[#54301d] text-amber-200 border border-[#d97706] whitespace-nowrap shrink-0 self-start sm:self-center"
+              >
+                Revenir au titre de Guilde ({guildHonorificTitle})
+              </button>
+            )}
+          </div>
+
+          {/* 12 Chiseled 16-Bit Trophies Grid */}
+          {filteredTrophies.length === 0 ? (
+            <div className="p-6 text-center text-xs text-[#54361d] space-y-1">
+              <p className="font-bold text-sm text-[#24160c]">
+                Aucune médaille dans ce filtre pour l’instant.
+              </p>
+              <p>Chaussez vos bottes sur la carte 16-bit pour accomplir vos premiers exploits !</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {filteredTrophies.map(({ trophy, current, target, unlocked, ratio }) => {
+                const isPinned = pinnedTrophy?.id === trophy.id;
+                const tierMeta = TROPHY_TIER_META[trophy.tier];
+                const genderedTitle = getGenderedTrophyTitle(trophy, appearance.gender);
+                const formattedCurrent =
+                  trophy.target >= 10000
+                    ? `${(current / 1000).toFixed(1).replace('.', ',')} km`
+                    : String(current);
+                const formattedTarget =
+                  trophy.target >= 10000 ? `${Math.round(target / 1000)} km` : String(target);
+
+                return (
+                  <div
+                    key={trophy.id}
+                    className={`relative min-w-0 overflow-hidden p-4 border-2 flex flex-col justify-between gap-3.5 transition-colors ${
+                      isPinned
+                        ? 'bg-amber-200/90 border-[#991b1b] jrpg-shadow'
+                        : unlocked
+                        ? 'bg-[#f8edd6] border-[#6b4928] hover:bg-[#fffbeb]'
+                        : 'bg-[#e6d5b3]/75 border-[#8c653b]'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3.5 min-w-0">
+                      <div
+                        className={`p-2 bg-[#160d07] border-2 shrink-0 flex items-center justify-center ${
+                          isPinned
+                            ? 'border-[#991b1b]'
+                            : unlocked
+                            ? 'border-[#d97706]'
+                            : 'border-[#57534e]'
+                        }`}
+                      >
+                        <TrophyBadgeCanvas
+                          trophyId={trophy.id}
+                          unlocked={unlocked}
+                          pixelScale={3}
+                          className="w-[72px] h-[72px]"
+                        />
+                      </div>
+
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] font-semibold text-[#6b4928]">
+                          <span>{tierMeta.label}</span>
+                          <span aria-hidden="true">·</span>
+                          <span className={unlocked ? 'text-emerald-900 font-bold' : ''}>
+                            {unlocked ? 'Ciselée ✓' : 'À conquérir'}
+                          </span>
+                        </div>
+                        <h3 className="text-base font-bold font-display text-[#24160c] leading-snug break-words">
+                          {trophy.name}
+                        </h3>
+                        <div className="text-xs font-bold text-[#991b1b] break-words">
+                          Titre : « {genderedTitle} »
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-[#4a321d] leading-relaxed">{trophy.description}</p>
+
+                    <div className="space-y-2 pt-1 border-t border-[#c89d62]">
+                      <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums">
+                        <span className="font-sans text-[11px] font-semibold text-[#54361d] truncate">
+                          {trophy.unitLabel}
+                        </span>
+                        <span className="font-bold text-[#24160c] shrink-0">
+                          {formattedCurrent} / {formattedTarget}
+                        </span>
+                      </div>
+                      <div className="w-full h-2 pixel-gauge-track overflow-hidden">
+                        <div
+                          className={`h-full ${
+                            unlocked ? 'bg-emerald-600' : 'bg-[#b45309]'
+                          }`}
+                          style={{ width: `${Math.max(unlocked ? 100 : 4, Math.round(ratio * 100))}%` }}
+                        />
+                      </div>
+
+                      {unlocked ? (
+                        <div className="pt-1 flex items-center justify-between gap-2">
+                          {isPinned ? (
+                            <>
+                              <span className="text-xs font-bold text-[#991b1b]">
+                                Épinglé au profil & cartes ✓
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  playStampSfx(muted);
+                                  onPinTrophy('');
+                                }}
+                                className="min-h-[36px] px-2.5 py-1 text-xs font-bold bg-[#ecd8b1] hover:bg-[#fffbeb] text-[#24160c] border border-[#2b1a0e] whitespace-nowrap shrink-0"
+                              >
+                                Désépingler
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                playStampSfx(muted);
+                                onPinTrophy(trophy.id);
+                              }}
+                              className="min-h-[38px] px-3.5 py-1.5 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center gap-1.5 whitespace-nowrap"
+                            >
+                              <PixelUiIcon name="trophy" className="w-3.5 h-3.5" />
+                              <span>Épingler titre & médaille</span>
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] italic text-[#5c4028] leading-snug pt-0.5">
+                          Conseil : {trophy.howToHint}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ====================================================================
           TAB 1: AVATAR & COSMETIC EQUIPMENT WORKSHOP

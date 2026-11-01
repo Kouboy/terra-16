@@ -4251,6 +4251,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
   const anchorChunkWx = topoAnchorRef.current.wx;
   const anchorChunkWy = topoAnchorRef.current.wy;
 
+  const subLithoProfile = useMemo(
+    () => resolveSubterraneanLithoProfile(bedrock),
+    [bedrock]
+  );
+
   const worldMapData = useMemo(() => {
     const GRID_SIZE = 416;
     const HALF = Math.floor(GRID_SIZE / 2);
@@ -5544,25 +5549,38 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       }
     }
 
-    // Stamp sacred crypts / casemates beneath real architectural landmarks
+    // Stamp multi-bay vaulted crypts (nef + transept + escalier) beneath real churches, castles & arenas
     for (const st of landmarkStamps) {
-      const chamberCode =
-        st.kind === 'church' || st.kind === 'castle' || st.kind === 'arena'
-          ? D_CRYPT
-          : st.kind === 'station'
-          ? D_METRO_RAIL
-          : D_CELLAR;
-      const rx = Math.max(1, Math.ceil(st.w * 0.5));
-      const ry = Math.max(1, Math.ceil(st.h * 0.5));
-      for (let y = st.gy - ry; y <= st.gy + ry; y++) {
-        for (let x = st.gx - rx; x <= st.gx + rx; x++) {
-          carveDungeonCell(x, y, chamberCode, true);
+      if (st.kind === 'church' || st.kind === 'castle' || st.kind === 'arena') {
+        const rx = Math.max(2, Math.ceil(st.w * 0.55));
+        const ry = Math.max(2, Math.ceil(st.h * 0.55));
+        // Central vaulted nave + transept wings (cruciform / hypogeum layout)
+        for (let y = st.gy - ry; y <= st.gy + ry; y++) {
+          for (let x = st.gx - Math.max(1, rx - 1); x <= st.gx + Math.max(1, rx - 1); x++) {
+            carveDungeonCell(x, y, D_CRYPT, true);
+          }
         }
+        for (let y = st.gy - Math.max(1, ry - 1); y <= st.gy + Math.max(1, ry - 1); y++) {
+          for (let x = st.gx - rx - 1; x <= st.gx + rx + 1; x++) {
+            carveDungeonCell(x, y, D_CRYPT, true);
+          }
+        }
+        carveDungeonCell(st.gx, Math.min(GRID_SIZE - 3, st.gy + ry), D_STAIRS, true);
+        connectChamberToNearestGallery(st.gx, st.gy, 10);
+      } else {
+        const chamberCode = st.kind === 'station' ? D_METRO_RAIL : D_CELLAR;
+        const rx = Math.max(1, Math.ceil(st.w * 0.5));
+        const ry = Math.max(1, Math.ceil(st.h * 0.5));
+        for (let y = st.gy - ry; y <= st.gy + ry; y++) {
+          for (let x = st.gx - rx; x <= st.gx + rx; x++) {
+            carveDungeonCell(x, y, chamberCode, true);
+          }
+        }
+        carveDungeonCell(st.gx, Math.min(GRID_SIZE - 3, st.gy + ry), D_STAIRS, true);
       }
-      carveDungeonCell(st.gx, Math.min(GRID_SIZE - 3, st.gy + ry), D_STAIRS, true);
     }
 
-    // 8B. Stamp REAL Subterranean Vector Lines (MVT road tunnels, subway lines, culverts, aqueducts & fault veins)
+    // 8B. Stamp REAL Subterranean Vector Lines (MVT tunnels, subway, IGN/OSM buried rivers, culverts, aqueducts & BRGM faults/veins)
     for (const sf of subterranean) {
       if (!sf.isLine || sf.points.length < 2) continue;
       const pts = sf.points.map((p) => toGridFloat(p.lat, p.lng));
@@ -5573,7 +5591,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           ? D_CULVERT
           : sf.kind === 'aqueduct'
           ? D_AQUEDUCT
-          : sf.kind === 'fault_line'
+          : sf.kind === 'fault_line' || sf.kind === 'mineral_vein'
           ? D_FAULT_VEIN
           : sf.kind === 'subway'
           ? D_METRO_RAIL
@@ -5581,7 +5599,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       const borderCode =
         sf.kind === 'underground_water' || sf.kind === 'aqueduct' ? D_GALLERY : D_ROCK;
       const halfW =
-        sf.kind === 'fault_line' ? (tileMeters <= 22 ? 1 : 0) : tileMeters <= 15 ? 1 : 0;
+        sf.kind === 'fault_line' || sf.kind === 'mineral_vein'
+          ? tileMeters <= 20
+            ? 1
+            : 0
+          : sf.kind === 'underground_water' && tileMeters <= 16
+          ? 1
+          : 0;
       for (let i = 0; i < pts.length - 1; i++) {
         carveDungeonLine(
           pts[i].gx,
@@ -5593,7 +5617,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           borderCode
         );
       }
-      // Stamp tunnel portals (stairs/archways) at start & end of road/pedestrian tunnels
+      // Stamp portals at ends of road tunnels & major buried river mouths
       if (sf.kind === 'tunnel_road') {
         carveDungeonCell(Math.round(pts[0].gx), Math.round(pts[0].gy), D_STAIRS, true);
         const last = pts[pts.length - 1];
@@ -5601,32 +5625,64 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       }
     }
 
-    // 8C. Stamp REAL Mapped Cavities (BRGM BDCavités, IGN caves/chasms, BSS aquifers, OSM quarries/mines/portals)
+    // 8C. Stamp REAL Mapped Cavities, Mines, Mineral Veins & Karst according to Real Bedrock Lithology!
+    const isRectilinearCoalSchist = subLithoProfile.id === 'schiste_houiller';
+    const isKarstLimestone = subLithoProfile.id === 'calcaire_karst';
+
     for (let sIdx = 0; sIdx < subterranean.length; sIdx++) {
       const sf = subterranean[sIdx];
       if (sf.isLine || sf.points.length === 0) continue;
       const gp = toGridFloat(sf.points[0].lat, sf.points[0].lng);
       const cx = Math.round(gp.gx);
       const cy = Math.round(gp.gy);
-      if (cx < 3 || cx >= GRID_SIZE - 3 || cy < 3 || cy >= GRID_SIZE - 3) continue;
+      if (cx < 4 || cx >= GRID_SIZE - 4 || cy < 4 || cy >= GRID_SIZE - 4) continue;
 
-      if (sf.kind === 'quarry' || sf.kind === 'mine') {
-        const rad = Math.max(2, Math.min(5, Math.round(28 / tileMeters)));
-        carveOrganicChamber(cx, cy, rad + 1, rad, D_QUARRY_HALL, sIdx * 13 + 7);
-        connectChamberToNearestGallery(cx, cy, 11);
-        if (sf.kind === 'mine') {
-          carveDungeonCell(cx, cy, D_STAIRS, true);
+      if (sf.kind === 'mine' || (sf.kind === 'quarry' && isRectilinearCoalSchist)) {
+        // Rectilinear timbered mine drift & orthogonal cross-cuts (travers-bancs & recoupes rectilignes)
+        const arm = Math.max(3, Math.min(6, Math.round(34 / tileMeters)));
+        carveDungeonLine(cx - arm, cy, cx + arm, cy, D_QUARRY_HALL, 0);
+        carveDungeonLine(cx, cy - arm + 1, cx, cy + arm - 1, D_QUARRY_HALL, 0);
+        if (arm >= 4) {
+          carveDungeonLine(cx - arm + 1, cy - 2, cx + arm - 1, cy - 2, D_GALLERY, 0);
+          carveDungeonLine(cx - arm + 1, cy + 2, cx + arm - 1, cy + 2, D_GALLERY, 0);
         }
+        carveDungeonCell(cx, cy, D_STAIRS, true);
+        connectChamberToNearestGallery(cx, cy, 12);
+      } else if (sf.kind === 'quarry') {
+        // Rectilinear pillared limestone/sandstone quarry hall (chambres et piliers tournés)
+        const rx = Math.max(2, Math.min(5, Math.round(28 / tileMeters)));
+        const ry = Math.max(2, Math.min(4, Math.round(24 / tileMeters)));
+        for (let dy = -ry; dy <= ry; dy++) {
+          for (let dx = -rx; dx <= rx; dx++) {
+            carveDungeonCell(cx + dx, cy + dy, D_QUARRY_HALL, true);
+          }
+        }
+        connectChamberToNearestGallery(cx, cy, 11);
+      } else if (sf.kind === 'mineral_vein') {
+        // Hydrothermal mineral vein fissure + crystalline pocket
+        const span = Math.max(2, Math.min(4, Math.round(22 / tileMeters)));
+        const dir = sIdx % 2 === 0 ? 1 : -1;
+        carveDungeonLine(cx - span, cy - span * dir, cx + span, cy + span * dir, D_FAULT_VEIN, 0, D_GALLERY);
+        connectChamberToNearestGallery(cx, cy, 11);
       } else if (sf.kind === 'natural_cave') {
-        const rad = Math.max(2, Math.min(5, Math.round(25 / tileMeters)));
+        // Sinuous wet karstic conduit + concreted chamber + rimstone gour pool
+        const rad = Math.max(2, Math.min(5, Math.round(26 / tileMeters)));
         carveOrganicChamber(cx, cy, rad, rad + 1, D_NATURAL_CAVERN, sIdx * 19 + 3);
+        if (isKarstLimestone) {
+          // Winding karstic boyau extension with wet gour pool
+          const bendX = cx + ((sIdx % 2 === 0 ? 1 : -1) * (rad + 2));
+          const bendY = cy + (((sIdx >> 1) % 2 === 0 ? 1 : -1) * 2);
+          carveDungeonLine(cx, cy, bendX, bendY, D_NATURAL_CAVERN, 0);
+          carveDungeonCell(bendX, bendY, D_SUB_WATER, true);
+        }
         carveDungeonCell(cx - 1, cy, D_SUB_WATER, true);
         carveDungeonCell(cx, cy + 1, D_STAIRS, true);
-        connectChamberToNearestGallery(cx, cy, 9);
+        connectChamberToNearestGallery(cx, cy, 10);
       } else if (sf.kind === 'crypt' || sf.kind === 'military') {
         const rad = Math.max(2, Math.min(4, Math.round(20 / tileMeters)));
         for (let dy = -rad; dy <= rad; dy++) {
           for (let dx = -rad; dx <= rad; dx++) {
+            if (Math.abs(dx) === rad && Math.abs(dy) === rad) continue;
             carveDungeonCell(cx + dx, cy + dy, D_CRYPT, true);
           }
         }
@@ -5652,22 +5708,34 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       }
     }
 
-    // 8D. Ensure every Subterranean POI sits inside a walkable carved chamber connected to the gallery network!
+    // 8D. Ensure every Subterranean POI sits inside an authentic lithology-matched chamber connected to galleries!
     for (let pIdx = 0; pIdx < subterraneanPois.length; pIdx++) {
       const sp = subterraneanPois[pIdx];
       const gp = toGridFloat(sp.lat, sp.lng);
       const cx = Math.round(gp.gx);
       const cy = Math.round(gp.gy);
-      if (cx < 3 || cx >= GRID_SIZE - 3 || cy < 3 || cy >= GRID_SIZE - 3) continue;
-      const chamberCode =
-        sp.category === 'histoire'
-          ? D_CRYPT
-          : sp.nearWaterway
-          ? D_NATURAL_CAVERN
-          : sp.category === 'geographie'
-          ? D_NATURAL_CAVERN
-          : D_QUARRY_HALL;
-      carveOrganicChamber(cx, cy, 2, 2, chamberCode, pIdx * 17 + 5);
+      if (cx < 4 || cx >= GRID_SIZE - 4 || cy < 4 || cy >= GRID_SIZE - 4) continue;
+      const hay = `${sp.name} ${sp.subType}`.toLowerCase();
+
+      if (sp.category === 'histoire' || /crypte|hypogée|substruction/.test(hay)) {
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            if (Math.abs(dx) === 2 && Math.abs(dy) === 2) continue;
+            carveDungeonCell(cx + dx, cy + dy, D_CRYPT, true);
+          }
+        }
+      } else if (/filon|faille|gîte/.test(hay)) {
+        carveDungeonLine(cx - 2, cy - 1, cx + 2, cy + 1, D_FAULT_VEIN, 1, D_GALLERY);
+      } else if (/enterré|busé|pertuis/.test(hay)) {
+        carveDungeonLine(cx - 2, cy, cx + 2, cy, D_CULVERT, 0, D_GALLERY);
+      } else if (isRectilinearCoalSchist && sp.category === 'etrange') {
+        carveDungeonLine(cx - 3, cy, cx + 3, cy, D_QUARRY_HALL, 0);
+        carveDungeonLine(cx, cy - 2, cx, cy + 2, D_QUARRY_HALL, 0);
+      } else {
+        const chamberCode =
+          sp.nearWaterway || sp.category === 'geographie' ? D_NATURAL_CAVERN : D_QUARRY_HALL;
+        carveOrganicChamber(cx, cy, 2, 2, chamberCode, pIdx * 17 + 5);
+      }
       connectChamberToNearestGallery(cx, cy, 14);
     }
 
@@ -5702,6 +5770,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     subterraneanPois,
     pois,
     elevation,
+    subLithoProfile.id,
     tileMeters,
     zoomLevel,
     anchorChunkWx,
@@ -6423,11 +6492,6 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     [playerLat, playerLng, elevation, bedrock, terrain]
   );
 
-  const subLithoProfile = useMemo(
-    () => resolveSubterraneanLithoProfile(bedrock),
-    [bedrock]
-  );
-
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -6783,67 +6847,166 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               // EXCAVATED DUNGEON FLOORS, TUNNELS, AQUEDUCTS, FAULTS & CRYPTS
               // ==============================================================
               if (dt === D_SUB_WATER) {
+                // Buried river / karstic siphon / aquifer pool with neighbor-aware stone quays & directional current
+                const wN = getDungeonAt(wx, wy - 1) === D_SUB_WATER || getDungeonAt(wx, wy - 1) === D_CULVERT;
+                const wS = getDungeonAt(wx, wy + 1) === D_SUB_WATER || getDungeonAt(wx, wy + 1) === D_CULVERT;
+                const wW = getDungeonAt(wx - 1, wy) === D_SUB_WATER || getDungeonAt(wx - 1, wy) === D_CULVERT;
+                const wE = getDungeonAt(wx + 1, wy) === D_SUB_WATER || getDungeonAt(wx + 1, wy) === D_CULVERT;
+
                 pctx.fillStyle = '#082f49';
                 pctx.fillRect(sx, sy, TILE, TILE);
                 pctx.fillStyle = '#0c4a6e';
                 pctx.fillRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
                 const rip = (wx * 3 + wy * 5 + envTick) % 4;
                 pctx.fillStyle = '#0284c7';
-                pctx.fillRect(sx + 2 + rip, sy + 4, 6, 2);
-                pctx.fillRect(sx + 6 - rip, sy + 11, 6, 2);
-                pctx.fillStyle = '#7dd3fc';
-                pctx.fillRect(sx + 3 + rip, sy + 4, 3, 1);
+                if ((wN || wS) && !wW && !wE) {
+                  pctx.fillRect(sx + 4, sy + 2 + rip, 2, 6);
+                  pctx.fillRect(sx + 10, sy + 6 - rip, 2, 6);
+                  pctx.fillStyle = '#7dd3fc';
+                  pctx.fillRect(sx + 4, sy + 3 + rip, 1, 3);
+                } else {
+                  pctx.fillRect(sx + 2 + rip, sy + 4, 6, 2);
+                  pctx.fillRect(sx + 6 - rip, sy + 11, 6, 2);
+                  pctx.fillStyle = '#7dd3fc';
+                  pctx.fillRect(sx + 3 + rip, sy + 4, 3, 1);
+                }
 
-                if (getDungeonAt(wx, wy - 1) !== D_SUB_WATER) {
-                  pctx.fillStyle = '#78716c';
+                // Vaulted masonry banquettes along dry edges of buried rivers
+                if (!wN) {
+                  pctx.fillStyle = '#a8a29e';
                   pctx.fillRect(sx, sy, TILE, 2);
                 }
-                if (getDungeonAt(wx, wy + 1) !== D_SUB_WATER) {
+                if (!wS) {
                   pctx.fillStyle = '#57534e';
                   pctx.fillRect(sx, sy + TILE - 2, TILE, 2);
                 }
+                if (!wW) {
+                  pctx.fillStyle = '#78716c';
+                  pctx.fillRect(sx, sy, 2, TILE);
+                }
+                if (!wE) {
+                  pctx.fillStyle = '#57534e';
+                  pctx.fillRect(sx + TILE - 2, sy, 2, TILE);
+                }
               } else if (dt === D_CULVERT) {
-                // Brick/stone vaulted storm culvert (buse & ruisseau voûté) with walkable inspection ledge
+                // Orientation-aware brick/stone vaulted culvert (ruisseau busé & pertuis voûté) with walkway ledge
+                const isHyd = (code: number) =>
+                  code === D_CULVERT || code === D_SUB_WATER || code === D_AQUEDUCT;
+                const cN = isHyd(getDungeonAt(wx, wy - 1));
+                const cS = isHyd(getDungeonAt(wx, wy + 1));
+                const cW = isHyd(getDungeonAt(wx - 1, wy));
+                const cE = isHyd(getDungeonAt(wx + 1, wy));
+                const isVert = (cN || cS) && !cW && !cE;
+
                 pctx.fillStyle = rockTheme.floorBase;
                 pctx.fillRect(sx, sy, TILE, TILE);
-                pctx.fillStyle = '#7c2d12';
-                pctx.fillRect(sx + 1, sy + 1, TILE - 2, 3);
-                pctx.fillRect(sx + 1, sy + 12, TILE - 2, 3);
-                pctx.fillStyle = '#0369a1';
-                pctx.fillRect(sx, sy + 5, TILE, 6);
-                const flow = (wx + envTick) % 4;
-                pctx.fillStyle = '#38bdf8';
-                pctx.fillRect(sx + 2 + flow, sy + 7, 5, 2);
-                pctx.fillRect(sx + 9 + (flow >> 1), sy + 6, 3, 1);
+                if (isVert) {
+                  // North-South vaulted brick culvert channel
+                  pctx.fillStyle = '#7c2d12';
+                  pctx.fillRect(sx + 1, sy, 3, TILE);
+                  pctx.fillRect(sx + 12, sy, 3, TILE);
+                  pctx.fillStyle = '#b45309';
+                  pctx.fillRect(sx + 2, sy + ((wy & 1) * 4), 1, 6);
+                  pctx.fillStyle = '#0369a1';
+                  pctx.fillRect(sx + 5, sy, 6, TILE);
+                  const flow = (wy + envTick) % 4;
+                  pctx.fillStyle = '#38bdf8';
+                  pctx.fillRect(sx + 7, sy + 2 + flow, 2, 5);
+                  pctx.fillRect(sx + 6, sy + 9 + (flow >> 1), 1, 3);
+                } else {
+                  // East-West or junction vaulted brick culvert channel
+                  pctx.fillStyle = '#7c2d12';
+                  pctx.fillRect(sx, sy + 1, TILE, 3);
+                  pctx.fillRect(sx, sy + 12, TILE, 3);
+                  pctx.fillStyle = '#b45309';
+                  pctx.fillRect(sx + ((wx & 1) * 4), sy + 2, 6, 1);
+                  pctx.fillStyle = '#0369a1';
+                  pctx.fillRect(sx, sy + 5, TILE, 6);
+                  const flow = (wx + envTick) % 4;
+                  pctx.fillStyle = '#38bdf8';
+                  pctx.fillRect(sx + 2 + flow, sy + 7, 5, 2);
+                  pctx.fillRect(sx + 9 + (flow >> 1), sy + 6, 3, 1);
+                  if (cN) {
+                    pctx.fillStyle = '#0369a1';
+                    pctx.fillRect(sx + 5, sy, 6, 6);
+                  }
+                  if (cS) {
+                    pctx.fillStyle = '#0369a1';
+                    pctx.fillRect(sx + 5, sy + 10, 6, 6);
+                  }
+                }
+                // Iron culvert grate bars at dead-end / surface transition mouth!
+                const deg = (cN ? 1 : 0) + (cS ? 1 : 0) + (cW ? 1 : 0) + (cE ? 1 : 0);
+                if (deg <= 1) {
+                  pctx.fillStyle = '#cbd5e1';
+                  pctx.fillRect(sx + 5, sy + 5, 6, 1);
+                  pctx.fillRect(sx + 5, sy + 9, 6, 1);
+                }
               } else if (dt === D_AQUEDUCT) {
-                // Dressed-stone Roman / royal subterranean aqueduct channel (Aqueduc souterrain)
+                // Orientation-aware dressed-stone Roman / royal subterranean aqueduct channel
+                const aN = getDungeonAt(wx, wy - 1) === D_AQUEDUCT;
+                const aS = getDungeonAt(wx, wy + 1) === D_AQUEDUCT;
+                const aW = getDungeonAt(wx - 1, wy) === D_AQUEDUCT;
+                const aE = getDungeonAt(wx + 1, wy) === D_AQUEDUCT;
+                const isVert = (aN || aS) && !aW && !aE;
+
                 pctx.fillStyle = '#d6c3a5';
                 pctx.fillRect(sx, sy, TILE, TILE);
-                pctx.fillStyle = '#f5ebd6';
-                pctx.fillRect(sx + 1, sy + 1, TILE - 2, 3);
-                pctx.fillRect(sx + 1, sy + 12, TILE - 2, 3);
-                pctx.fillStyle = '#0e7490';
-                pctx.fillRect(sx, sy + 4, TILE, 8);
-                const gl = (wx * 2 + wy + envTick) % 5;
-                pctx.fillStyle = '#22d3ee';
-                pctx.fillRect(sx + 1 + gl, sy + 6, 6, 3);
-                pctx.fillStyle = '#cffafe';
-                pctx.fillRect(sx + 2 + gl, sy + 7, 3, 1);
+                if (isVert) {
+                  pctx.fillStyle = '#f5ebd6';
+                  pctx.fillRect(sx + 1, sy, 3, TILE);
+                  pctx.fillRect(sx + 12, sy, 3, TILE);
+                  pctx.fillStyle = '#0e7490';
+                  pctx.fillRect(sx + 4, sy, 8, TILE);
+                  const gl = (wy * 2 + wx + envTick) % 5;
+                  pctx.fillStyle = '#22d3ee';
+                  pctx.fillRect(sx + 6, sy + 1 + gl, 3, 6);
+                  pctx.fillStyle = '#cffafe';
+                  pctx.fillRect(sx + 7, sy + 2 + gl, 1, 3);
+                } else {
+                  pctx.fillStyle = '#f5ebd6';
+                  pctx.fillRect(sx, sy + 1, TILE, 3);
+                  pctx.fillRect(sx, sy + 12, TILE, 3);
+                  pctx.fillStyle = '#0e7490';
+                  pctx.fillRect(sx, sy + 4, TILE, 8);
+                  const gl = (wx * 2 + wy + envTick) % 5;
+                  pctx.fillStyle = '#22d3ee';
+                  pctx.fillRect(sx + 1 + gl, sy + 6, 6, 3);
+                  pctx.fillStyle = '#cffafe';
+                  pctx.fillRect(sx + 2 + gl, sy + 7, 3, 1);
+                }
               } else if (dt === D_FAULT_VEIN) {
-                // Tectonic Geological Fault Gallery (Faille géologique & filon minéral luminescent)
+                // Neighbor-connected Tectonic Geological Fault & Sparkling Mineral Vein (BRGM / OSM)
+                const fN = getDungeonAt(wx, wy - 1) === D_FAULT_VEIN;
+                const fS = getDungeonAt(wx, wy + 1) === D_FAULT_VEIN;
+                const fW = getDungeonAt(wx - 1, wy) === D_FAULT_VEIN;
+                const fE = getDungeonAt(wx + 1, wy) === D_FAULT_VEIN;
+
                 pctx.fillStyle = rockTheme.dark;
                 pctx.fillRect(sx, sy, TILE, TILE);
                 pctx.fillStyle = rockTheme.floorBase;
                 pctx.fillRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
-                // Jagged glowing mineral / geothermal fissure running diagonally across floor
+
+                // Central fracture core + arms extending toward connected fault neighbors
+                pctx.fillStyle = '#09090d';
+                pctx.fillRect(sx + 5, sy + 5, 6, 6);
                 pctx.fillStyle = rockTheme.vein;
-                pctx.fillRect(sx + 2, sy + 3, 4, 3);
-                pctx.fillRect(sx + 6, sy + 6, 4, 3);
-                pctx.fillRect(sx + 10, sy + 9, 4, 4);
-                pctx.fillStyle = rockTheme.crystalGlow;
-                pctx.fillRect(sx + 3, sy + 4, 2, 1);
+                pctx.fillRect(sx + 6, sy + 6, 4, 4);
+                if (fN) pctx.fillRect(sx + 6, sy, 4, 6);
+                if (fS) pctx.fillRect(sx + 6, sy + 10, 4, 6);
+                if (fW) pctx.fillRect(sx, sy + 6, 6, 4);
+                if (fE) pctx.fillRect(sx + 10, sy + 6, 6, 4);
+                if (!fN && !fS && !fW && !fE) {
+                  pctx.fillRect(sx + 2, sy + 3, 4, 3);
+                  pctx.fillRect(sx + 10, sy + 9, 4, 4);
+                }
+                const glint = (wx + wy + envTick) % 3 === 0;
+                pctx.fillStyle = glint ? '#ffffff' : rockTheme.crystalGlow;
                 pctx.fillRect(sx + 7, sy + 7, 2, 2);
-                pctx.fillRect(sx + 11, sy + 10, 2, 2);
+                if (fN || fE) {
+                  pctx.fillStyle = rockTheme.crystalGlow;
+                  pctx.fillRect(sx + (fE ? 12 : 7), sy + (fN ? 2 : 7), 2, 2);
+                }
               } else if (dt === D_METRO_RAIL) {
                 pctx.fillStyle = '#292524';
                 pctx.fillRect(sx, sy, TILE, TILE);
@@ -6870,7 +7033,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   pctx.fillRect(sx, sy + 10, TILE, 2);
                 }
               } else if (dt === D_QUARRY_HALL) {
-                // Pillared limestone quarry OR timbered mine chamber (BRGM BDCavités)
+                // Lithology-distinct Quarry / Mine Hall:
+                // - Calcaire: Galeries taillées à piliers tournés & traits de pic
+                // - Schiste/Charbon: Galeries boisées rectilignes avec rails de berlines Decauville!
                 pctx.fillStyle = rockTheme.floorBase;
                 pctx.fillRect(sx, sy, TILE, TILE);
                 pctx.fillStyle = rockTheme.floorTile;
@@ -6879,12 +7044,39 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 pctx.fillRect(sx, sy + 7, TILE, 1);
                 pctx.fillRect(sx + 8, sy, 1, TILE);
 
-                const surrounded =
-                  getDungeonAt(wx, wy - 1) === D_QUARRY_HALL &&
-                  getDungeonAt(wx, wy + 1) === D_QUARRY_HALL &&
-                  getDungeonAt(wx - 1, wy) === D_QUARRY_HALL &&
-                  getDungeonAt(wx + 1, wy) === D_QUARRY_HALL;
-                if (surrounded && (wx & 1) === 0 && (wy & 1) === 0) {
+                const qN = getDungeonAt(wx, wy - 1) === D_QUARRY_HALL;
+                const qS = getDungeonAt(wx, wy + 1) === D_QUARRY_HALL;
+                const qW = getDungeonAt(wx - 1, wy) === D_QUARRY_HALL;
+                const qE = getDungeonAt(wx + 1, wy) === D_QUARRY_HALL;
+                const surrounded = qN && qS && qW && qE;
+
+                if (rockTheme.hasMineRails && !surrounded) {
+                  // Narrow-gauge steel Decauville mine cart rails + wooden sleepers in rectilinear coal/schist drifts!
+                  const isVertDrift = (qN || qS) && !qW && !qE;
+                  pctx.fillStyle = '#451a03';
+                  if (isVertDrift) {
+                    pctx.fillRect(sx + 4, sy + 3, 8, 2);
+                    pctx.fillRect(sx + 4, sy + 11, 8, 2);
+                    pctx.fillStyle = '#94a3b8';
+                    pctx.fillRect(sx + 5, sy, 1, TILE);
+                    pctx.fillRect(sx + 10, sy, 1, TILE);
+                  } else if (qW || qE) {
+                    pctx.fillRect(sx + 3, sy + 4, 2, 8);
+                    pctx.fillRect(sx + 11, sy + 4, 2, 8);
+                    pctx.fillStyle = '#94a3b8';
+                    pctx.fillRect(sx, sy + 5, TILE, 1);
+                    pctx.fillRect(sx, sy + 10, TILE, 1);
+                  }
+                  // Overhead oak timber cross-beam (cadre boisé) every 2 tiles
+                  if (((wx + wy) & 1) === 0) {
+                    pctx.fillStyle = '#78350f';
+                    if (isVertDrift) {
+                      pctx.fillRect(sx + 1, sy + 7, 14, 2);
+                    } else {
+                      pctx.fillRect(sx + 7, sy + 1, 2, 14);
+                    }
+                  }
+                } else if (surrounded && (wx & 1) === 0 && (wy & 1) === 0) {
                   if (rockTheme.useTimberProps) {
                     // Heavy timber mine roof-support crib (pile de boisage)
                     pctx.fillStyle = '#291509';
@@ -6894,37 +7086,68 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                     pctx.fillStyle = '#78350f';
                     pctx.fillRect(sx + 4, sy + 6, 8, 6);
                   } else {
-                    // Turned stone quarry pillar (pilier tourné de carrière)
+                    // Turned stone limestone quarry pillar (pilier tourné à assises de taille)
                     pctx.fillStyle = '#1c130c';
-                    pctx.fillRect(sx + 3, sy + 2, 10, 12);
+                    pctx.fillRect(sx + 2, sy + 1, 12, 13);
+                    pctx.fillStyle = '#e7d8be';
+                    pctx.fillRect(sx + 3, sy + 2, 10, 3);
                     pctx.fillStyle = rockTheme.wallTop;
-                    pctx.fillRect(sx + 4, sy + 3, 8, 3);
+                    pctx.fillRect(sx + 4, sy + 5, 8, 4);
                     pctx.fillStyle = rockTheme.wallFace;
-                    pctx.fillRect(sx + 4, sy + 6, 8, 6);
+                    pctx.fillRect(sx + 3, sy + 9, 10, 4);
+                    // Quarryman pick/bar marks
+                    pctx.fillStyle = rockTheme.dark;
+                    pctx.fillRect(sx + 6, sy + 7, 4, 1);
                   }
                 } else if (h % 9 === 0) {
-                  pctx.fillStyle = '#452712';
-                  pctx.fillRect(sx + 4, sy + 5, 7, 5);
-                  pctx.fillStyle = rockTheme.vein;
-                  pctx.fillRect(sx + 5, sy + 6, 5, 3);
+                  // Stacked ashlar limestone block OR coal/ore cart
+                  if (rockTheme.hasMineRails) {
+                    pctx.fillStyle = '#1e293b';
+                    pctx.fillRect(sx + 4, sy + 5, 8, 5);
+                    pctx.fillStyle = '#0f172a';
+                    pctx.fillRect(sx + 5, sy + 4, 6, 2);
+                    pctx.fillStyle = '#cbd5e1';
+                    pctx.fillRect(sx + 5, sy + 10, 2, 2);
+                    pctx.fillRect(sx + 9, sy + 10, 2, 2);
+                  } else {
+                    pctx.fillStyle = '#3b2614';
+                    pctx.fillRect(sx + 3, sy + 5, 9, 6);
+                    pctx.fillStyle = '#efe2c6';
+                    pctx.fillRect(sx + 4, sy + 6, 7, 4);
+                  }
                 }
               } else if (dt === D_NATURAL_CAVERN) {
+                // Wet Karstic Conduit with Concretions & Rimstone Gours (Calcaire) OR Crystalline/Volcanic Cavern
                 pctx.fillStyle = rockTheme.mid;
                 pctx.fillRect(sx, sy, TILE, TILE);
                 pctx.fillStyle = rockTheme.floorBase;
                 pctx.fillRect(sx + 1, sy + 1, 14, 14);
-                if ((wx + wy) % 2 === 0) {
+
+                if (rockTheme.hasWetKarstPools && (wx + wy) % 3 === 0) {
+                  // Wet turquoise karstic rimstone pool (gour) & animated water drip!
+                  pctx.fillStyle = '#164e63';
+                  pctx.fillRect(sx + 2, sy + 8, 9, 5);
+                  pctx.fillStyle = '#0891b2';
+                  pctx.fillRect(sx + 3, sy + 9, 7, 3);
+                  if ((envTick + wx + wy) % 4 === 0) {
+                    pctx.fillStyle = '#cffafe';
+                    pctx.fillRect(sx + 5, sy + 9, 3, 1);
+                  }
+                } else if ((wx + wy) % 2 === 0) {
                   pctx.fillStyle = rockTheme.dark;
                   pctx.fillRect(sx + 3, sy + 9, 5, 3);
                 }
-                if (h % 5 === 0) {
+
+                if (h % 4 === 0) {
                   if (rockTheme.hasKarstStalagmites) {
+                    // Twin calcite stalagmites + ivory drapery tip
                     pctx.fillStyle = '#1f160f';
-                    pctx.fillRect(sx + 5, sy + 11, 6, 2);
-                    pctx.fillStyle = '#a89070';
-                    pctx.fillRect(sx + 6, sy + 6, 4, 6);
-                    pctx.fillStyle = '#e7d8c3';
-                    pctx.fillRect(sx + 7, sy + 3, 2, 4);
+                    pctx.fillRect(sx + 4, sy + 11, 8, 2);
+                    pctx.fillStyle = '#b89f7d';
+                    pctx.fillRect(sx + 5, sy + 6, 4, 6);
+                    pctx.fillRect(sx + 9, sy + 8, 2, 4);
+                    pctx.fillStyle = '#f5ebd6';
+                    pctx.fillRect(sx + 6, sy + 3, 2, 4);
                   } else {
                     // Hexagonal basalt prism OR crystalline quartz/schist monolith
                     pctx.fillStyle = rockTheme.dark;
@@ -6932,26 +7155,46 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                     pctx.fillStyle = rockTheme.wallTop;
                     pctx.fillRect(sx + 6, sy + 4, 4, 7);
                   }
-                } else if (h % 11 === 0) {
+                } else if (h % 9 === 0) {
                   pctx.fillStyle = rockTheme.crystalGlow;
                   pctx.fillRect(sx + 6, sy + 7, 4, 4);
                   pctx.fillStyle = '#ffffff';
                   pctx.fillRect(sx + 7, sy + 6, 2, 2);
                 }
               } else if (dt === D_CRYPT) {
+                // Vaulted Medieval / Antique Crypt beneath historic edifices (croisées d'ogives, colonnettes & sarcophages)
                 const checker = (wx + wy) & 1;
                 pctx.fillStyle = checker ? '#4c4359' : '#3a3245';
                 pctx.fillRect(sx, sy, TILE, TILE);
-                pctx.fillStyle = '#241e2b';
+                // Diagonal vault rib shadow projection (arc doubleau / ogive)
+                pctx.fillStyle = '#261f30';
                 pctx.fillRect(sx, sy, TILE, 1);
                 pctx.fillRect(sx, sy, 1, TILE);
-                if (h % 11 === 0) {
+                if ((wx & 1) === 0 && (wy & 1) === 0) {
+                  // Carved Romanesque vault colonnette base
+                  pctx.fillStyle = '#1e1826';
+                  pctx.fillRect(sx + 1, sy + 1, 4, 4);
+                  pctx.fillStyle = '#e2e8f0';
+                  pctx.fillRect(sx + 2, sy + 1, 2, 3);
+                }
+                if (h % 9 === 0) {
+                  // Carved stone sarcophagus / reliquary altar
                   pctx.fillStyle = '#1b1521';
                   pctx.fillRect(sx + 3, sy + 4, 10, 8);
                   pctx.fillStyle = '#cbd5e1';
                   pctx.fillRect(sx + 4, sy + 5, 8, 6);
+                  pctx.fillStyle = '#e2e8f0';
+                  pctx.fillRect(sx + 5, sy + 6, 6, 2);
                   pctx.fillStyle = '#fbbf24';
                   pctx.fillRect(sx + 7, sy + 7, 2, 2);
+                } else if (h % 13 === 1) {
+                  // Warm flickering votive brazier
+                  pctx.fillStyle = '#451a03';
+                  pctx.fillRect(sx + 6, sy + 8, 4, 4);
+                  pctx.fillStyle = (envTick + wx) % 2 === 0 ? '#fbbf24' : '#f97316';
+                  pctx.fillRect(sx + 6, sy + 5, 4, 3);
+                  pctx.fillStyle = '#fef9c3';
+                  pctx.fillRect(sx + 7, sy + 5, 2, 2);
                 }
               } else if (dt === D_CELLAR) {
                 pctx.fillStyle = '#473325';
@@ -6982,7 +7225,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   pctx.fillRect(sx + 3, sy + 3 + st * 3, 10, 2);
                 }
               } else {
-                // D_GALLERY: Lithology-tinted vaulted gallery / mine drift / collector passage
+                // D_GALLERY: Lithology-aware passage (timbered coal/schist drift vs dressed limestone gallery)
                 pctx.fillStyle = rockTheme.floorBase;
                 pctx.fillRect(sx, sy, TILE, TILE);
                 pctx.fillStyle = rockTheme.floorTile;
@@ -6993,8 +7236,23 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 pctx.fillStyle = rockTheme.floorJoint;
                 pctx.fillRect(sx + 7, sy, 2, TILE);
                 pctx.fillRect(sx, sy + 7, TILE, 2);
+
+                if (rockTheme.hasMineRails) {
+                  // Subtle timber sleepers along straight schist/coal collector drifts
+                  const gN = getDungeonAt(wx, wy - 1) !== D_ROCK;
+                  const gS = getDungeonAt(wx, wy + 1) !== D_ROCK;
+                  const gW = getDungeonAt(wx - 1, wy) !== D_ROCK;
+                  const gE = getDungeonAt(wx + 1, wy) !== D_ROCK;
+                  if (gN && gS && !gW && !gE && (wy & 1) === 0) {
+                    pctx.fillStyle = '#78350f';
+                    pctx.fillRect(sx + 2, sy + 7, 12, 2);
+                  } else if (gW && gE && !gN && !gS && (wx & 1) === 0) {
+                    pctx.fillStyle = '#78350f';
+                    pctx.fillRect(sx + 7, sy + 2, 2, 12);
+                  }
+                }
                 if (surfT === T_WATER) {
-                  pctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+                  pctx.fillStyle = 'rgba(56, 189, 248, 0.28)';
                   pctx.fillRect(sx + 6, sy + 6, 4, 4);
                 }
               }
@@ -7002,6 +7260,16 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               if (getDungeonAt(wx, wy - 1) === D_ROCK) {
                 pctx.fillStyle = 'rgba(12, 7, 4, 0.36)';
                 pctx.fillRect(sx, sy, TILE, 3);
+                // Hanging karstic calcite stalactite tips along northern cavern rock overhang!
+                if (
+                  dt === D_NATURAL_CAVERN &&
+                  rockTheme.hasKarstStalagmites &&
+                  (wx + wy) % 2 === 0
+                ) {
+                  pctx.fillStyle = '#e7d8c3';
+                  pctx.fillRect(sx + 4, sy, 2, 3);
+                  pctx.fillRect(sx + 11, sy, 1, 2);
+                }
               }
             }
           }
@@ -8932,7 +9200,82 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         px(vx - 8, vy - 4, 17, 1, subterraneanMode ? '#94a3b8' : '#fbf6e8');
         px(vx - 6, vy - 2, 13, 1, pal.main);
 
-        if (poi.category === 'histoire') {
+        const subHay = `${poi.subType} ${poi.name}`.toLowerCase();
+        if (
+          /nivellement|géodésique|geodesique|médaillon ign|triangulation|rbf|rdf/.test(subHay)
+        ) {
+          // 16-Bit IGN Geodesic Pillar + Gleaming Bronze Leveling Medallion!
+          px(vx - 5, vy - 19, 11, 15, '#1c1917');
+          px(vx - 4, vy - 18, 9, 13, '#cbd5e1');
+          px(vx - 4, vy - 18, 4, 13, '#f1f5f9');
+          // Bronze IGN circular medallion with golden crosshair
+          px(vx - 4, vy - 14, 9, 7, '#78350f');
+          px(vx - 3, vy - 13, 7, 5, '#d97706');
+          px(vx - 2, vy - 12, 5, 3, '#fbbf24');
+          px(vx, vy - 12, 1, 3, '#fffbeb');
+          px(vx - 1, vy - 11, 3, 1, '#fffbeb');
+        } else if (/\blavoir\b/.test(subHay)) {
+          // 16-Bit Lavoir Communal: Pitched tile roof on timber posts over azure stone basin!
+          px(vx - 8, vy - 19, 17, 6, '#291509');
+          px(vx - 7, vy - 18, 15, 4, '#c2410c');
+          px(vx - 6, vy - 18, 13, 2, '#ea580c');
+          px(vx - 6, vy - 13, 2, 5, '#78350f');
+          px(vx + 5, vy - 13, 2, 5, '#78350f');
+          px(vx - 7, vy - 9, 15, 5, '#d6c3a3');
+          px(vx - 5, vy - 8, 11, 3, '#0284c7');
+          px(vx - 4 + (phase % 3), vy - 8, 5, 1, '#bae6fd');
+        } else if (/four à pain|four banal|fournil|bakehouse/.test(subHay)) {
+          // 16-Bit Four à Pain Communal: Domed stone oven, brick arch, glowing embers & chimney!
+          px(vx + 3, vy - 21, 4, 6, '#291a0d');
+          px(vx + 4, vy - 20, 2, 5, '#a8a29e');
+          px(vx - 7, vy - 16, 15, 12, '#291a0d');
+          px(vx - 6, vy - 15, 13, 10, '#d6c3a3');
+          px(vx - 5, vy - 16, 11, 3, '#b45309');
+          px(vx - 3, vy - 11, 7, 6, '#7c2d12');
+          px(vx - 2, vy - 10, 5, 5, '#1c1008');
+          px(vx - 1, vy - 7, 3, 2, phase % 2 === 0 ? '#f97316' : '#fde047');
+        } else if (/\bmoulin\b/.test(subHay)) {
+          // 16-Bit Moulin (à vent à ailes blanches OU à eau à roue sur bief)!
+          const isWaterMill = /eau|bief/.test(subHay);
+          px(vx - 5, vy - 18, 11, 14, '#291a0d');
+          px(vx - 4, vy - 17, 9, 12, '#efe2c6');
+          px(vx - 5, vy - 20, 11, 4, '#334155');
+          if (isWaterMill) {
+            px(vx + 4, vy - 13, 5, 8, '#451a03');
+            px(vx + 5, vy - 12, 3, 6, '#b45309');
+            px(vx + 4, vy - 6, 6, 2, '#38bdf8');
+          } else {
+            // 4 crisp canvas windmill sails!
+            const rot = phase % 2;
+            px(vx - 8, vy - 18 + rot, 5, 2, '#f8fafc');
+            px(vx + 4, vy - 12 - rot, 5, 2, '#f8fafc');
+            px(vx - 1 + rot, vy - 22, 2, 5, '#f8fafc');
+            px(vx - 1 - rot, vy - 11, 2, 5, '#f8fafc');
+            px(vx - 1, vy - 15, 3, 3, '#fde047');
+          }
+        } else if (
+          /calvaire|croix de chemin|oratoire|fontaine miraculeuse|source sacrée|bonne fontaine/.test(
+            subHay
+          )
+        ) {
+          if (/fontaine|source/.test(subHay)) {
+            // Sacred Miraculous Fountain Grotto with turquoise healing spring & golden halo
+            px(vx - 6, vy - 18, 13, 14, '#240b36');
+            px(vx - 5, vy - 17, 11, 12, '#cbd5e1');
+            px(vx - 3, vy - 14, 7, 9, '#0369a1');
+            px(vx - 2, vy - 13, 5, 7, '#38bdf8');
+            px(vx - 1, vy - 12 + (phase % 2), 3, 4, '#e0f2fe');
+            px(vx - 2, vy - 19, 5, 2, '#fde047');
+          } else {
+            // Carved Granite Wayside Cross (Calvaire)
+            px(vx - 5, vy - 9, 11, 5, '#44403c');
+            px(vx - 4, vy - 8, 9, 3, '#a8a29e');
+            px(vx - 2, vy - 21, 5, 13, '#1c1917');
+            px(vx - 5, vy - 17, 11, 4, '#1c1917');
+            px(vx - 1, vy - 20, 3, 12, '#e7e5e4');
+            px(vx - 4, vy - 16, 9, 2, '#e7e5e4');
+          }
+        } else if (poi.category === 'histoire') {
           px(vx - 7, vy - 19, 15, 15, '#1a1008');
           px(vx - 6, vy - 18, 3, 3, '#fde68a');
           px(vx - 1, vy - 18, 3, 3, '#fde68a');
@@ -8971,12 +9314,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           px(vx + 4, vy - 15, 3, 3, phase % 2 === 0 ? '#f43f5e' : '#fb923c');
           px(vx + 4, vy - 14, 2, 2, '#fde047');
         } else {
-          px(vx - 3, vy - 10, 7, 6, '#3b1f0e');
-          px(vx - 2, vy - 10, 3, 6, '#78350f');
-          px(vx - 8, vy - 20, 17, 12, '#063321');
-          px(vx - 7, vy - 19, 15, 10, '#059669');
-          px(vx - 6, vy - 19, 10, 7, '#34d399');
-          px(vx - 4, vy - 18, 6, 3, '#a7f3d0');
+          // Monumental Remarkable Tree / ZNIEFF Sanctuary Oak
+          px(vx - 4, vy - 10, 9, 6, '#3b1f0e');
+          px(vx - 2, vy - 11, 4, 7, '#78350f');
+          px(vx - 9, vy - 21, 19, 12, '#063321');
+          px(vx - 8, vy - 20, 17, 10, '#059669');
+          px(vx - 6, vy - 20, 11, 7, '#34d399');
+          px(vx - 4, vy - 19, 7, 3, '#a7f3d0');
           px(vx + 3, vy - 14, 2, 2, '#fde047');
         }
 
@@ -10256,18 +10600,18 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 bg-[#a68b67] border border-[#fde047] inline-block" />
-                  <span>Carrières, Mines & Grottes</span>
+                  <span>Piliers, Mines & Cryptes</span>
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 bg-[#22d3ee] border border-[#f5ebd6] inline-block" />
-                  <span>Aqueducs & Buses voûtées</span>
+                  <span className="w-2.5 h-2.5 bg-[#0284c7] border border-[#7c2d12] inline-block" />
+                  <span>Rivières enterrées & Buses</span>
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span
                     className="w-2.5 h-2.5 border border-[#ffffff] inline-block"
                     style={{ backgroundColor: subLithoProfile.crystalGlow }}
                   />
-                  <span>Failles & Filons</span>
+                  <span>Failles & Filons BRGM</span>
                 </span>
               </>
             ) : (

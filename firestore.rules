@@ -63,7 +63,11 @@ service cloud.firestore {
           'outfitId',
           'toolId',
           'packId',
+          'pinnedTrophyId',
           'walkedMeters',
+          'nightFeatsCount',
+          'stormFeatsCount',
+          'completedContractsCount',
           'discoveriesCount',
           'completedMissions',
           'createdAt',
@@ -82,10 +86,14 @@ service cloud.firestore {
         && (!('avatarPreset' in data) || (data.avatarPreset is string && data.avatarPreset.size() >= 1 && data.avatarPreset.size() <= 32 && data.avatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
         && (!('skinTone' in data) || (data.skinTone is string && data.skinTone.size() >= 1 && data.skinTone.size() <= 32 && data.skinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
         && (!('headgearId' in data) || (data.headgearId is string && data.headgearId.size() >= 1 && data.headgearId.size() <= 32 && data.headgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro']))
-        && (!('outfitId' in data) || (data.outfitId is string && data.outfitId.size() >= 1 && data.outfitId.size() <= 32 && data.outfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
+        && (!('outfitId' in data) || (data.outfitId is string && data.outfitId.size() <= 32 && data.outfitId.size() >= 1 && data.outfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
         && (!('toolId' in data) || (data.toolId is string && data.toolId.size() >= 1 && data.toolId.size() <= 32 && data.toolId in ['lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee', 'fiole_spectrale']))
         && (!('packId' in data) || (data.packId is string && data.packId.size() >= 1 && data.packId.size() <= 32 && data.packId in ['besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate']))
+        && (!('pinnedTrophyId' in data) || (data.pinnedTrophyId is string && data.pinnedTrophyId.size() <= 40 && data.pinnedTrophyId in ['', 'oiseau_de_nuit', 'marcheur_orage', 'speleologue', 'arpenteur_10km', 'grand_randonneur_50km', 'maitre_7_roches', 'chasseur_geodesique', 'gardien_petit_patrimoine', 'ouvreur_reliques', 'leveur_brumes', 'naturaliste_complet', 'champion_contrats']))
         && (!('walkedMeters' in data) || (data.walkedMeters is number && data.walkedMeters >= 0 && data.walkedMeters <= 100000000))
+        && (!('nightFeatsCount' in data) || (data.nightFeatsCount is number && data.nightFeatsCount >= 0 && data.nightFeatsCount <= 100000))
+        && (!('stormFeatsCount' in data) || (data.stormFeatsCount is number && data.stormFeatsCount >= 0 && data.stormFeatsCount <= 100000))
+        && (!('completedContractsCount' in data) || (data.completedContractsCount is number && data.completedContractsCount >= 0 && data.completedContractsCount <= 100000))
         && data.discoveriesCount is number && data.discoveriesCount >= 0 && data.discoveriesCount <= 100000
         && isBoundedStringArray(data.completedMissions, 50)
         && data.createdAt is timestamp
@@ -510,11 +518,14 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          // Action 1: Award XP, increment discoveries/walked distance, complete missions, or sync cosmetics & gender
+          // Action 1: Award XP, increment discoveries/walked distance, complete missions/contracts, or sync cosmetics & pinned trophy
           (
             incoming().totalXp >= existing().totalXp
             && incoming().discoveriesCount >= existing().discoveriesCount
             && (!('walkedMeters' in existing()) || ('walkedMeters' in incoming() && incoming().walkedMeters >= existing().walkedMeters))
+            && (!('nightFeatsCount' in existing()) || ('nightFeatsCount' in incoming() && incoming().nightFeatsCount >= existing().nightFeatsCount))
+            && (!('stormFeatsCount' in existing()) || ('stormFeatsCount' in incoming() && incoming().stormFeatsCount >= existing().stormFeatsCount))
+            && (!('completedContractsCount' in existing()) || ('completedContractsCount' in incoming() && incoming().completedContractsCount >= existing().completedContractsCount))
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'totalXp',
               'xpHistoire',
@@ -529,14 +540,18 @@ service cloud.firestore {
               'outfitId',
               'toolId',
               'packId',
+              'pinnedTrophyId',
               'walkedMeters',
+              'nightFeatsCount',
+              'stormFeatsCount',
+              'completedContractsCount',
               'discoveriesCount',
               'completedMissions',
               'updatedAt'
             ])
           )
           ||
-          // Action 2: Rename explorer callsign or customize 16-bit gender, avatar & cosmetic equipment
+          // Action 2: Rename explorer callsign, pin trophy, or customize 16-bit gender, avatar & cosmetic equipment
           (
             incoming().diff(existing()).affectedKeys().hasOnly([
               'displayName',
@@ -547,6 +562,7 @@ service cloud.firestore {
               'outfitId',
               'toolId',
               'packId',
+              'pinnedTrophyId',
               'updatedAt'
             ])
           )
@@ -560,6 +576,10 @@ service cloud.firestore {
             && incoming().xpEtrange == 0
             && (!('xpLegende' in incoming()) || incoming().xpLegende == 0)
             && (!('walkedMeters' in incoming()) || incoming().walkedMeters == 0)
+            && (!('nightFeatsCount' in incoming()) || incoming().nightFeatsCount == 0)
+            && (!('stormFeatsCount' in incoming()) || incoming().stormFeatsCount == 0)
+            && (!('completedContractsCount' in incoming()) || incoming().completedContractsCount == 0)
+            && (!('pinnedTrophyId' in incoming()) || incoming().pinnedTrophyId == '')
             && incoming().discoveriesCount == 0
             && incoming().completedMissions.size() == 0
             && incoming().diff(existing()).affectedKeys().hasOnly([
@@ -577,7 +597,11 @@ service cloud.firestore {
               'outfitId',
               'toolId',
               'packId',
+              'pinnedTrophyId',
               'walkedMeters',
+              'nightFeatsCount',
+              'stormFeatsCount',
+              'completedContractsCount',
               'discoveriesCount',
               'completedMissions',
               'updatedAt'

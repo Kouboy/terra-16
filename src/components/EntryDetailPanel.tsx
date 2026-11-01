@@ -16,6 +16,7 @@ import {
   ExplorerAppearance,
   ExplorerCairn,
   PostcardSubject,
+  TrophyId,
   UnlockedEntry,
 } from '../types';
 import { ExplorerSpriteCanvas } from './ExplorerAvatarCanvas';
@@ -27,6 +28,7 @@ interface EntryDetailPanelProps {
   unlockedIds: Set<string>;
   explorerCallsign?: string;
   explorerAppearance?: ExplorerAppearance;
+  pinnedTrophyId?: TrophyId | '';
   altitudeMeters?: number | null;
   currentUser?: User | null;
   muted?: boolean;
@@ -43,6 +45,7 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
   unlockedIds,
   explorerCallsign = 'Explorateur',
   explorerAppearance,
+  pinnedTrophyId = '',
   altitudeMeters = null,
   currentUser = null,
   muted = false,
@@ -138,7 +141,13 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
 
   const handleExportCard = () => {
     playStampSfx(muted);
-    downloadCollectibleCardPng(entry, explorerCallsign, altitudeMeters);
+    downloadCollectibleCardPng(
+      entry,
+      explorerCallsign,
+      altitudeMeters,
+      pinnedTrophyId,
+      explorerAppearance?.gender
+    );
     setSaveFeedback('Carte 16-bit forgée en PNG !');
     window.setTimeout(() => setSaveFeedback(''), 2600);
   };

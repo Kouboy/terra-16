@@ -16,8 +16,15 @@ import {
   LithologyAffinity,
   NpcEncounterRecord,
   PostcardSubject,
+  TrophyId,
   UnlockedEntry,
 } from './types';
+import {
+  drawTrophyMedallion16Bit,
+  getGenderedTrophyTitle,
+  getTrophyById,
+  resolveExplorerDisplayTitle,
+} from './trophies';
 
 export type PostcardMood = 'day' | 'dusk' | 'night' | 'rain' | 'cavern';
 
@@ -31,6 +38,7 @@ export interface RenderPostcardOptions {
   mood: PostcardMood;
   customNote: string;
   animTick?: number;
+  overrideTrophyId?: TrophyId | '';
 }
 
 function wrapCanvasLines(
@@ -709,27 +717,56 @@ export function renderPostcard16BitToCanvas(
     }
   }
 
-  // 6. Signature & Geodesic Footer
+  // 6. Signature, Pinned Trophy Medallion & Geodesic Footer
   const lvl = computeLevelFromXp(progress.totalXp || 0).level;
-  const footerY = H - 72;
+  const footerY = H - 78;
   ctx.fillStyle = '#c89d62';
-  ctx.fillRect(rightX, footerY - 16, rightW, 1.5);
+  ctx.fillRect(rightX, footerY - 14, rightW, 1.5);
+
+  const effectiveTrophyId =
+    opts.overrideTrophyId !== undefined ? opts.overrideTrophyId : progress.pinnedTrophyId;
+  const activeTrophy = getTrophyById(effectiveTrophyId);
+  const resolvedTitle = activeTrophy
+    ? getGenderedTrophyTitle(activeTrophy, progress.gender)
+    : resolveExplorerDisplayTitle(progress).title;
+
+  const textMaxW = activeTrophy ? rightW - 54 : rightW;
 
   ctx.fillStyle = '#24150b';
   ctx.font = 'bold 14px "Cinzel", Georgia, serif';
   ctx.fillText(
-    `${progress.displayName || 'Explorateur'} · Niv. ${lvl}`,
+    `${(progress.displayName || 'Explorateur').slice(0, 22)} · Niv. ${lvl}`,
     rightX,
-    footerY + 6
+    footerY + 4
   );
 
+  ctx.fillStyle = '#991b1b';
+  ctx.font = 'italic bold 12px Georgia, serif';
+  const titleLine = wrapCanvasLines(ctx, resolvedTitle, textMaxW, 1)[0] || resolvedTitle;
+  ctx.fillText(titleLine, rightX, footerY + 22);
+
   ctx.fillStyle = '#6b4928';
-  ctx.font = '12px "IBM Plex Mono", monospace';
+  ctx.font = '11px "IBM Plex Mono", monospace';
   ctx.fillText(
-    `${effectiveLoc.slice(0, 28)} · ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`,
+    `${effectiveLoc.slice(0, 24)} · ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`,
     rightX,
-    footerY + 26
+    footerY + 39
   );
+
+  if (activeTrophy) {
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    drawTrophyMedallion16Bit(
+      ctx,
+      activeTrophy.id,
+      rightX + rightW - 48,
+      footerY - 6,
+      2,
+      true,
+      opts.animTick || 0
+    );
+    ctx.restore();
+  }
 }
 
 export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {

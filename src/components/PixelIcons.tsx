@@ -242,7 +242,8 @@ export type UiPixelIconName =
   | 'mineral'
   | 'postcard'
   | 'chest'
-  | 'capsule';
+  | 'capsule'
+  | 'trophy';
 
 export const PixelUiIcon: React.FC<{ name: UiPixelIconName; className?: string }> = ({
   name,
@@ -933,6 +934,21 @@ export const PixelUiIcon: React.FC<{ name: UiPixelIconName; className?: string }
           <rect x="7" y="7" width="2" height="1" fill="#ffffff" />
           <rect x="4" y="12" width="8" height="2" fill="#d97706" />
           <rect x="2" y="13" width="12" height="2" fill="#78350f" />
+        </svg>
+      );
+    case 'trophy':
+      return (
+        <svg viewBox="0 0 16 16" shapeRendering="crispEdges" className={`pixelated shrink-0 ${className}`} aria-hidden="true">
+          <rect x="4" y="1" width="8" height="2" fill="#fde047" />
+          <rect x="2" y="2" width="2" height="4" fill="#d97706" />
+          <rect x="12" y="2" width="2" height="4" fill="#d97706" />
+          <rect x="4" y="3" width="8" height="5" fill="#f59e0b" />
+          <rect x="5" y="3" width="3" height="4" fill="#fef08a" />
+          <rect x="7" y="4" width="2" height="2" fill="#e11d48" />
+          <rect x="5" y="8" width="6" height="2" fill="#b45309" />
+          <rect x="7" y="10" width="2" height="2" fill="#fbbf24" />
+          <rect x="5" y="12" width="6" height="2" fill="#92400e" />
+          <rect x="4" y="14" width="8" height="1" fill="#451a03" />
         </svg>
       );
   }

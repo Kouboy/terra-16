@@ -77,7 +77,9 @@ export interface SubterraneanLithoProfile {
   floorTile: string;
   floorJoint: string;
   useTimberProps: boolean;
+  hasMineRails: boolean;
   hasKarstStalagmites: boolean;
+  hasWetKarstPools: boolean;
 }
 
 const REGIONAL_THEMES: Record<RegionalStyleId, RegionalTheme> = {
@@ -1157,35 +1159,39 @@ export function resolveSubterraneanLithoProfile(
       floorTile: '#403c47',
       floorJoint: '#1c1a21',
       useTimberProps: false,
+      hasMineRails: false,
       hasKarstStalagmites: false,
+      hasWetKarstPools: false,
     };
   }
 
-  if (/schist|ardoise|houill|charbon|argil|marne\s+noire/i.test(lithoText)) {
+  if (/schist|ardoise|houill|charbon|carbonif|argil|marne\s+noire/i.test(lithoText)) {
     return {
       id: 'schiste_houiller',
       shortLabel: 'Schiste & Veine Boisée',
-      galleryStyleLabel: 'Galeries boisées sur étançons & strates schisteuses',
-      base: '#17202b',
-      dark: '#0d131a',
-      mid: '#233142',
-      wallFace: '#34475e',
-      wallTop: '#5b7694',
-      vein: '#cbd5e1',
+      galleryStyleLabel: 'Galeries boisées rectilignes, berlines & veines de charbon/schiste',
+      base: '#161f29',
+      dark: '#0b1017',
+      mid: '#223040',
+      wallFace: '#33465c',
+      wallTop: '#597491',
+      vein: '#94a3b8',
       crystalGlow: '#38bdf8',
-      floorBase: '#3b352e',
-      floorTile: '#52493f',
-      floorJoint: '#26211c',
+      floorBase: '#38322b',
+      floorTile: '#4f463c',
+      floorJoint: '#241f1a',
       useTimberProps: true,
+      hasMineRails: true,
       hasKarstStalagmites: false,
+      hasWetKarstPools: false,
     };
   }
 
-  if (/granit|gneiss|cristal|métamorph|migmatit/i.test(lithoText)) {
+  if (/granit|gneiss|cristal|métamorph|migmatit|pluton/i.test(lithoText)) {
     return {
       id: 'granit_cristallin',
       shortLabel: 'Socle Granitique',
-      galleryStyleLabel: 'Parois cristallines & filons de quartz',
+      galleryStyleLabel: 'Parois cristallines & filons de quartz améthyste',
       base: '#1c222e',
       dark: '#10151f',
       mid: '#2a3447',
@@ -1197,15 +1203,17 @@ export function resolveSubterraneanLithoProfile(
       floorTile: '#585f6e',
       floorJoint: '#292d36',
       useTimberProps: true,
+      hasMineRails: false,
       hasKarstStalagmites: false,
+      hasWetKarstPools: false,
     };
   }
 
-  if (/gr[èe]s|sable|quartzit|ferrug|alluvion|gravier/i.test(lithoText)) {
+  if (/gr[èe]s|sable|quartzit|ferrug|alluvion|gravier|molasse/i.test(lithoText)) {
     return {
       id: 'gres_ferrugineux',
       shortLabel: 'Grès & Sables Anciens',
-      galleryStyleLabel: 'Voûtes troglodytiques & bancs gréseux',
+      galleryStyleLabel: 'Voûtes troglodytiques & bancs gréseux ocre',
       base: '#2b1913',
       dark: '#190d09',
       mid: '#42261d',
@@ -1217,25 +1225,29 @@ export function resolveSubterraneanLithoProfile(
       floorTile: '#734e36',
       floorJoint: '#3b2619',
       useTimberProps: false,
+      hasMineRails: false,
       hasKarstStalagmites: false,
+      hasWetKarstPools: false,
     };
   }
 
   return {
     id: 'calcaire_karst',
     shortLabel: 'Calcaire & Karst',
-    galleryStyleLabel: 'Piliers tournés de carrière & concrétions karstiques',
+    galleryStyleLabel: 'Galeries taillées à piliers tournés & boyaux karstiques à concrétions',
     base: '#251c13',
     dark: '#140e09',
     mid: '#382a1c',
-    wallFace: '#57422c',
-    wallTop: '#8a6d4b',
-    vein: '#d6be96',
+    wallFace: '#5e4730',
+    wallTop: '#967753',
+    vein: '#e2cca4',
     crystalGlow: '#22d3ee',
     floorBase: '#5c4d3c',
-    floorTile: '#73614d',
+    floorTile: '#786550',
     floorJoint: '#3d3226',
     useTimberProps: false,
+    hasMineRails: false,
     hasKarstStalagmites: true,
+    hasWetKarstPools: true,
   };
 }

@@ -46,8 +46,10 @@ import type {
   LithologyAffinity,
   OpenedArchivistChestRecord,
   SpecimenDomain,
+  TrophyId,
   UnlockedEntry,
 } from './types';
+import { VALID_TROPHY_IDS } from './types';
 
 interface FirebaseAppletConfig {
   projectId: string;
@@ -358,6 +360,11 @@ function sanitizePack(raw?: string): ExplorerPackId {
   return VALID_PACKS.includes(raw as ExplorerPackId) ? (raw as ExplorerPackId) : 'besace_cuir';
 }
 
+function sanitizePinnedTrophyId(raw?: string | null): TrophyId | '' {
+  if (!raw) return '';
+  return VALID_TROPHY_IDS.includes(raw as TrophyId) ? (raw as TrophyId) : '';
+}
+
 function clampStr(val: string, minLen: number, maxLen: number, fallback = 'Inconnu'): string {
   const trimmed = (val || '').slice(0, maxLen);
   if (trimmed.length < minLen) return fallback.slice(0, maxLen);
@@ -433,7 +440,15 @@ export async function ensureExplorerProfileInCloud(
         outfitId: sanitizeOutfit(localProgress.outfitId),
         toolId: sanitizeTool(localProgress.toolId),
         packId: sanitizePack(localProgress.packId),
+        pinnedTrophyId: sanitizePinnedTrophyId(localProgress.pinnedTrophyId),
         walkedMeters: clampNum(Math.round(localProgress.walkedMeters || 0), 0, 100000000),
+        nightFeatsCount: clampNum(Math.round(localProgress.nightFeatsCount || 0), 0, 100000),
+        stormFeatsCount: clampNum(Math.round(localProgress.stormFeatsCount || 0), 0, 100000),
+        completedContractsCount: clampNum(
+          Math.round(localProgress.completedContractsCount || 0),
+          0,
+          100000
+        ),
         discoveriesCount: clampNum(Math.round(localProgress.discoveriesCount), 0, 100000),
         completedMissions: sanitizeStringArray(localProgress.completedMissions, 50),
         createdAt: serverTimestamp(),
@@ -453,10 +468,25 @@ export async function ensureExplorerProfileInCloud(
       Number(cloud.walkedMeters || 0),
       Math.round(localProgress.walkedMeters || 0)
     );
+    const mergedNightFeats = Math.max(
+      Number(cloud.nightFeatsCount || 0),
+      Math.round(localProgress.nightFeatsCount || 0)
+    );
+    const mergedStormFeats = Math.max(
+      Number(cloud.stormFeatsCount || 0),
+      Math.round(localProgress.stormFeatsCount || 0)
+    );
+    const mergedContracts = Math.max(
+      Number(cloud.completedContractsCount || 0),
+      Math.round(localProgress.completedContractsCount || 0)
+    );
     if (
       mergedTotalXp > Number(cloud.totalXp || 0) ||
       mergedDiscoveriesCount > Number(cloud.discoveriesCount || 0) ||
-      mergedWalkedMeters > Number(cloud.walkedMeters || 0)
+      mergedWalkedMeters > Number(cloud.walkedMeters || 0) ||
+      mergedNightFeats > Number(cloud.nightFeatsCount || 0) ||
+      mergedStormFeats > Number(cloud.stormFeatsCount || 0) ||
+      mergedContracts > Number(cloud.completedContractsCount || 0)
     ) {
       const mergedMissions = Array.from(
         new Set([
@@ -503,7 +533,13 @@ export async function ensureExplorerProfileInCloud(
           outfitId: sanitizeOutfit(String(cloud.outfitId || localProgress.outfitId || 'arpenteur')),
           toolId: sanitizeTool(String(cloud.toolId || localProgress.toolId || 'lanterne_laiton')),
           packId: sanitizePack(String(cloud.packId || localProgress.packId || 'besace_cuir')),
+          pinnedTrophyId: sanitizePinnedTrophyId(
+            String(cloud.pinnedTrophyId ?? localProgress.pinnedTrophyId ?? '')
+          ),
           walkedMeters: clampNum(mergedWalkedMeters, 0, 100000000),
+          nightFeatsCount: clampNum(mergedNightFeats, 0, 100000),
+          stormFeatsCount: clampNum(mergedStormFeats, 0, 100000),
+          completedContractsCount: clampNum(mergedContracts, 0, 100000),
           discoveriesCount: clampNum(mergedDiscoveriesCount, 0, 100000),
           completedMissions: sanitizeStringArray(mergedMissions, 50),
           updatedAt: serverTimestamp(),
@@ -538,7 +574,15 @@ export async function syncProgressToCloud(
       outfitId: sanitizeOutfit(progress.outfitId),
       toolId: sanitizeTool(progress.toolId),
       packId: sanitizePack(progress.packId),
+      pinnedTrophyId: sanitizePinnedTrophyId(progress.pinnedTrophyId),
       walkedMeters: clampNum(Math.round(progress.walkedMeters || 0), 0, 100000000),
+      nightFeatsCount: clampNum(Math.round(progress.nightFeatsCount || 0), 0, 100000),
+      stormFeatsCount: clampNum(Math.round(progress.stormFeatsCount || 0), 0, 100000),
+      completedContractsCount: clampNum(
+        Math.round(progress.completedContractsCount || 0),
+        0,
+        100000
+      ),
       discoveriesCount: clampNum(Math.round(progress.discoveriesCount), 0, 100000),
       completedMissions: sanitizeStringArray(progress.completedMissions, 50),
       updatedAt: serverTimestamp(),
@@ -551,7 +595,8 @@ export async function syncProgressToCloud(
 export async function updateExplorerIdentityInCloud(
   uidRaw: string,
   displayName: string,
-  appearance?: Partial<ExplorerAppearance>
+  appearance?: Partial<ExplorerAppearance>,
+  pinnedTrophyId?: TrophyId | ''
 ): Promise<void> {
   await assertCloudSessionHealthy();
   const uid = sanitizeFirestoreId(uidRaw);
@@ -568,6 +613,9 @@ export async function updateExplorerIdentityInCloud(
   if (appearance?.outfitId) patch.outfitId = sanitizeOutfit(appearance.outfitId);
   if (appearance?.toolId) patch.toolId = sanitizeTool(appearance.toolId);
   if (appearance?.packId) patch.packId = sanitizePack(appearance.packId);
+  if (pinnedTrophyId !== undefined) {
+    patch.pinnedTrophyId = sanitizePinnedTrophyId(pinnedTrophyId);
+  }
   try {
     await updateDoc(profileRef, patch);
   } catch (error) {
@@ -943,7 +991,11 @@ export function subscribeToCloudExplorer(
         outfitId: sanitizeOutfit(String(d.outfitId || 'arpenteur')),
         toolId: sanitizeTool(String(d.toolId || 'lanterne_laiton')),
         packId: sanitizePack(String(d.packId || 'besace_cuir')),
+        pinnedTrophyId: sanitizePinnedTrophyId(String(d.pinnedTrophyId || '')),
         walkedMeters: Number(d.walkedMeters || 0),
+        nightFeatsCount: Number(d.nightFeatsCount || 0),
+        stormFeatsCount: Number(d.stormFeatsCount || 0),
+        completedContractsCount: Number(d.completedContractsCount || 0),
         discoveriesCount: Number(d.discoveriesCount || 0),
         completedMissions: Array.isArray(d.completedMissions)
           ? (d.completedMissions as string[])
@@ -1758,7 +1810,11 @@ export async function resetExplorerCharacterInCloud(
     outfitId: sanitizeOutfit(initialProgress.outfitId),
     toolId: sanitizeTool(initialProgress.toolId),
     packId: sanitizePack(initialProgress.packId),
+    pinnedTrophyId: '',
     walkedMeters: 0,
+    nightFeatsCount: 0,
+    stormFeatsCount: 0,
+    completedContractsCount: 0,
     discoveriesCount: 0,
     completedMissions: [] as string[],
     updatedAt: serverTimestamp(),

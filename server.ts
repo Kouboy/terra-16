@@ -138,6 +138,7 @@ type SubterraneanKind =
   | 'culvert'
   | 'aqueduct'
   | 'fault_line'
+  | 'mineral_vein'
   | 'quarry'
   | 'cave_cellar'
   | 'natural_cave'
@@ -1200,8 +1201,9 @@ async function queryVectorTileTopology(
               const geoPts = line.map((pt) => tilePixelToLatLng(tx, ty, z, pt.x, pt.y, extent));
               if (!bboxIntersects(geoPts, minLat, maxLat, minLng, maxLng)) continue;
               const simplified = simplifyRing(geoPts, 48, false);
+              const dPlayer = minDistanceMetersToPlayer(simplified, lat, lng);
               subterraneanBucket.push({
-                dist: minDistanceMetersToPlayer(simplified, lat, lng),
+                dist: dPlayer,
                 feat: {
                   id: `vt_subw_${seq++}`,
                   kind: subKind,
@@ -1211,6 +1213,27 @@ async function queryVectorTileTopology(
                   source: 'OpenStreetMap (Z15)',
                 },
               });
+              // Add vaulted culvert mouth portal when a significant stream disappears underground nearby
+              const spanM = haversineMeters(
+                simplified[0].lat,
+                simplified[0].lng,
+                simplified[simplified.length - 1].lat,
+                simplified[simplified.length - 1].lng
+              );
+              if (spanM >= 38 && dPlayer <= 900) {
+                subterraneanBucket.push({
+                  dist: dPlayer,
+                  feat: {
+                    id: `vt_subwp_${seq++}`,
+                    kind: 'portal',
+                    name: waterName
+                      ? `Pertuis voûté : ${waterName}`
+                      : 'Pertuis d’entrée de ruisseau busé',
+                    points: [simplified[0]],
+                    source: 'OpenStreetMap (Z15)',
+                  },
+                });
+              }
             }
           }
           continue;
@@ -2702,17 +2725,17 @@ async function queryIgnBdTopoLocalHeritage(
   const minLat = (lat - dLat).toFixed(5);
   const maxLng = (lng + dLng).toFixed(5);
   const maxLat = (lat + dLat).toFixed(5);
-  const bboxExpr = `BBOX(geometrie,${minLng},${minLat},${maxLng},${maxLat},'EPSG:4326')`;
+  const bboxExpr = `BBOX(geometrie,${minLng},${minLat},${maxLng},${maxLat},'CRS:84')`;
 
   const buildWfsUrl = (typeName: string, extraCql: string, count: number) => {
     const cql = extraCql ? `${bboxExpr} AND ${extraCql}` : bboxExpr;
     return `https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=${encodeURIComponent(
       typeName
-    )}&CQL_FILTER=${encodeURIComponent(cql)}&COUNT=${count}&OUTPUTFORMAT=application/json`;
+    )}&SRSNAME=CRS:84&CQL_FILTER=${encodeURIComponent(cql)}&COUNT=${count}&OUTPUTFORMAT=application/json`;
   };
 
-  const [hydroRes, oroRes, zaiRes, cpRes] = await Promise.allSettled([
-    fetchWithTimeout(buildWfsUrl('BDTOPO_V3:detail_hydrographique', '', 14), {}, 3600).then((r) =>
+  const [hydroRes, oroRes, zaiRes, cpRes, batVernRes] = await Promise.allSettled([
+    fetchWithTimeout(buildWfsUrl('BDTOPO_V3:detail_hydrographique', '', 18), {}, 3600).then((r) =>
       r.ok ? r.json() : null
     ),
     fetchWithTimeout(buildWfsUrl('BDTOPO_V3:detail_orographique', '', 14), {}, 3600).then((r) =>
@@ -2727,10 +2750,19 @@ async function queryIgnBdTopoLocalHeritage(
       buildWfsUrl(
         'BDTOPO_V3:construction_ponctuelle',
         "nature IN ('Menhir','Dolmen','Ruine','Monument','Moulin à vent','Calvaire','Croix','Phare','Puits')",
-        14
+        18
       ),
       {},
       3600
+    ).then((r) => (r.ok ? r.json() : null)),
+    fetchWithTimeout(
+      buildWfsUrl(
+        'BDTOPO_V3:batiment',
+        "nature IN ('Moulin à vent','Chapelle')",
+        8
+      ),
+      {},
+      3500
     ).then((r) => (r.ok ? r.json() : null)),
   ]);
 
@@ -2739,7 +2771,7 @@ async function queryIgnBdTopoLocalHeritage(
   let unnamedOroCount = 0;
   let unnamedCrossCount = 0;
 
-  // 1. Hydrographic details (Springs, Fountains, Waterfalls, Resurgences, Wells)
+  // 1. Hydrographic details (Lavoirs, Miraculous Fountains, Springs, Waterfalls, Resurgences, Wells)
   if (hydroRes.status === 'fulfilled' && hydroRes.value?.features) {
     for (const f of hydroRes.value.features) {
       const p = f.properties || {};
@@ -2748,33 +2780,58 @@ async function queryIgnBdTopoLocalHeritage(
         continue;
       }
       const toponyme = String(p.toponyme || '').trim();
-      if (!toponyme) {
-        if (unnamedHydroCount >= 2) continue;
+      const isLavoir = /^lavoir$/i.test(nature) || /\blavoir\b/i.test(toponyme);
+      if (!toponyme && !isLavoir) {
+        if (unnamedHydroCount >= 3) continue;
         unnamedHydroCount += 1;
       }
       const pos = extractFirstCoordFromGeoJson(f.geometry);
       if (!pos) continue;
 
-      const label = toponyme || `${nature} locale`;
-      const isLegend = /fée|saint|miracul|diable|sorci|roi|reine|napoléon/i.test(label);
+      const label =
+        toponyme || (isLavoir ? 'Ancien Lavoir Communal' : `${nature} de pays`);
+      const isMiraculous =
+        /saint|sainte|notre-dame|miracul|guéris|bonne\s+fontaine|fée|sorci|diable|dévotion|sacr/i.test(
+          label
+        );
+      const isKarstSub = /^(Perte|Résurgence)$/i.test(nature);
+
       pois.push({
         id: sanitizeId(`ign_hyd_${p.cleabs || f.id}`),
         name: label.slice(0, 180),
-        mysteryTitle: isLegend ? 'Fontaine Légendaire' : 'Murmure d’Eau Vive',
-        category: isLegend ? 'legende' : 'geographie',
-        subType: `${nature} (Topographie IGN)`,
-        stratum: isLegend ? 'vivant_folklore' : 'temps_profond',
-        eraLabel: isLegend ? 'Tradition des Fontaines' : 'Hydrologie & Sources',
+        mysteryTitle: isMiraculous
+          ? 'Fontaine Miraculeuse'
+          : isLavoir
+          ? 'Lavoir de Pierre'
+          : isKarstSub
+          ? 'Bouche Karstique'
+          : 'Murmure d’Eau Vive',
+        category: isMiraculous ? 'legende' : isLavoir ? 'histoire' : 'geographie',
+        subType: isMiraculous
+          ? 'Fontaine miraculeuse & source sacrée'
+          : isLavoir
+          ? 'Lavoir communal ancien (IGN)'
+          : `${nature} (Topographie IGN)`,
+        stratum: isMiraculous ? 'vivant_folklore' : isLavoir ? 'moderne' : 'temps_profond',
+        eraLabel: isMiraculous
+          ? 'Fontaines de dévotion & folklore'
+          : isLavoir
+          ? 'Petit patrimoine hydraulique'
+          : 'Hydrologie & Sources',
         source: 'IGN · BD TOPO',
         lat: pos.lat,
         lng: pos.lng,
-        summary: `${label} — ${nature.toLowerCase()} cartographiée par l’Institut national de l’information géographique et forestière (IGN BD TOPO). Les sources, lavoirs et fontaines structurent depuis des siècles les haltes rurales et la micro-géographie de l’eau.`,
+        summary: isMiraculous
+          ? `${label} — source ou fontaine de dévotion répertoriée par l’IGN, liée aux anciens rites populaires de guérison, aux pèlerinages champêtres et aux légendes des eaux vives.`
+          : isLavoir
+          ? `${label} — bassin de pierre alimenté par une source ou un ru dérivé (IGN BD TOPO), témoin précieux de la sociabilité villageoise d’autrefois.`
+          : `${label} — ${nature.toLowerCase()} cartographiée par l’IGN (BD TOPO), jalon de la micro-géographie de l’eau.`,
         nearWaterway: true,
         waterwayName: toponyme || nature,
         safetyNotice: '',
         externalUrl: `https://cartes.gouv.fr/`,
-        xpReward: toponyme ? 130 : 105,
-        unlockRadiusMeters: 85,
+        xpReward: isMiraculous || isLavoir ? 135 : toponyme ? 130 : 105,
+        unlockRadiusMeters: 80,
         relatedPoiIds: [],
         relatedPoiTitles: [],
       });
@@ -2912,20 +2969,28 @@ async function queryIgnBdTopoLocalHeritage(
           ? 'Mégalithe Dressé'
           : isRuin
           ? 'Vestige en Ruine'
+          : /moulin/i.test(nature)
+          ? 'Ailes & Meules Anciennes'
           : 'Repère de Chemin',
-        category: isMegalith ? 'legende' : isRuin ? 'etrange' : 'histoire',
+        category: isMegalith
+          ? 'legende'
+          : isRuin
+          ? 'etrange'
+          : /moulin/i.test(nature)
+          ? 'geographie'
+          : 'histoire',
         subType: `${nature} (Petit patrimoine IGN)`,
         stratum: isMegalith ? 'prehistoire' : 'moyen_age',
         eraLabel: isMegalith ? 'Préhistoire & Mégalithes' : 'Petit Patrimoine Rural & Urbain',
         source: 'IGN · BD TOPO',
         lat: pos.lat,
         lng: pos.lng,
-        summary: `${label} — élément de petit patrimoine (${nature.toLowerCase()}) positionné par photogrammétrie ou levé topographique IGN.`,
+        summary: `${label} — élément de petit patrimoine (${nature.toLowerCase()}) positionné par levé topographique IGN.`,
         nearWaterway: nature === 'Puits',
         waterwayName: nature === 'Puits' ? 'Nappe phréatique' : '',
         safetyNotice: isRuin ? 'Ne grimpez pas sur les maçonneries anciennes non consolidées.' : '',
         externalUrl: `https://cartes.gouv.fr/`,
-        xpReward: isMegalith ? 150 : toponyme ? 125 : 100,
+        xpReward: isMegalith ? 150 : toponyme ? 125 : 105,
         unlockRadiusMeters: 80,
         relatedPoiIds: [],
         relatedPoiTitles: [],
@@ -2933,7 +2998,42 @@ async function queryIgnBdTopoLocalHeritage(
     }
   }
 
-  return pois.slice(0, 16);
+  // 5. Vernacular Windmills & Rural Chapels from BDTOPO_V3:batiment
+  if (batVernRes.status === 'fulfilled' && batVernRes.value?.features) {
+    for (const f of batVernRes.value.features.slice(0, 5)) {
+      const p = f.properties || {};
+      const nature = String(p.nature || '').trim();
+      const pos = extractClosestRingPointOrCentroid(f.geometry, lat, lng);
+      if (!pos) continue;
+      const isMill = /moulin/i.test(nature);
+      const label = isMill ? 'Moulin à Vent Historique' : 'Chapelle ou Oratoire Champêtre';
+      pois.push({
+        id: sanitizeId(`ign_batv_${p.cleabs || f.id}`),
+        name: label,
+        mysteryTitle: isMill ? 'Tour Meunière' : 'Chapelle des Champs',
+        category: isMill ? 'geographie' : 'histoire',
+        subType: isMill ? 'Moulin à vent (IGN BD TOPO)' : 'Chapelle rurale ou oratoire (IGN)',
+        stratum: 'moderne',
+        eraLabel: 'Petit Patrimoine Rural',
+        source: 'IGN · BD TOPO',
+        lat: pos.lat,
+        lng: pos.lng,
+        summary: isMill
+          ? 'Ancienne tour meunière recensée au cadastre topographique IGN, bâtie sur un tertre dégagé pour capter les vents dominants.'
+          : 'Chapelle champêtre ou oratoire de dévotion isolé dans le terroir, jalon séculaire des processions et chemins ruraux.',
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: '',
+        externalUrl: 'https://cartes.gouv.fr/',
+        xpReward: 120,
+        unlockRadiusMeters: 75,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+    }
+  }
+
+  return pois.slice(0, 20);
 }
 
 // ============================================================================
@@ -3158,36 +3258,40 @@ async function queryInpnPatrinatAndTrees(
   const dLng = dLat / cosLat;
   const bbox = `${(lng - dLng).toFixed(5)},${(lat - dLat).toFixed(5)},${(lng + dLng).toFixed(
     5
-  )},${(lat + dLat).toFixed(5)},EPSG:4326`;
+  )},${(lat + dLat).toFixed(5)},CRS:84`;
 
+  // CRITICAL: SRSNAME=CRS:84 ensures IGN Géoplateforme WFS returns WGS84 [lng, lat] instead of Lambert-93 / WebMercator meters!
   const wfsPatrinat = (layer: string, count: number) =>
     `https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=${encodeURIComponent(
       layer
-    )}&BBOX=${bbox}&COUNT=${count}&OUTPUTFORMAT=application/json`;
+    )}&BBOX=${bbox}&SRSNAME=CRS:84&COUNT=${count}&OUTPUTFORMAT=application/json`;
 
   const treeSparql = `
 SELECT DISTINCT ?tree ?treeLabel ?treeDescription ?coord WHERE {
   SERVICE wikibase:around {
     ?tree wdt:P625 ?coord .
     bd:serviceParam wikibase:center "Point(${lng} ${lat})"^^geo:wktLiteral .
-    bd:serviceParam wikibase:radius "5.5" .
+    bd:serviceParam wikibase:radius "6.5" .
   }
-  VALUES ?tClass { wd:Q811534 wd:Q15123269 }
+  VALUES ?tClass { wd:Q811534 wd:Q15123269 wd:Q2319498 }
   ?tree wdt:P31/wdt:P279* ?tClass .
   SERVICE wikibase:label { bd:serviceParam wikibase:language "fr,en". }
 }
-LIMIT 6
+LIMIT 8
 `;
-  const treeWpSearch = `nearcoord:10km,${lat},${lng} ("arbre remarquable" OR "chêne centenaire" OR "tilleul de Sully" OR "if millénaire" OR "forêt ancienne" OR "jardin remarquable")`;
+  const treeWpSearch = `nearcoord:10km,${lat},${lng} ("arbre remarquable" OR "chêne centenaire" OR "tilleul de Sully" OR "if millénaire" OR "forêt ancienne" OR "fontaine miraculeuse")`;
   const treeWpUrl = `https://fr.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(
     treeWpSearch
-  )}&gsrlimit=5&prop=coordinates|extracts|info&inprop=url&exintro=1&explaintext=1&exlimit=max&exchars=750&format=json`;
+  )}&gsrlimit=6&prop=coordinates|extracts|info&inprop=url&exintro=1&explaintext=1&exlimit=max&exchars=750&format=json`;
 
-  const [inpgRes, znieffRes, scRes, treeWdRes, treeWpRes] = await Promise.allSettled([
+  const [inpgRes, znieff1Res, znieff2Res, scRes, treeWdRes, treeWpRes] = await Promise.allSettled([
     fetchWithTimeout(wfsPatrinat('patrinat_inpg:inpg', 5), {}, 3600).then((r) =>
       r.ok ? r.json() : null
     ),
     fetchWithTimeout(wfsPatrinat('patrinat_znieff1:znieff1', 5), {}, 3600).then((r) =>
+      r.ok ? r.json() : null
+    ),
+    fetchWithTimeout(wfsPatrinat('patrinat_znieff2:znieff2', 3), {}, 3600).then((r) =>
       r.ok ? r.json() : null
     ),
     fetchWithTimeout(wfsPatrinat('patrinat_sc:sc', 4), {}, 3600).then((r) =>
@@ -3211,7 +3315,7 @@ LIMIT 6
       const nom = String(p.nom_site || '').trim();
       if (!nom) continue;
       const pos = extractClosestRingPointOrCentroid(f.geometry, lat, lng);
-      if (!pos) continue;
+      if (!pos || Math.abs(pos.lat) > 90 || Math.abs(pos.lng) > 180) continue;
       const areaHa = p.area_sig ? `${Number(p.area_sig).toFixed(1)} ha` : 'périmètre géologique';
       const code = p.id_mnhn || p.id_local || 'INPG';
 
@@ -3220,7 +3324,7 @@ LIMIT 6
         name: nom.slice(0, 180),
         mysteryTitle: 'Sanctuaire Géologique (INPG)',
         category: 'geographie',
-        subType: `Géosite national INPG (${code})`,
+        subType: `Géosite national INPG (${code})`.slice(0, 78),
         stratum: 'temps_profond',
         eraLabel: 'Patrimoine Géologique National',
         source: 'INPN · Géologie INPG & ZNIEFF',
@@ -3241,23 +3345,23 @@ LIMIT 6
     }
   }
 
-  // 2. ZNIEFF de Type I (MNHN / PatriNat — joyaux écologiques à forte valeur biologique)
-  if (znieffRes.status === 'fulfilled' && znieffRes.value?.features) {
-    for (const f of znieffRes.value.features) {
+  // 2A. ZNIEFF de Type I (MNHN / PatriNat — noyaux écologiques à forte valeur biologique)
+  if (znieff1Res.status === 'fulfilled' && znieff1Res.value?.features) {
+    for (const f of znieff1Res.value.features) {
       const p = f.properties || {};
       const nom = String(p.nom_site || '').trim();
       if (!nom) continue;
       const pos = extractClosestRingPointOrCentroid(f.geometry, lat, lng);
-      if (!pos) continue;
-      const code = p.id_mnhn || p.id_local || 'ZNIEFF';
+      if (!pos || Math.abs(pos.lat) > 90 || Math.abs(pos.lng) > 180) continue;
+      const code = p.id_mnhn || p.id_local || 'ZNIEFF1';
       const areaHa = p.area_sig ? `${Math.round(Number(p.area_sig))} ha` : 'secteur écologique';
 
       inpnGeoEco.push({
         id: sanitizeId(`znieff1_${code}`),
-        name: `ZNIEFF : ${nom}`.slice(0, 180),
-        mysteryTitle: 'Refuge Sauvage (ZNIEFF)',
+        name: `ZNIEFF I : ${nom}`.slice(0, 180),
+        mysteryTitle: 'Refuge Sauvage (ZNIEFF I)',
         category: 'ecosysteme',
-        subType: `Zone naturelle d’intérêt écologique (${areaHa})`,
+        subType: `Zone écologique ZNIEFF Type I (${areaHa})`.slice(0, 78),
         stratum: 'vivant_folklore',
         eraLabel: 'Inventaire Écologique INPN',
         source: 'INPN · Géologie INPG & ZNIEFF',
@@ -3268,8 +3372,43 @@ LIMIT 6
         waterwayName: '',
         safetyNotice: 'Restez sur les sentiers balisés afin de préserver la quiétude de la faune et de la flore.',
         externalUrl: p.url_fiche || `https://inpn.mnhn.fr/zone/znieff/${encodeURIComponent(code)}`,
-        xpReward: 150,
+        xpReward: 155,
         unlockRadiusMeters: 105,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+    }
+  }
+
+  // 2B. ZNIEFF de Type II (MNHN / PatriNat — grands ensembles naturels riches et peu modifiés)
+  if (znieff2Res.status === 'fulfilled' && znieff2Res.value?.features) {
+    for (const f of znieff2Res.value.features.slice(0, 2)) {
+      const p = f.properties || {};
+      const nom = String(p.nom_site || '').trim();
+      if (!nom) continue;
+      const pos = extractClosestRingPointOrCentroid(f.geometry, lat, lng);
+      if (!pos || Math.abs(pos.lat) > 90 || Math.abs(pos.lng) > 180) continue;
+      const code = p.id_mnhn || p.id_local || 'ZNIEFF2';
+      const areaHa = p.area_sig ? `${Math.round(Number(p.area_sig))} ha` : 'grand ensemble';
+
+      inpnGeoEco.push({
+        id: sanitizeId(`znieff2_${code}`),
+        name: `ZNIEFF II : ${nom}`.slice(0, 180),
+        mysteryTitle: 'Corridor Sauvage (ZNIEFF II)',
+        category: 'ecosysteme',
+        subType: `Grand ensemble ZNIEFF Type II (${areaHa})`.slice(0, 78),
+        stratum: 'vivant_folklore',
+        eraLabel: 'Corridor Écologique INPN',
+        source: 'INPN · Géologie INPG & ZNIEFF',
+        lat: pos.lat,
+        lng: pos.lng,
+        summary: `Zone Naturelle d’Intérêt Écologique, Faunistique et Floristique de type II (« ${nom} », réf. MNHN ${code}, ${areaHa}), formant un grand ensemble naturel cohérent à fort potentiel biologique et paysager.`,
+        nearWaterway: /marais|étang|rivière|ruisseau|vallée|berge|littoral/i.test(nom),
+        waterwayName: '',
+        safetyNotice: 'Respectez les haies, lisières et zones humides de ce corridor écologique.',
+        externalUrl: p.url_fiche || `https://inpn.mnhn.fr/zone/znieff/${encodeURIComponent(code)}`,
+        xpReward: 145,
+        unlockRadiusMeters: 110,
         relatedPoiIds: [],
         relatedPoiTitles: [],
       });
@@ -4249,273 +4388,772 @@ const geodesicMicroCache = new Map<
   { expires: number; pois: RawPoi[]; subFeatures: SubterraneanFeature[] }
 >();
 
+const BRGM_SUBSTANCE_FR: Record<string, string> = {
+  Pb: 'Plomb & Galène argentifère',
+  Zn: 'Zinc & Blende',
+  Ag: 'Argent natif',
+  Au: 'Or & Quartz aurifère',
+  Cu: 'Cuivre & Chalcopyrite',
+  Sn: 'Étain & Cassitérite',
+  Fe: 'Fer oolithique ou sidérite',
+  F: 'Fluorine cristalline',
+  Ba: 'Barytine hydrothermale',
+  W: 'Tungstène & Wolframite',
+  Sb: 'Antimoine & Stibine',
+  U: 'Uranium & Pechblende',
+  Mn: 'Manganèse',
+  Coal: 'Houille & Anthracite',
+  Charbon: 'Houille & Charbon',
+  Pyrite: 'Pyrite dorée',
+};
+
+function translateBrgmSubstance(raw: string): string {
+  const clean = String(raw || '').trim();
+  if (!clean) return 'Minéralisation hydrothermale';
+  const parts = clean.split(/[\s,;/+-]+/).filter(Boolean);
+  const mapped = parts.map((p) => BRGM_SUBSTANCE_FR[p] || p);
+  return mapped.join(' · ').slice(0, 64);
+}
+
 /**
- * 18. IGN Geodesic Benchmarks (Bornes géodésiques & repères de nivellement),
- * Rural Vernacular Micro-Heritage (Lavoirs, Fours banaux, Calvaires, Pigeonniers, Moulins)
- * & Subterranean Mine Adits / Geological Faults / Historic Aqueducts via Overpass Open Data
+ * 18. Pack C — Official IGN Geodesic Pillars & Leveling Medallions (RN / RDF / RBF),
+ * IGN Subterranean Hydrography (Buried Rivers, Culverts & Karstic Conduits),
+ * BRGM Geological Faults, Mineral Veins & Historic Mines,
+ * plus Rural Vernacular Micro-Heritage (Lavoirs, Fours à pain, Moulins, Calvaires, Fontaines miraculeuses & Arbres remarquables)
  */
 async function queryGeodesicAndRuralMicroHeritage(
   lat: number,
   lng: number,
   radiusMeters: number
-): Promise<{ pois: RawPoi[]; subFeatures: SubterraneanFeature[] }> {
-  const cellKey = `${(Math.round(lat * 100) / 100).toFixed(2)}_${(Math.round(lng * 100) / 100).toFixed(2)}`;
+): Promise<{
+  pois: RawPoi[];
+  subFeatures: SubterraneanFeature[];
+  hasIgnGeodesy?: boolean;
+  hasUndergroundHydro?: boolean;
+  hasBrgmMinerals?: boolean;
+}> {
+  const cellKey = `v2_${(Math.round(lat * 100) / 100).toFixed(2)}_${(Math.round(lng * 100) / 100).toFixed(2)}`;
   const hit = geodesicMicroCache.get(cellKey);
   if (hit && hit.expires > Date.now()) {
     return { pois: hit.pois, subFeatures: hit.subFeatures };
   }
 
+  const dLat = Math.min(0.024, Math.max(0.011, (radiusMeters * 1.05) / 110540));
+  const cosLat = Math.max(0.15, Math.cos((lat * Math.PI) / 180));
+  const dLng = dLat / cosLat;
+  const minLng = (lng - dLng).toFixed(5);
+  const minLat = (lat - dLat).toFixed(5);
+  const maxLng = (lng + dLng).toFixed(5);
+  const maxLat = (lat + dLat).toFixed(5);
+  const crs84Bbox = `${minLng},${minLat},${maxLng},${maxLat},CRS:84`;
+
+  // Wide bbox (~5 km) for BRGM mineral veins, historic mine shafts & 1/50k structural faults
+  const brgmDLat = Math.min(0.055, dLat * 2.2);
+  const brgmDLng = brgmDLat / cosLat;
+  const brgmBbox = `${(lng - brgmDLng).toFixed(5)},${(lat - brgmDLat).toFixed(5)},${(
+    lng + brgmDLng
+  ).toFixed(5)},${(lat + brgmDLat).toFixed(5)},EPSG:4326`;
+
+  // 1. Official IGN Géoplateforme WFS: Repères de Nivellement (bronze medallions) + Bornes Géodésiques RDF/RBF
+  const ignRnUrl = `https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=IGNF_GEODESIE:rn&BBOX=${crs84Bbox}&SRSNAME=CRS:84&COUNT=8&OUTPUTFORMAT=application/json`;
+  const ignRdfUrl = `https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=IGNF_GEODESIE:point-rdf&BBOX=${crs84Bbox}&SRSNAME=CRS:84&COUNT=5&OUTPUTFORMAT=application/json`;
+  const ignRbfUrl = `https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=IGNF_GEODESIE:site-rbf&BBOX=${crs84Bbox}&SRSNAME=CRS:84&COUNT=3&OUTPUTFORMAT=application/json`;
+
+  // 2. Official IGN BD TOPO Subterranean Hydrography: Buried rivers, culverted streams, karstic conduits & underground aqueducts
+  const ugCql = `BBOX(geometrie,${minLng},${minLat},${maxLng},${maxLat},'CRS:84') AND (position_par_rapport_au_sol IN ('-1','-2','-3','-4') OR nature IN ('Conduit buse','Aqueduc','Conduite forcée','Ecoulement karstique','Ecoulement souterrain'))`;
+  const ignUgHydroUrl = `https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=BDTOPO_V3:troncon_hydrographique&SRSNAME=CRS:84&CQL_FILTER=${encodeURIComponent(
+    ugCql
+  )}&COUNT=32&OUTPUTFORMAT=application/json`;
+
+  // 3. Official BRGM WFS: 1/50,000 Structural Faults, Metalliferous Mineral Veins & Historic Mine Shafts
+  const brgmStructUrl = `https://geoservices.brgm.fr/geologie?SERVICE=WFS&VERSION=1.1.0&REQUEST=GetFeature&TYPENAME=ms:C50_L_DIVERS&SRSNAME=EPSG:4326&BBOX=${brgmBbox}&MAXFEATURES=18&OUTPUTFORMAT=geojson`;
+  const brgmGitesUrl = `https://geoservices.brgm.fr/geologie?SERVICE=WFS&VERSION=1.1.0&REQUEST=GetFeature&TYPENAME=ms:GITES_PT&SRSNAME=EPSG:4326&BBOX=${brgmBbox}&MAXFEATURES=6&OUTPUTFORMAT=geojson`;
+  const brgmMinesUrl = `https://geoservices.brgm.fr/geologie?SERVICE=WFS&VERSION=1.1.0&REQUEST=GetFeature&TYPENAME=ms:MINES_PT&SRSNAME=EPSG:4326&BBOX=${brgmBbox}&MAXFEATURES=6&OUTPUTFORMAT=geojson`;
+
+  // 4. Resilient Overpass query (primary + mirror fallback) for rural vernacular heritage, sacred springs, remarkable trees & buried culverts
   const r = Math.min(2200, Math.max(950, Math.round(radiusMeters * 0.95)));
   const overpassQuery = `[out:json][timeout:3];(
     node["man_made"="survey_point"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
     nwr["amenity"~"^(lavoir|baking_oven)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
-    nwr["building"~"^(bakehouse|dovecote)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
-    nwr["historic"~"^(lavoir|bakehouse|wayside_cross|wayside_shrine|aqueduct)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    nwr["building"~"^(bakehouse|dovecote|watermill|windmill)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    nwr["historic"~"^(lavoir|bakehouse|wayside_cross|wayside_shrine|aqueduct|holy_well|mine|mine_shaft)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
     nwr["man_made"~"^(dovecote|watermill|windmill|adit|mineshaft)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
-    way["geological"="fault"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
-  );out center geom 42;`;
+    node["natural"="tree"]["denotation"~"^(natural_monument|landmark)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    node["natural"="tree"]["monument"="yes"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    way["geological"~"^(fault|dyke|vein)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    way["waterway"]["tunnel"~"^(culvert|yes|flooded)$"](around:${Math.min(1500, r)},${lat.toFixed(5)},${lng.toFixed(5)});
+  );out center geom 56;`;
 
-  try {
-    const resp = await fetchWithTimeout(
+  const fetchOverpassWithFallback = async () => {
+    const mirrors = [
       'https://overpass-api.de/api/interpreter',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: `data=${encodeURIComponent(overpassQuery)}`,
-      },
-      3600
-    );
-    if (!resp.ok) return { pois: [], subFeatures: [] };
-    const json = (await resp.json()) as {
-      elements?: Array<{
-        type: string;
-        id: number;
-        lat?: number;
-        lon?: number;
-        center?: { lat: number; lon: number };
-        geometry?: Array<{ lat: number; lon: number }>;
-        tags?: Record<string, string>;
-      }>;
-    };
-    const elements = json.elements || [];
-    const pois: RawPoi[] = [];
-    const subFeatures: SubterraneanFeature[] = [];
-
-    for (const el of elements) {
-      const tags = el.tags || {};
-      const pLat = el.lat ?? el.center?.lat ?? el.geometry?.[0]?.lat;
-      const pLng = el.lon ?? el.center?.lon ?? el.geometry?.[0]?.lon;
-      if (typeof pLat !== 'number' || typeof pLng !== 'number') continue;
-
-      const rawName = String(tags['name:fr'] || tags.name || '').trim();
-      const manMade = (tags.man_made || '').toLowerCase();
-      const amenity = (tags.amenity || '').toLowerCase();
-      const historic = (tags.historic || '').toLowerCase();
-      const building = (tags.building || '').toLowerCase();
-      const geological = (tags.geological || '').toLowerCase();
-
-      // 1. Geological Fault Lines -> Subterranean Tectonic Vein
-      if (geological === 'fault' && el.geometry && el.geometry.length >= 2) {
-        const pts = el.geometry.map((g) => ({ lat: g.lat, lng: g.lon }));
-        subFeatures.push({
-          id: `ov_fault_${el.id}`,
-          kind: 'fault_line',
-          isLine: true,
-          name: rawName || 'Faille géologique & filon minéral',
-          points: pts.slice(0, 36),
-          source: 'Géologie OpenStreetMap / BRGM',
-        });
-        continue;
+      'https://lz4.overpass-api.de/api/interpreter',
+    ];
+    for (const mirror of mirrors) {
+      try {
+        const resp = await fetchWithTimeout(
+          mirror,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: `data=${encodeURIComponent(overpassQuery)}`,
+          },
+          3200
+        );
+        if (resp.ok) return await resp.json();
+      } catch {
+        // try next mirror
       }
+    }
+    return null;
+  };
 
-      // 2. Mine Adits (Travers-bancs) & Mineshafts
-      if (manMade === 'adit' || manMade === 'mineshaft') {
-        const label =
-          rawName || (manMade === 'adit' ? 'Galerie de travers-banc minier' : 'Puits d’extraction ancien');
-        subFeatures.push({
-          id: `ov_mine_${el.id}`,
-          kind: 'mine',
-          name: label,
-          points: [{ lat: pLat, lng: pLng }],
-          source: 'Inventaire Minier OSM',
-        });
-        pois.push({
-          id: `ov_poi_mine_${el.id}`,
-          name: label,
-          mysteryTitle: 'Bouche de Travers-Banc',
-          category: 'etrange',
-          subType: manMade === 'adit' ? 'Travers-banc minier' : 'Ancien puits de mine',
-          stratum: 'moderne',
-          eraLabel: 'XIXe – XXe siècle',
-          source: 'Inventaire Minier & Topographie OSM',
-          lat: pLat,
-          lng: pLng,
-          summary:
-            manMade === 'adit'
-              ? 'Entrée horizontale de galerie minière (travers-banc) taillée à flanc de coteau pour rejoindre un filon métallifère ou houiller.'
-              : 'Ancien puits vertical foncé dans la roche-mère pour l’aérage ou l’extraction du minerai.',
-          nearWaterway: false,
-          waterwayName: '',
-          safetyNotice:
-            'Ouvrage minier recensé : observer uniquement depuis le chemin public sans jamais pénétrer en galerie.',
-          externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
-          xpReward: 145,
-          unlockRadiusMeters: 65,
-          relatedPoiIds: [],
-          relatedPoiTitles: [],
-        });
-        continue;
-      }
+  const [
+    rnRes,
+    rdfRes,
+    rbfRes,
+    ugHydroRes,
+    brgmStructRes,
+    brgmGitesRes,
+    brgmMinesRes,
+    overpassRes,
+  ] = await Promise.allSettled([
+    fetchWithTimeout(ignRnUrl, {}, 3400).then((res) => (res.ok ? res.json() : null)),
+    fetchWithTimeout(ignRdfUrl, {}, 3400).then((res) => (res.ok ? res.json() : null)),
+    fetchWithTimeout(ignRbfUrl, {}, 3400).then((res) => (res.ok ? res.json() : null)),
+    fetchWithTimeout(ignUgHydroUrl, {}, 3500).then((res) => (res.ok ? res.json() : null)),
+    fetchWithTimeout(brgmStructUrl, {}, 3500).then((res) => (res.ok ? res.json() : null)),
+    fetchWithTimeout(brgmGitesUrl, {}, 3500).then((res) => (res.ok ? res.json() : null)),
+    fetchWithTimeout(brgmMinesUrl, {}, 3500).then((res) => (res.ok ? res.json() : null)),
+    fetchOverpassWithFallback(),
+  ]);
 
-      // 3. IGN Geodesic Benchmarks & Triangulation Pillars
-      if (manMade === 'survey_point') {
-        const ele = tags.ele ? `${Math.round(Number(tags.ele))} m` : '';
-        const refCode = tags.ref ? ` (${tags.ref})` : '';
-        const surveyName =
-          rawName ||
-          `Borne Géodésique IGN${refCode}${ele ? ` · ${ele}` : ''}`;
-        const desc = tags.description || tags.note || '';
-        pois.push({
-          id: `ov_ign_surv_${el.id}`,
-          name: surveyName,
-          mysteryTitle: 'Clou de Triangulation',
-          category: 'geographie',
-          subType: 'Borne géodésique & repère IGN',
-          stratum: 'contemporain',
-          eraLabel: 'Réseau Géodésique Français',
-          source: 'Réseau Géodésique IGN / OSM',
-          lat: pLat,
-          lng: pLng,
-          summary:
-            desc ||
-            `Repère officiel de triangulation et de nivellement${
-              ele ? ` scellé à ${ele} d’altitude` : ''
-            }. Ces médaillons de bronze et bornes de granit ont servi à arpenter la carte de France au millimètre près.`,
-          nearWaterway: false,
-          waterwayName: '',
-          safetyNotice: 'Repère géodésique patrimonial protégé : ne pas déplacer ni altérer le médaillon.',
-          externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
-          xpReward: 135,
-          unlockRadiusMeters: 55,
-          relatedPoiIds: [],
-          relatedPoiTitles: [],
-        });
-        continue;
-      }
+  const pois: RawPoi[] = [];
+  const subFeatures: SubterraneanFeature[] = [];
+  let hasIgnGeodesy = false;
+  let hasUndergroundHydro = false;
+  let hasBrgmMinerals = false;
 
-      // 4. Historic Aqueducts (Surface + Subterranean trace)
-      if (historic === 'aqueduct') {
-        const aqName = rawName || 'Vestige d’aqueduc ancien';
-        if (el.geometry && el.geometry.length >= 2) {
-          subFeatures.push({
-            id: `ov_aq_${el.id}`,
-            kind: 'aqueduct',
-            isLine: true,
-            name: aqName,
-            points: el.geometry.slice(0, 36).map((g) => ({ lat: g.lat, lng: g.lon })),
-            source: 'Patrimoine Hydraulique OSM',
-          });
-        }
-        pois.push({
-          id: `ov_poi_aq_${el.id}`,
-          name: aqName,
-          mysteryTitle: 'Arche d’Eau Ancienne',
-          category: 'histoire',
-          subType: 'Aqueduc & conduite voûtée',
-          stratum: /romain|gallo/i.test(aqName) ? 'antiquite' : 'moderne',
-          eraLabel: /romain|gallo/i.test(aqName) ? 'Antiquité gallo-romaine' : 'Époque moderne',
-          source: 'Patrimoine Hydraulique OSM',
-          lat: pLat,
-          lng: pLng,
-          summary:
-            'Ouvrage d’adduction d’eau acheminant par gravité le captage des sources vers le bourg ou la cité.',
-          nearWaterway: true,
-          waterwayName: '',
-          safetyNotice: '',
-          externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
-          xpReward: 135,
-          unlockRadiusMeters: 60,
-          relatedPoiIds: [],
-          relatedPoiTitles: [],
-        });
-        continue;
-      }
+  // A1. Official IGN Repères de Nivellement (Bronze Wall Medallions!)
+  if (rnRes.status === 'fulfilled' && Array.isArray(rnRes.value?.features)) {
+    const sortedRn = [...rnRes.value.features]
+      .map((f: any) => {
+        const coords = f.geometry?.coordinates;
+        if (!Array.isArray(coords) || coords.length < 2) return null;
+        const pLng = Number(coords[0]);
+        const pLat = Number(coords[1]);
+        if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) return null;
+        return { f, pLat, pLng, dist: haversineMeters(lat, lng, pLat, pLng) };
+      })
+      .filter((x): x is { f: any; pLat: number; pLng: number; dist: number } => Boolean(x))
+      .sort((a, b) => a.dist - b.dist);
 
-      // 5. Rural Vernacular Micro-Heritage: Lavoirs, Fours banaux, Pigeonniers, Moulins, Calvaires
-      let vernSubType = 'Petit patrimoine vernaculaire';
-      let vernDefaultName = 'Témoin du bourg ancien';
-      let vernSummary =
-        'Édifice vernaculaire témoignant de la vie quotidienne, des savoir-faire bâtis et des usages communautaires d’autrefois.';
-      let vernCategory: CategoryKey = 'histoire';
-
-      if (amenity === 'lavoir' || historic === 'lavoir') {
-        vernSubType = 'Lavoir communal à impluvium';
-        vernDefaultName = 'Ancien Lavoir Communal';
-        vernSummary =
-          'Bassin de pierre alimenté par une source ou un ru dérivé, jadis cœur battant des nouvelles et de l’entraide villageoise.';
-      } else if (amenity === 'baking_oven' || building === 'bakehouse' || historic === 'bakehouse') {
-        vernSubType = 'Four banal & fournil de hameau';
-        vernDefaultName = 'Four à Pain Communal';
-        vernSummary =
-          'Ancien four maçonné en pierre réfractaire ou brique où les familles du hameau venaient cuire leurs tourtes lors des fournées collectives.';
-      } else if (building === 'dovecote' || manMade === 'dovecote') {
-        vernSubType = 'Pigeonnier & colombier patrimonial';
-        vernDefaultName = 'Colombier Ancien';
-        vernSummary =
-          'Tour ou tourelle à boulins dont la colombine fertilisait jadis les terres agricoles alentour, marque d’un domaine rural historique.';
-      } else if (manMade === 'watermill' || manMade === 'windmill') {
-        vernCategory = 'geographie';
-        vernSubType = manMade === 'watermill' ? 'Moulin à eau & bief' : 'Moulin à vent historique';
-        vernDefaultName = manMade === 'watermill' ? 'Ancien Moulin à Eau' : 'Moulin à Vent';
-        vernSummary =
-          manMade === 'watermill'
-            ? 'Ouvrage hydraulique établi sur un bief dérivé pour capter la force vive du courant et entraîner les meules de pierre.'
-            : 'Tour meunière dressée sur une éminence ventilée pour capter les vents dominants du pays.';
-      } else if (historic === 'wayside_cross' || historic === 'wayside_shrine') {
-        vernSubType =
-          historic === 'wayside_cross'
-            ? 'Calvaire ou croix de chemin'
-            : 'Oratoire rural de croisée';
-        vernDefaultName =
-          historic === 'wayside_cross' ? 'Croix de Chemin Ancienne' : 'Oratoire Champêtre';
-        vernSummary =
-          'Repère immémorial planté à la croisée des vieux chemins vicinaux, guidant pèlerins, colporteurs et bergers.';
-      }
+    let keptRn = 0;
+    const rnCells = new Set<string>();
+    for (const item of sortedRn) {
+      if (keptRn >= 4) break;
+      const cell = `${Math.round(item.pLat * 250)}_${Math.round(item.pLng * 250)}`;
+      if (rnCells.has(cell)) continue;
+      rnCells.add(cell);
+      const p = item.f.properties || {};
+      const matricule = String(p.nom || p.id || '').trim();
+      if (!matricule) continue;
+      const altNum = Number(p.altitude);
+      const altLabel = Number.isFinite(altNum) ? `${altNum.toFixed(2).replace('.', ',')} m` : '';
+      const etat = String(p.etat || '').trim();
+      if (/DETRUIT|DISPARU|INTROUVABLE/i.test(etat)) continue;
+      hasIgnGeodesy = true;
+      keptRn++;
 
       pois.push({
-        id: `ov_vern_${el.id}`,
-        name: rawName || vernDefaultName,
-        mysteryTitle: 'Témoin Vernaculaire',
-        category: vernCategory,
-        subType: vernSubType,
-        stratum: 'moderne',
-        eraLabel: 'Patrimoine vernaculaire',
-        source: 'Petit Patrimoine Rural & IGN / OSM',
-        lat: pLat,
-        lng: pLng,
-        summary: vernSummary,
-        nearWaterway: amenity === 'lavoir' || historic === 'lavoir' || manMade === 'watermill',
+        id: sanitizeId(`ign_rn_${p.id || matricule}`),
+        name: `Médaillon IGN « ${matricule} »${altLabel ? ` (${altLabel})` : ''}`.slice(0, 180),
+        mysteryTitle: 'Médaillon de Bronze Scellé',
+        category: 'geographie',
+        subType: 'Repère de nivellement IGN (médaillon bronze)',
+        stratum: 'contemporain',
+        eraLabel: 'Nivellement Général de la France',
+        source: 'IGN Géodésie & Nivellement',
+        lat: item.pLat,
+        lng: item.pLng,
+        summary: `Repère officiel du Nivellement Général de la France (matricule « ${matricule} »${
+          altLabel ? `, altitude orthométrique exacte : ${altLabel}` : ''
+        }${
+          etat ? `, état : ${etat.toLowerCase()}` : ''
+        }). Cherchez à hauteur de soubassement sur le mur, le pont ou l’édifice ce célèbre médaillon rond en bronze scellé par les géomètres de l’IGN !`,
+        nearWaterway: false,
         waterwayName: '',
-        safetyNotice: '',
-        externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
-        xpReward: 125,
-        unlockRadiusMeters: 55,
+        safetyNotice:
+          'Repère géodésique d’État protégé par la loi : admirez et photographiez le médaillon sans jamais y toucher.',
+        externalUrl: String(p.url || 'https://geodesie.ign.fr/').slice(0, 480),
+        xpReward: 145,
+        unlockRadiusMeters: 52,
         relatedPoiIds: [],
         relatedPoiTitles: [],
       });
     }
-
-    const trimmedPois = pois.slice(0, 14);
-    const trimmedSub = subFeatures.slice(0, 24);
-    geodesicMicroCache.set(cellKey, {
-      expires: Date.now() + 20 * 60 * 1000,
-      pois: trimmedPois,
-      subFeatures: trimmedSub,
-    });
-    return { pois: trimmedPois, subFeatures: trimmedSub };
-  } catch {
-    return { pois: [], subFeatures: [] };
   }
+
+  // A2. Official IGN Geodesic Triangulation Points & Sites (RDF / RBF)
+  const geodFeatures = [
+    ...(rdfRes.status === 'fulfilled' && Array.isArray(rdfRes.value?.features)
+      ? rdfRes.value.features
+      : []),
+    ...(rbfRes.status === 'fulfilled' && Array.isArray(rbfRes.value?.features)
+      ? rbfRes.value.features
+      : []),
+  ];
+  let keptGeod = 0;
+  for (const f of geodFeatures) {
+    if (keptGeod >= 3) break;
+    const coords = f.geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) continue;
+    const pLng = Number(coords[0]);
+    const pLat = Number(coords[1]);
+    if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) continue;
+    const p = f.properties || {};
+    const etat = String(p.etat || '');
+    if (/detruit|disparu/i.test(etat)) continue;
+    const nom = String(p.groupe_info || p.nom || p.id || '').trim();
+    if (!nom) continue;
+    const reseau = String(p.reseau || p.types || 'RDF').toUpperCase();
+    hasIgnGeodesy = true;
+    keptGeod++;
+
+    pois.push({
+      id: sanitizeId(`ign_geod_${p.id || nom}_${keptGeod}`),
+      name: `Borne Géodésique IGN · ${nom}`.slice(0, 180),
+      mysteryTitle: 'Pilier de Triangulation',
+      category: 'geographie',
+      subType: `Borne géodésique officielle (${reseau})`.slice(0, 78),
+      stratum: 'contemporain',
+      eraLabel: 'Réseau Géodésique Français',
+      source: 'IGN Géodésie & Nivellement',
+      lat: pLat,
+      lng: pLng,
+      summary: `Point de triangulation officiel de l’IGN (${nom}, réseau ${reseau}${
+        etat ? `, ${etat.toLowerCase()}` : ''
+      }). Matérialisé par une borne de granit gravée, un clou d’arpentage en bronze ou une mire de clocher, il ancre le canevas cartographique national.`,
+      nearWaterway: false,
+      waterwayName: '',
+      safetyNotice: 'Ouvrage géodésique protégé : ne pas déplacer ni altérer le repère.',
+      externalUrl: String(p.url || 'https://geodesie.ign.fr/').slice(0, 480),
+      xpReward: 150,
+      unlockRadiusMeters: 58,
+      relatedPoiIds: [],
+      relatedPoiTitles: [],
+    });
+  }
+
+  // B. Official IGN BD TOPO Subterranean Hydrography (Buried Rivers, Culverted Streams, Karstic Siphons)
+  if (ugHydroRes.status === 'fulfilled' && Array.isArray(ugHydroRes.value?.features)) {
+    let ugPoiCount = 0;
+    for (const f of ugHydroRes.value.features) {
+      const geom = f.geometry;
+      if (!geom || geom.type !== 'LineString' || !Array.isArray(geom.coordinates)) continue;
+      const pts = geom.coordinates
+        .map((c: any) => ({ lng: Number(c[0]), lat: Number(c[1]) }))
+        .filter((pt: any) => Number.isFinite(pt.lat) && Number.isFinite(pt.lng));
+      if (pts.length < 2) continue;
+
+      const p = f.properties || {};
+      const nature = String(p.nature || '').trim();
+      const toponyme = String(p.cpx_toponyme_de_cours_d_eau || p.toponyme || '').trim();
+      const isAqueduct = /aqueduc/i.test(nature);
+      const isKarst = /karst|souterrain/i.test(nature);
+      const kind: SubterraneanKind = isAqueduct
+        ? 'aqueduct'
+        : isKarst
+        ? 'underground_water'
+        : toponyme
+        ? 'underground_water'
+        : 'culvert';
+
+      const lineLabel =
+        toponyme
+          ? `Cours enterré : ${toponyme}`
+          : isKarst
+          ? 'Réseau karstique & rivière souterraine'
+          : isAqueduct
+          ? 'Galerie d’aqueduc souterrain (IGN)'
+          : 'Ruisseau busé & pertuis voûté (IGN)';
+
+      hasUndergroundHydro = true;
+      subFeatures.push({
+        id: sanitizeId(`ign_ugh_${p.cleabs || f.id}`),
+        kind,
+        isLine: true,
+        name: lineLabel.slice(0, 140),
+        points: pts.slice(0, 40),
+        depthLabel: p.position_par_rapport_au_sol
+          ? `Niveau ${p.position_par_rapport_au_sol}`
+          : undefined,
+        source: 'IGN Hydrographie Souterraine',
+      });
+
+      const spanM = haversineMeters(
+        pts[0].lat,
+        pts[0].lng,
+        pts[pts.length - 1].lat,
+        pts[pts.length - 1].lng
+      );
+      if ((toponyme || isKarst || spanM >= 55) && ugPoiCount < 3) {
+        ugPoiCount++;
+        const mid = pts[Math.floor(pts.length / 2)];
+        pois.push({
+          id: sanitizeId(`ign_ug_${p.cleabs || f.id}`),
+          name: lineLabel.slice(0, 180),
+          mysteryTitle: isKarst ? 'Siphon & Rivière Cachée' : 'Murmure sous la Voûte',
+          category: 'geographie',
+          subType: isKarst
+            ? 'Écoulement karstique souterrain (IGN)'
+            : toponyme
+            ? 'Rivière enterrée & voûtée (IGN)'
+            : 'Ruisseau busé & collecteur ancien',
+          stratum: isKarst ? 'temps_profond' : 'contemporain',
+          eraLabel: isKarst ? 'Hydrogéologie karstique' : 'Cours d’eau enfouis',
+          source: 'IGN Hydrographie Souterraine',
+          lat: mid.lat,
+          lng: mid.lng,
+          summary: toponyme
+            ? `Tronçon souterrain officiel du cours d’eau « ${toponyme} » (${nature.toLowerCase()}, IGN BD TOPO), coulant à l’abri des regards sous une voûte maçonnée ou un busage.`
+            : `Tronçon hydrographique souterrain (${nature.toLowerCase()}, env. ${Math.round(
+                spanM
+              )} m) répertorié par l’IGN sous la surface actuelle.`,
+          nearWaterway: true,
+          waterwayName: toponyme || 'Cours souterrain',
+          safetyNotice: 'Ouvrage hydraulique souterrain non visitable : observation cartographique uniquement.',
+          externalUrl: 'https://cartes.gouv.fr/',
+          xpReward: 140,
+          unlockRadiusMeters: 68,
+          relatedPoiIds: [],
+          relatedPoiTitles: [],
+        });
+      }
+    }
+  }
+
+  // C1. Official BRGM 1/50,000 Structural Lines & Geological Faults
+  if (brgmStructRes.status === 'fulfilled' && Array.isArray(brgmStructRes.value?.features)) {
+    for (const f of brgmStructRes.value.features.slice(0, 12)) {
+      const geom = f.geometry;
+      if (!geom) continue;
+      const rawLines =
+        geom.type === 'LineString'
+          ? [geom.coordinates]
+          : geom.type === 'MultiLineString'
+          ? geom.coordinates
+          : [];
+      const p = f.properties || {};
+      const attr = String(p.attr || p.descr || 'Faille ou discontinuité géologique').trim();
+      for (let li = 0; li < rawLines.length; li++) {
+        const pts = (rawLines[li] || [])
+          .map((c: any) => ({ lng: Number(c[0]), lat: Number(c[1]) }))
+          .filter((pt: any) => Number.isFinite(pt.lat) && Number.isFinite(pt.lng));
+        if (pts.length < 2) continue;
+        hasBrgmMinerals = true;
+        subFeatures.push({
+          id: sanitizeId(`brgm_flt_${p.gid || f.id}_${li}`),
+          kind: /filon|dyke|intrusion/i.test(attr) ? 'mineral_vein' : 'fault_line',
+          isLine: true,
+          name: `${attr} (Carte BRGM 1/50k)`.slice(0, 140),
+          points: pts.slice(0, 36),
+          source: 'BRGM Failles & Filons Miniers',
+        });
+      }
+    }
+  }
+
+  // C2. Official BRGM Mineral Veins & Metalliferous Deposits (GITES_PT)
+  if (brgmGitesRes.status === 'fulfilled' && Array.isArray(brgmGitesRes.value?.features)) {
+    for (const f of brgmGitesRes.value.features.slice(0, 4)) {
+      const pos = extractFirstCoordFromGeoJson(f.geometry);
+      if (!pos) continue;
+      const p = f.properties || {};
+      const nomGite = String(p.nom_gite || p.identifiant || 'Gîte minéral').trim();
+      const substLabel = translateBrgmSubstance(String(p.c_substance || ''));
+      hasBrgmMinerals = true;
+
+      subFeatures.push({
+        id: sanitizeId(`brgm_vein_${p.gid || nomGite}`),
+        kind: 'mineral_vein',
+        name: `Filon de ${nomGite} (${substLabel})`.slice(0, 140),
+        points: [{ lat: pos.lat, lng: pos.lng }],
+        depthLabel: substLabel,
+        source: 'BRGM Failles & Filons Miniers',
+      });
+
+      pois.push({
+        id: sanitizeId(`brgm_gite_${p.gid || p.identifiant || nomGite}`),
+        name: `Filon Minier : ${nomGite} (${substLabel})`.slice(0, 180),
+        mysteryTitle: 'Veine Métallifère Profonde',
+        category: 'geographie',
+        subType: `Filon minier BRGM · ${substLabel}`.slice(0, 78),
+        stratum: 'temps_profond',
+        eraLabel: 'Métallogénie & Filons BRGM',
+        source: 'BRGM Failles & Filons Miniers',
+        lat: pos.lat,
+        lng: pos.lng,
+        summary: `Gîte minéral et filon hydrothermal (« ${nomGite} », réf. BRGM ${
+          p.identifiant || p.gid || 'nationale'
+        }) renfermant une minéralisation de ${substLabel.toLowerCase()}, cristallisée le long des fractures du socle profond.`,
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: 'Ancien indice minéralogique : ne pénétrez jamais dans d’éventuelles fouilles ou galeries.',
+        externalUrl: 'https://infoterre.brgm.fr/',
+        xpReward: 160,
+        unlockRadiusMeters: 75,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+    }
+  }
+
+  // C3. Official BRGM Historic Coal Pits & Mine Concessions (MINES_PT)
+  if (brgmMinesRes.status === 'fulfilled' && Array.isArray(brgmMinesRes.value?.features)) {
+    for (const f of brgmMinesRes.value.features.slice(0, 4)) {
+      const pos = extractFirstCoordFromGeoJson(f.geometry);
+      if (!pos) continue;
+      const p = f.properties || {};
+      const nomSite = String(p.nom_site || 'Ancienne fosse minière').trim();
+      const substLabel = translateBrgmSubstance(String(p.substance || 'Charbon / Minerai'));
+      hasBrgmMinerals = true;
+
+      subFeatures.push({
+        id: sanitizeId(`brgm_mn_${p.gid || nomSite}`),
+        kind: 'mine',
+        name: `${nomSite} (${substLabel})`.slice(0, 140),
+        points: [{ lat: pos.lat, lng: pos.lng }],
+        depthLabel: substLabel,
+        source: 'BRGM Failles & Filons Miniers',
+      });
+
+      pois.push({
+        id: sanitizeId(`brgm_mine_${p.gid || p.id_unique || nomSite}`),
+        name: `Ancienne Mine : ${nomSite}`.slice(0, 180),
+        mysteryTitle: 'Chevalement & Fosse Oubliée',
+        category: 'etrange',
+        subType: `Fosse ou concession minière (${substLabel})`.slice(0, 78),
+        stratum: 'contemporain',
+        eraLabel: 'Mémoire Minière & Bassins BRGM',
+        source: 'BRGM Failles & Filons Miniers',
+        lat: pos.lat,
+        lng: pos.lng,
+        summary: `Ancien puits ou site d’extraction minière (« ${nomSite} », substance : ${substLabel.toLowerCase()}) recensé dans l’inventaire minier national du BRGM, relié autrefois à un réseau de galeries boisées rectilignes.`,
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: 'Périmètre minier ancien : restez strictement sur la voie publique.',
+        externalUrl: 'https://infoterre.brgm.fr/',
+        xpReward: 165,
+        unlockRadiusMeters: 75,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+    }
+  }
+
+  // D. Overpass Rural Micro-Heritage, Remarkable Trees, Sacred Springs & Culverts
+  const elements =
+    overpassRes.status === 'fulfilled' && Array.isArray(overpassRes.value?.elements)
+      ? overpassRes.value.elements
+      : [];
+
+  for (const el of elements) {
+    const tags = el.tags || {};
+    const pLat = el.lat ?? el.center?.lat ?? el.geometry?.[0]?.lat;
+    const pLng = el.lon ?? el.center?.lon ?? el.geometry?.[0]?.lon;
+    if (typeof pLat !== 'number' || typeof pLng !== 'number') continue;
+
+    const rawName = String(tags['name:fr'] || tags.name || '').trim();
+    const manMade = (tags.man_made || '').toLowerCase();
+    const amenity = (tags.amenity || '').toLowerCase();
+    const historic = (tags.historic || '').toLowerCase();
+    const building = (tags.building || '').toLowerCase();
+    const geological = (tags.geological || '').toLowerCase();
+    const natural = (tags.natural || '').toLowerCase();
+    const waterway = (tags.waterway || '').toLowerCase();
+
+    // 1. Geological Faults, Dykes & Mineral Veins
+    if ((geological === 'fault' || geological === 'dyke' || geological === 'vein') && el.geometry && el.geometry.length >= 2) {
+      const pts = el.geometry.map((g: any) => ({ lat: g.lat, lng: g.lon }));
+      subFeatures.push({
+        id: `ov_fault_${el.id}`,
+        kind: geological === 'fault' ? 'fault_line' : 'mineral_vein',
+        isLine: true,
+        name:
+          rawName ||
+          (geological === 'fault'
+            ? 'Faille géologique & fracture du socle'
+            : 'Filon rocheux & dyke minéral'),
+        points: pts.slice(0, 36),
+        source: 'Géologie OpenStreetMap / BRGM',
+      });
+      continue;
+    }
+
+    // 2. Buried Rivers & Culverted Streams (Overpass detailed culverts)
+    if (waterway && el.geometry && el.geometry.length >= 2) {
+      const pts = el.geometry.map((g: any) => ({ lat: g.lat, lng: g.lon }));
+      const isRiver = waterway === 'river' || waterway === 'canal' || Boolean(rawName);
+      hasUndergroundHydro = true;
+      subFeatures.push({
+        id: `ov_culv_${el.id}`,
+        kind: isRiver ? 'underground_water' : 'culvert',
+        isLine: true,
+        name: rawName ? `Cours enterré : ${rawName}` : 'Ruisseau busé & pertuis maçonné',
+        points: pts.slice(0, 36),
+        source: 'IGN Hydrographie Souterraine',
+      });
+      continue;
+    }
+
+    // 3. Remarkable & Monumental Trees (Arbres remarquables IRL)
+    if (natural === 'tree') {
+      const species = String(tags['species:fr'] || tags.species || tags['genus:fr'] || tags.genus || '').trim();
+      const circ = tags.circumference ? ` · circonférence ${tags.circumference} m` : '';
+      const treeTitle = rawName || (species ? `Arbre remarquable (${species})` : 'Arbre Remarquable Centenaire');
+      pois.push({
+        id: `ov_tree_${el.id}`,
+        name: treeTitle.slice(0, 180),
+        mysteryTitle: 'Patriarche Végétal',
+        category: 'ecosysteme',
+        subType: `Arbre remarquable${species ? ` · ${species}` : ''}`.slice(0, 78),
+        stratum: 'vivant_folklore',
+        eraLabel: 'Patrimoine Arboré Vivant',
+        source: 'Arbres Remarquables & Sites Classés',
+        lat: pLat,
+        lng: pLng,
+        summary: `${treeTitle}${circ} — sujet arboré monumental distingué pour son grand âge, sa ramure exceptionnelle ou sa place dans la mémoire paysagère locale.`,
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: 'Ne piétinez pas le collet racinaire au pied de l’arbre centenaire.',
+        externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+        xpReward: 140,
+        unlockRadiusMeters: 55,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+      continue;
+    }
+
+    // 4. Mine Adits (Travers-bancs) & Mineshafts
+    if (manMade === 'adit' || manMade === 'mineshaft' || historic === 'mine' || historic === 'mine_shaft') {
+      const isAdit = manMade === 'adit';
+      const label =
+        rawName || (isAdit ? 'Galerie de travers-banc minier' : 'Puits d’extraction ancien');
+      subFeatures.push({
+        id: `ov_mine_${el.id}`,
+        kind: 'mine',
+        name: label,
+        points: [{ lat: pLat, lng: pLng }],
+        source: 'Inventaire Minier OSM',
+      });
+      pois.push({
+        id: `ov_poi_mine_${el.id}`,
+        name: label.slice(0, 180),
+        mysteryTitle: 'Bouche de Travers-Banc',
+        category: 'etrange',
+        subType: isAdit ? 'Travers-banc minier' : 'Ancien puits de mine',
+        stratum: 'moderne',
+        eraLabel: 'XIXe – XXe siècle',
+        source: 'Inventaire Minier & Topographie OSM',
+        lat: pLat,
+        lng: pLng,
+        summary: isAdit
+          ? 'Entrée horizontale de galerie minière (travers-banc) taillée à flanc de coteau pour rejoindre un filon métallifère ou houiller.'
+          : 'Ancien puits vertical foncé dans la roche-mère pour l’aérage ou l’extraction du minerai.',
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice:
+          'Ouvrage minier recensé : observer uniquement depuis le chemin public sans jamais pénétrer en galerie.',
+        externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+        xpReward: 145,
+        unlockRadiusMeters: 65,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+      continue;
+    }
+
+    // 5. OSM Geodesic Benchmarks (complements official IGN RN/RDF when not already within 25m)
+    if (manMade === 'survey_point') {
+      if (pois.some((existing) => haversineMeters(existing.lat, existing.lng, pLat, pLng) < 25)) {
+        continue;
+      }
+      const ele = tags.ele ? `${Math.round(Number(tags.ele))} m` : '';
+      const refCode = tags.ref ? ` (${tags.ref})` : '';
+      const surveyName =
+        rawName || `Borne Géodésique IGN${refCode}${ele ? ` · ${ele}` : ''}`;
+      const desc = tags.description || tags.note || '';
+      hasIgnGeodesy = true;
+      pois.push({
+        id: `ov_ign_surv_${el.id}`,
+        name: surveyName.slice(0, 180),
+        mysteryTitle: 'Clou de Triangulation',
+        category: 'geographie',
+        subType: 'Borne géodésique & repère IGN',
+        stratum: 'contemporain',
+        eraLabel: 'Réseau Géodésique Français',
+        source: 'IGN Géodésie & Nivellement',
+        lat: pLat,
+        lng: pLng,
+        summary: (
+          desc ||
+          `Repère de triangulation ou médaillon de nivellement${
+            ele ? ` scellé à ${ele} d’altitude` : ''
+          }. Ces médaillons de bronze et bornes de granit ont servi à arpenter la carte de France au millimètre près.`
+        ).slice(0, 800),
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: 'Repère géodésique patrimonial protégé : ne pas déplacer ni altérer le médaillon.',
+        externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+        xpReward: 135,
+        unlockRadiusMeters: 55,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+      continue;
+    }
+
+    // 6. Historic Aqueducts (Surface + Subterranean trace)
+    if (historic === 'aqueduct') {
+      const aqName = rawName || 'Vestige d’aqueduc ancien';
+      if (el.geometry && el.geometry.length >= 2) {
+        subFeatures.push({
+          id: `ov_aq_${el.id}`,
+          kind: 'aqueduct',
+          isLine: true,
+          name: aqName,
+          points: el.geometry.slice(0, 36).map((g: any) => ({ lat: g.lat, lng: g.lon })),
+          source: 'Patrimoine Hydraulique OSM',
+        });
+      }
+      pois.push({
+        id: `ov_poi_aq_${el.id}`,
+        name: aqName.slice(0, 180),
+        mysteryTitle: 'Arche d’Eau Ancienne',
+        category: 'histoire',
+        subType: 'Aqueduc & conduite voûtée',
+        stratum: /romain|gallo/i.test(aqName) ? 'antiquite' : 'moderne',
+        eraLabel: /romain|gallo/i.test(aqName) ? 'Antiquité gallo-romaine' : 'Époque moderne',
+        source: 'Patrimoine Hydraulique OSM',
+        lat: pLat,
+        lng: pLng,
+        summary:
+          'Ouvrage d’adduction d’eau acheminant par gravité le captage des sources vers le bourg ou la cité.',
+        nearWaterway: true,
+        waterwayName: '',
+        safetyNotice: '',
+        externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+        xpReward: 135,
+        unlockRadiusMeters: 60,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+      continue;
+    }
+
+    // 7. Rural Vernacular Micro-Heritage: Lavoirs, Fours à pain, Pigeonniers, Moulins, Calvaires & Fontaines miraculeuses
+    let vernSubType = 'Petit patrimoine vernaculaire';
+    let vernDefaultName = 'Témoin du bourg ancien';
+    let vernMystery = 'Témoin Vernaculaire';
+    let vernSummary =
+      'Édifice vernaculaire témoignant de la vie quotidienne, des savoir-faire bâtis et des usages communautaires d’autrefois.';
+    let vernCategory: CategoryKey = 'histoire';
+
+    if (historic === 'holy_well') {
+      vernCategory = 'legende';
+      vernSubType = 'Fontaine miraculeuse & source sacrée';
+      vernDefaultName = 'Bonne Fontaine Guérisseuse';
+      vernMystery = 'Fontaine Miraculeuse';
+      vernSummary =
+        'Fontaine de dévotion ou source guérisseuse fréquentée depuis des siècles par les habitants et pèlerins pour les vertus attribuées à ses eaux vives.';
+    } else if (amenity === 'lavoir' || historic === 'lavoir') {
+      vernSubType = 'Lavoir communal à impluvium';
+      vernDefaultName = 'Ancien Lavoir Communal';
+      vernMystery = 'Lavoir de Pierre';
+      vernSummary =
+        'Bassin de pierre alimenté par une source ou un ru dérivé, jadis cœur battant des nouvelles et de l’entraide villageoise.';
+    } else if (amenity === 'baking_oven' || building === 'bakehouse' || historic === 'bakehouse') {
+      vernSubType = 'Four à pain & fournil banal';
+      vernDefaultName = 'Four à Pain Communal';
+      vernMystery = 'Fournil de Pierre';
+      vernSummary =
+        'Ancien four maçonné en pierre réfractaire ou brique où les familles du hameau venaient cuire leurs tourtes lors des fournées collectives.';
+    } else if (building === 'dovecote' || manMade === 'dovecote') {
+      vernSubType = 'Pigeonnier & colombier patrimonial';
+      vernDefaultName = 'Colombier Ancien';
+      vernMystery = 'Tour à Boulins';
+      vernSummary =
+        'Tour ou tourelle à boulins dont la colombine fertilisait jadis les terres agricoles alentour, marque d’un domaine rural historique.';
+    } else if (
+      manMade === 'watermill' ||
+      manMade === 'windmill' ||
+      building === 'watermill' ||
+      building === 'windmill'
+    ) {
+      const isWaterMill = manMade === 'watermill' || building === 'watermill';
+      vernCategory = 'geographie';
+      vernSubType = isWaterMill ? 'Moulin à eau & bief' : 'Moulin à vent historique';
+      vernDefaultName = isWaterMill ? 'Ancien Moulin à Eau' : 'Moulin à Vent';
+      vernMystery = isWaterMill ? 'Roue du Bief' : 'Ailes du Tertre';
+      vernSummary = isWaterMill
+        ? 'Ouvrage hydraulique établi sur un bief dérivé pour capter la force vive du courant et entraîner les meules de pierre.'
+        : 'Tour meunière dressée sur une éminence ventilée pour capter les vents dominants du pays.';
+    } else if (historic === 'wayside_cross' || historic === 'wayside_shrine') {
+      vernSubType =
+        historic === 'wayside_cross'
+          ? 'Calvaire ou croix de chemin'
+          : 'Oratoire rural de croisée';
+      vernDefaultName =
+        historic === 'wayside_cross' ? 'Croix de Chemin Ancienne' : 'Oratoire Champêtre';
+      vernMystery = 'Croix des Chemins';
+      vernSummary =
+        'Repère immémorial planté à la croisée des vieux chemins vicinaux, guidant pèlerins, colporteurs et bergers.';
+    }
+
+    pois.push({
+      id: `ov_vern_${el.id}`,
+      name: (rawName || vernDefaultName).slice(0, 180),
+      mysteryTitle: vernMystery,
+      category: vernCategory,
+      subType: vernSubType,
+      stratum: vernCategory === 'legende' ? 'vivant_folklore' : 'moderne',
+      eraLabel: vernCategory === 'legende' ? 'Tradition des Fontaines' : 'Patrimoine vernaculaire',
+      source: 'Petit Patrimoine Rural & IGN / OSM',
+      lat: pLat,
+      lng: pLng,
+      summary: vernSummary,
+      nearWaterway:
+        historic === 'holy_well' ||
+        amenity === 'lavoir' ||
+        historic === 'lavoir' ||
+        manMade === 'watermill' ||
+        building === 'watermill',
+      waterwayName: '',
+      safetyNotice: '',
+      externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+      xpReward: 130,
+      unlockRadiusMeters: 55,
+      relatedPoiIds: [],
+      relatedPoiTitles: [],
+    });
+  }
+
+  const trimmedPois = pois.slice(0, 22);
+  const trimmedSub = subFeatures.slice(0, 56);
+  geodesicMicroCache.set(cellKey, {
+    expires: Date.now() + 20 * 60 * 1000,
+    pois: trimmedPois,
+    subFeatures: trimmedSub,
+  });
+  return {
+    pois: trimmedPois,
+    subFeatures: trimmedSub,
+    hasIgnGeodesy,
+    hasUndergroundHydro,
+    hasBrgmMinerals,
+  };
 }
 
 async function startServer() {
@@ -4535,7 +5173,7 @@ async function startServer() {
     // Snap cache key to ~245m cells so backtracking & adjacent walks share warm sector payloads
     const snapLat = Math.round(lat * 450) / 450;
     const snapLng = Math.round(lng * 450) / 450;
-    const cacheKey = `v16_${snapLat.toFixed(4)}_${snapLng.toFixed(4)}_${Math.round(radius / 200)}`;
+    const cacheKey = `v17_${snapLat.toFixed(4)}_${snapLng.toFixed(4)}_${Math.round(radius / 200)}`;
     const cached = sectorCache.get(cacheKey);
     if (cached) {
       res.setHeader('Cache-Control', 'private, max-age=120, stale-while-revalidate=300');
@@ -4704,8 +5342,26 @@ async function startServer() {
     if (cavitesData.caviteFeatures.length > 0) {
       sourcesActive.push('BRGM Géorisques · BDCavités');
     }
-    if (geodesicVernData.pois.length > 0 || geodesicVernData.subFeatures.length > 0) {
-      sourcesActive.push('Bornes Géodésiques & Petit Patrimoine (IGN / OSM)');
+    if (
+      geodesicVernData.pois.some((p) => p.source.includes('Géodésie')) ||
+      geodesicVernData.hasIgnGeodesy
+    ) {
+      sourcesActive.push('IGN Géodésie & Nivellement (RN/RDF)');
+    }
+    if (
+      geodesicVernData.subFeatures.some((s) => s.source?.includes('Hydrographie Souterraine')) ||
+      geodesicVernData.hasUndergroundHydro
+    ) {
+      sourcesActive.push('IGN Hydrographie Souterraine');
+    }
+    if (
+      geodesicVernData.subFeatures.some((s) => s.source?.includes('BRGM Failles')) ||
+      geodesicVernData.hasBrgmMinerals
+    ) {
+      sourcesActive.push('BRGM Failles & Filons Miniers');
+    }
+    if (geodesicVernData.pois.some((p) => p.source.includes('Petit Patrimoine'))) {
+      sourcesActive.push('Petit Patrimoine Rural & Fontaines');
     }
     if (ignPois.length > 0) sourcesActive.push('IGN BD TOPO');
     if (toponymRailPois.length > 0) sourcesActive.push('Toponymie & Voies Disparues (IGN)');

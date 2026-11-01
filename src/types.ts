@@ -439,6 +439,7 @@ export type SubterraneanKind =
   | 'culvert'
   | 'aqueduct'
   | 'fault_line'
+  | 'mineral_vein'
   | 'quarry'
   | 'cave_cellar'
   | 'natural_cave'
@@ -528,6 +529,35 @@ export interface UnlockedEntry {
   discoveredAtIso: string;
 }
 
+export type TrophyId =
+  | 'oiseau_de_nuit'
+  | 'marcheur_orage'
+  | 'speleologue'
+  | 'arpenteur_10km'
+  | 'grand_randonneur_50km'
+  | 'maitre_7_roches'
+  | 'chasseur_geodesique'
+  | 'gardien_petit_patrimoine'
+  | 'ouvreur_reliques'
+  | 'leveur_brumes'
+  | 'naturaliste_complet'
+  | 'champion_contrats';
+
+export const VALID_TROPHY_IDS: TrophyId[] = [
+  'oiseau_de_nuit',
+  'marcheur_orage',
+  'speleologue',
+  'arpenteur_10km',
+  'grand_randonneur_50km',
+  'maitre_7_roches',
+  'chasseur_geodesique',
+  'gardien_petit_patrimoine',
+  'ouvreur_reliques',
+  'leveur_brumes',
+  'naturaliste_complet',
+  'champion_contrats',
+];
+
 export interface ExplorerProgress {
   displayName: string;
   totalXp: number;
@@ -543,7 +573,11 @@ export interface ExplorerProgress {
   outfitId?: ExplorerOutfitId;
   toolId?: ExplorerToolId;
   packId?: ExplorerPackId;
+  pinnedTrophyId?: TrophyId | '';
   walkedMeters?: number;
+  nightFeatsCount?: number;
+  stormFeatsCount?: number;
+  completedContractsCount?: number;
   discoveriesCount: number;
   completedMissions: string[];
 }
@@ -578,7 +612,7 @@ export const CATEGORY_META: Record<ExplorationCategory, CategoryMeta> = {
     shortLabel: 'Histoire',
     guildRankTitle: 'Chroniqueur des Âges',
     tagline:
-      'Fouilles archéologiques (INRAP / Atlas), monuments Mérimée, trésors mobiliers classés Palissy, tableaux Joconde, lieux de romans et plaques.',
+      'Fouilles archéologiques (INRAP), monuments Mérimée, lavoirs, fours à pain, calvaires, colombiers, trésors Palissy, Joconde et plaques.',
     emblemSrc: '/src/assets/images/cat_histoire_emblem_1793180780013.jpg',
     mapHex: '#f59e0b',
     mapTextClass: 'text-amber-900',
@@ -586,11 +620,11 @@ export const CATEGORY_META: Record<ExplorationCategory, CategoryMeta> = {
   },
   geographie: {
     key: 'geographie',
-    label: 'Géologie INPG, Reliefs & Eaux',
+    label: 'Géodésie IGN, Roches & Eaux',
     shortLabel: 'Géologie',
     guildRankTitle: 'Géomancien des Roches',
     tagline:
-      'Géosites nationaux INPG (MNHN), substrat en millions d’années, gisements de fossiles, chaos rocheux, fontaines et sources vives IGN.',
+      'Médaillons de nivellement & bornes géodésiques IGN, géosites INPG, failles & filons BRGM, rivières enterrées, moulins et sources.',
     emblemSrc: '/src/assets/images/cat_geographie_emblem_1793180781022.jpg',
     mapHex: '#0284c7',
     mapTextClass: 'text-sky-900',
@@ -602,7 +636,7 @@ export const CATEGORY_META: Record<ExplorationCategory, CategoryMeta> = {
     shortLabel: 'Légendes',
     guildRankTitle: 'Chasseur de Mythes',
     tagline:
-      'Légendes urbaines et rurales, toponymes anciens aux fées et au diable, mégalithes enchantés, fontaines miraculeuses et récits littéraires.',
+      'Fontaines miraculeuses & sources guérisseuses, toponymes aux fées et au diable, mégalithes enchantés et légendes locales.',
     emblemSrc: '/src/assets/images/cat_legende_emblem_1793182564466.jpg',
     mapHex: '#9333ea',
     mapTextClass: 'text-purple-900',
@@ -610,11 +644,11 @@ export const CATEGORY_META: Record<ExplorationCategory, CategoryMeta> = {
   },
   etrange: {
     key: 'etrange',
-    label: 'Souterrains, Friches & Rails',
+    label: 'Souterrains, Mines & Friches',
     shortLabel: 'Souterrains',
     guildRankTitle: 'Éclaireur des Ombres',
     tagline:
-      'Cavités et nappes souterraines BRGM, carrières, friches industrielles et ouvrières, moulins oubliés, voies ferrées fantômes et ruines.',
+      'Cavités et mines BRGM, ruisseaux busés, carrières à piliers, boyaux karstiques, cryptes voûtées, friches et voies ferrées fantômes.',
     emblemSrc: '/src/assets/images/cat_etrange_emblem_1793180782207.jpg',
     mapHex: '#e11d48',
     mapTextClass: 'text-rose-900',
@@ -626,7 +660,7 @@ export const CATEGORY_META: Record<ExplorationCategory, CategoryMeta> = {
     shortLabel: 'Écosystème',
     guildRankTitle: 'Naturaliste Sylvestre',
     tagline:
-      'Sanctuaires écologiques ZNIEFF (INPN), arbres remarquables centenaires, sites naturels classés et espèces sauvages (iNaturalist & GBIF).',
+      'Sanctuaires écologiques ZNIEFF I & II (INPN), arbres remarquables centenaires, sites classés et espèces sauvages (iNaturalist & GBIF).',
     emblemSrc: '/src/assets/images/cat_ecosysteme_emblem_1793180782808.jpg',
     mapHex: '#059669',
     mapTextClass: 'text-emerald-900',
@@ -773,14 +807,17 @@ export function getCategoryXp(progress: ExplorerProgress, category: ExplorationC
 }
 
 const SUBTERRANEAN_POI_REGEX =
-  /\b(cavit[ée]s?|grotte|gouffre|aven|doline|souterrains?|catacombes?|cryptes?|boves?|carri[èe]res?\s+souterrain|galeries?\s+souterrain|mines?\s+de|anciennes?\s+mines?|puits\s+de\s+mine|travers-bancs?|nappes?\s+phr[ée]atiques?|aquif[èe]res?|pi[ée]zom[èe]tres?|casemates?|abris?\s+souterrains?|bunkers?|tunnels?\s+|stations?\s+souterraines?|[ée]gouts?|rivi[èe]res?\s+enterr[ée]es?|ruisseaux?\s+bus[ée]s?|aqueducs?\s+souterrains?|failles?\s+g[ée]ologiques?|filons?\s+min[ée]ra|r[ée]surgences?|pertes?\s+karstiques?|caves?\s+vo[ûu]t[ée]es?|hypog[ée]es?)\b/i;
+  /\b(cavit[ée]s?|grotte|gouffre|aven|doline|souterrains?|catacombes?|cryptes?|boves?|carri[èe]res?\s+souterrain|galeries?\s+souterrain|mines?\s+de|anciennes?\s+mines?|fosses?\s+mini[èe]res?|puits\s+de\s+mine|travers-bancs?|nappes?\s+phr[ée]atiques?|aquif[èe]res?|pi[ée]zom[èe]tres?|casemates?|abris?\s+souterrains?|bunkers?|tunnels?\s+|stations?\s+souterraines?|[ée]gouts?|rivi[èe]res?\s+enterr[ée]es?|ruisseaux?\s+bus[ée]s?|conduits?\s+bus[ée]s?|pertuis\s+vo[ûu]t[ée]s?|aqueducs?\s+souterrains?|failles?\s+g[ée]ologiques?|filons?\s+min[ée]ra|filons?\s+m[ée]tallif|g[îi]tes?\s+min[ée]ra|boyaux?\s+karstiques?|caves?\s+vo[ûu]t[ée]es?|hypog[ée]es?)\b/i;
 
 export function isPoiSubterranean(
   poi: Pick<PoiItem, 'id' | 'name' | 'subType' | 'source' | 'isSubterranean'>
 ): boolean {
   if (typeof poi.isSubterranean === 'boolean') return poi.isSubterranean;
-  if (/^(cav_|bss_|sub_|subpoi_)/i.test(poi.id)) return true;
-  if (/BDCavit[ée]s|Sous-Sol\s*&\s*Nappes|Hub[’']Eau/i.test(poi.source)) return true;
+  if (/^(ign_rn_|ign_geod_|ov_ign_surv_)/i.test(poi.id)) return false;
+  if (/^(cav_|bss_|sub_|subpoi_|brgm_gite_|brgm_mine_|ign_ug_)/i.test(poi.id)) return true;
+  if (/BDCavit[ée]s|Sous-Sol\s*&\s*Nappes|Hub[’']Eau|Hydrographie\s+Souterraine/i.test(poi.source)) {
+    return true;
+  }
   return SUBTERRANEAN_POI_REGEX.test(`${poi.name} ${poi.subType}`);
 }
 
@@ -895,13 +932,28 @@ export function partitionSurfaceAndSubterraneanPois(params: {
         summary = `Écoulement souterrain ou galerie hydraulique dissimulée sous la surface, témoin des rivières recouvertes par l’urbanisme ou des infiltrations dans la roche.${bedNote}`;
         break;
       case 'fault_line':
+      case 'mineral_vein':
         category = 'geographie';
         stratum = 'temps_profond';
-        subType = 'Faille géologique & filon minéral';
-        mysteryTitle = 'Fracture du Socle';
+        subType =
+          sf.kind === 'mineral_vein'
+            ? 'Filon minier & gîte métallifère'
+            : 'Faille géologique & fracture tectonique';
+        mysteryTitle =
+          sf.kind === 'mineral_vein' ? 'Veine Cristalline Profonde' : 'Fracture du Socle';
         eraLabel = bedrock ? bedrock.period : 'Tectonique & Temps profond';
-        if (!name) name = 'Faille tectonique & veine cristalline';
-        summary = `Discontinuité géologique et zone de fracture dans le socle rocheux favorisant la circulation des eaux profondes et la cristallisation de filons minéraux.${bedNote}`;
+        if (!name) {
+          name =
+            sf.kind === 'mineral_vein'
+              ? 'Filon hydrothermal & gîte minéral'
+              : 'Faille tectonique & veine cristalline';
+        }
+        summary =
+          sf.kind === 'mineral_vein'
+            ? `Gîte minéral et filon hydrothermal logé dans les fractures de la roche-mère${
+                sf.depthLabel ? ` (${sf.depthLabel})` : ''
+              }.${bedNote}`
+            : `Discontinuité géologique et zone de fracture dans le socle rocheux favorisant la circulation des eaux profondes et la cristallisation de filons minéraux.${bedNote}`;
         break;
       case 'crypt':
       case 'military':

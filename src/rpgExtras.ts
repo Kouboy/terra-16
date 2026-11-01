@@ -1,14 +1,21 @@
+import { CHEST_ARCHETYPE_META, WorldArchivistChestNode } from './treasures';
 import {
+  BedrockInfo,
   CATEGORY_META,
   computeLevelFromXp,
+  EffectiveTimeOfDay,
+  ElevationGrid,
   ExplorationCategory,
   ExplorerOutfitId,
   ExplorerProgress,
   getCategoryXp,
+  haversineMeters,
+  OpenedArchivistChestRecord,
   PoiItem,
   STRATUM_META,
   TerrainFeature,
   UnlockedEntry,
+  WeatherInfo,
 } from './types';
 
 // ============================================================================
@@ -246,20 +253,45 @@ export function isOutfitUnlocked(outfit: OutfitDefinition, progress: ExplorerPro
 }
 
 // ============================================================================
-// 3. CONTRATS DYNAMIQUES DE CONTRÉE (Générés à partir des POIs du secteur réel)
+// 3. CONTRATS DYNAMIQUES DE CONTRÉE (Générés à la volée sur le secteur réel)
 // ============================================================================
+export type DynamicContractArchetype = 'triangulation' | 'coffre_meteo' | 'mandat_terroir';
+
+export interface DynamicContractStep {
+  id: string;
+  label: string;
+  shortTag: string;
+  kind: 'poi' | 'chest' | 'summit';
+  lat: number;
+  lng: number;
+  isSubterranean: boolean;
+  poiId?: string;
+  chestId?: string;
+  altitudeMeters?: number | null;
+  reachRadiusMeters: number;
+}
+
 export interface DynamicSectorContract {
   id: string;
   sectorKey: string;
+  archetype: DynamicContractArchetype;
+  kicker: string;
   title: string;
   description: string;
   category: ExplorationCategory;
   xpBonus: number;
+  weatherBonusXp: number;
+  weatherConditionLabel: string;
+  isWeatherBonusActive: boolean;
+  steps: DynamicContractStep[];
+  /** Optional pool when any `targetCount` out of `targetPoiIds` satisfies the mandate */
   targetPoiIds: string[];
+  targetChestId?: string;
   targetCount: number;
 }
 
 const CLAIMED_CONTRACTS_KEY = 'terra16_claimed_sector_contracts_v1';
+const VISITED_CONTRACT_STEPS_KEY = 'terra16_visited_contract_steps_v1';
 
 export function loadClaimedSectorContracts(): Set<string> {
   try {
@@ -276,102 +308,591 @@ export function saveClaimedSectorContracts(set: Set<string>): void {
   try {
     localStorage.setItem(CLAIMED_CONTRACTS_KEY, JSON.stringify(Array.from(set).slice(-300)));
   } catch {
-    // Ignore
+    // Ignore storage quota
   }
 }
 
+export function loadVisitedContractSteps(): Set<string> {
+  try {
+    const raw = localStorage.getItem(VISITED_CONTRACT_STEPS_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as string[];
+    return Array.isArray(arr) ? new Set(arr) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveVisitedContractSteps(set: Set<string>): void {
+  try {
+    localStorage.setItem(VISITED_CONTRACT_STEPS_KEY, JSON.stringify(Array.from(set).slice(-500)));
+  } catch {
+    // Ignore storage quota
+  }
+}
+
+function findHighestPointInGrid(
+  grid: ElevationGrid | null | undefined,
+  fallbackLat: number,
+  fallbackLng: number
+): { lat: number; lng: number; altitudeMeters: number } | null {
+  if (!grid || !grid.elevDm || grid.elevDm.length < grid.cols * grid.rows) return null;
+  const reliefSpan = grid.maxMeters - grid.minMeters;
+  if (reliefSpan < 4) return null;
+
+  const cosLat = Math.max(0.15, Math.cos((grid.centerLat * Math.PI) / 180));
+  const halfX = (grid.cols - 1) / 2;
+  const halfY = (grid.rows - 1) / 2;
+
+  let bestDm = -Infinity;
+  let bestCol = Math.floor(halfX);
+  let bestRow = Math.floor(halfY);
+
+  // Avoid extreme outer 1-cell border so the summit is comfortably reachable inside the sector
+  const minR = grid.rows > 4 ? 1 : 0;
+  const maxR = grid.rows > 4 ? grid.rows - 2 : grid.rows - 1;
+  const minC = grid.cols > 4 ? 1 : 0;
+  const maxC = grid.cols > 4 ? grid.cols - 2 : grid.cols - 1;
+
+  for (let r = minR; r <= maxR; r++) {
+    for (let c = minC; c <= maxC; c++) {
+      const dm = grid.elevDm[r * grid.cols + c];
+      if (dm > bestDm) {
+        bestDm = dm;
+        bestCol = c;
+        bestRow = r;
+      }
+    }
+  }
+
+  if (!Number.isFinite(bestDm)) return null;
+  const dxMeters = (bestCol - halfX) * grid.stepMeters;
+  const dyMeters = (bestRow - halfY) * grid.stepMeters;
+  const lat = grid.centerLat - dyMeters / 110540;
+  const lng = grid.centerLng + dxMeters / (111320 * cosLat);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { lat: fallbackLat, lng: fallbackLng, altitudeMeters: Math.round(grid.maxMeters) };
+  }
+  return {
+    lat,
+    lng,
+    altitudeMeters: Math.round(bestDm / 10),
+  };
+}
+
+function classifyRuralLabel(poi: PoiItem): string {
+  const txt = `${poi.subType} ${poi.name}`.toLowerCase();
+  if (txt.includes('lavoir')) return 'le lavoir';
+  if (txt.includes('moulin')) return 'le moulin';
+  if (txt.includes('four')) return 'le four ancien';
+  if (txt.includes('fontaine')) return 'la fontaine';
+  if (txt.includes('calvaire') || txt.includes('croix') || txt.includes('oratoire')) {
+    return 'le calvaire';
+  }
+  if (txt.includes('puits')) return 'le puits';
+  if (txt.includes('pigeonnier') || txt.includes('colombier')) return 'le colombier';
+  return 'le patrimoine bâti';
+}
+
+function classifySubLabel(poi: PoiItem): string {
+  const txt = `${poi.subType} ${poi.name}`.toLowerCase();
+  if (txt.includes('cavité') || txt.includes('grotte') || txt.includes('gouffre') || txt.includes('aven')) {
+    return 'une cavité';
+  }
+  if (txt.includes('crypte') || txt.includes('hypogée') || txt.includes('substructions')) {
+    return 'une crypte';
+  }
+  if (txt.includes('enterré') || txt.includes('busé') || txt.includes('aqueduc') || txt.includes('hydraulique')) {
+    return 'un cours d’eau enterré';
+  }
+  if (txt.includes('mine') || txt.includes('carrière') || txt.includes('filon')) {
+    return 'une galerie minière';
+  }
+  return 'le sous-sol';
+}
+
+export interface GenerateDynamicContractsParams {
+  centerLat: number;
+  centerLng: number;
+  surfacePois: PoiItem[];
+  subterraneanPois: PoiItem[];
+  terrain: TerrainFeature[];
+  elevation?: ElevationGrid | null;
+  bedrock?: BedrockInfo | null;
+  worldChests?: WorldArchivistChestNode[];
+  weather?: WeatherInfo | null;
+  effectiveTime?: EffectiveTimeOfDay;
+}
+
 export function generateDynamicSectorContracts(
-  centerLat: number,
-  centerLng: number,
-  pois: PoiItem[],
-  terrain: TerrainFeature[]
+  params: GenerateDynamicContractsParams
 ): DynamicSectorContract[] {
-  if (pois.length === 0) return [];
+  const {
+    centerLat,
+    centerLng,
+    surfacePois,
+    subterraneanPois,
+    terrain,
+    elevation,
+    bedrock,
+    worldChests = [],
+    weather,
+    effectiveTime = 'day',
+  } = params;
+
+  const allPois = [...surfacePois, ...subterraneanPois];
+  if (allPois.length === 0 && worldChests.length === 0) return [];
+
   const sectorKey = `${centerLat.toFixed(2)}_${centerLng.toFixed(2)}`;
   const contracts: DynamicSectorContract[] = [];
 
-  // Contract 1: Dominant Guild in this real-world sector
-  const countsByCat = new Map<ExplorationCategory, PoiItem[]>();
-  for (const p of pois) {
-    const arr = countsByCat.get(p.category) || [];
-    arr.push(p);
-    countsByCat.set(p.category, arr);
+  const isWetOrStormy =
+    weather?.condition === 'rain' ||
+    weather?.condition === 'storm' ||
+    weather?.condition === 'snow' ||
+    weather?.condition === 'fog';
+  const isNightOrDusk = effectiveTime === 'night' || effectiveTime === 'dusk';
+  const atmosActive = isWetOrStormy || isNightOrDusk;
+
+  // ==========================================================================
+  // CONTRAT I — TRIANGULATION DE TERRAIN (Relier 3 repères réels du secteur)
+  // ==========================================================================
+  const vernacularRegex =
+    /lavoir|four à pain|four banal|moulin|fontaine|calvaire|croix|oratoire|puits|pigeonnier|colombier/i;
+  const ignRegex = /nivellement|géodésique|repère ign|borne géodésique/i;
+
+  const anchorA =
+    surfacePois.find((p) => vernacularRegex.test(`${p.subType} ${p.name}`)) ||
+    surfacePois.find((p) => p.category === 'histoire' || p.category === 'legende') ||
+    surfacePois[0] ||
+    null;
+
+  const summitPoint = findHighestPointInGrid(elevation, centerLat, centerLng);
+  const ignPoi = surfacePois.find(
+    (p) => (!anchorA || p.id !== anchorA.id) && ignRegex.test(`${p.subType} ${p.name} ${p.source}`)
+  );
+
+  // Build Anchor B: either real topographic summit (Alt. XXX m) or IGN benchmark / second distinct landmark
+  let stepB: DynamicContractStep | null = null;
+  let anchorBShortTitle = 'le point culminant';
+  if (
+    summitPoint &&
+    (!anchorA || haversineMeters(anchorA.lat, anchorA.lng, summitPoint.lat, summitPoint.lng) >= 65)
+  ) {
+    stepB = {
+      id: `step_summit_${sectorKey}`,
+      label: `Point culminant du secteur (Alt. ${summitPoint.altitudeMeters} m)`,
+      shortTag: `Sommet · ${summitPoint.altitudeMeters} m`,
+      kind: 'summit',
+      lat: summitPoint.lat,
+      lng: summitPoint.lng,
+      isSubterranean: false,
+      altitudeMeters: summitPoint.altitudeMeters,
+      reachRadiusMeters: 52,
+    };
+    anchorBShortTitle = `le sommet (${summitPoint.altitudeMeters} m)`;
+  } else if (ignPoi) {
+    stepB = {
+      id: `step_poi_${ignPoi.id}`,
+      label: ignPoi.name,
+      shortTag: 'Repère IGN',
+      kind: 'poi',
+      lat: ignPoi.lat,
+      lng: ignPoi.lng,
+      isSubterranean: false,
+      poiId: ignPoi.id,
+      reachRadiusMeters: ignPoi.unlockRadiusMeters || 48,
+    };
+    anchorBShortTitle = 'la borne IGN';
+  } else {
+    const secondSurface = surfacePois.find(
+      (p) =>
+        (!anchorA || p.id !== anchorA.id) &&
+        (!anchorA || haversineMeters(anchorA.lat, anchorA.lng, p.lat, p.lng) >= 80)
+    );
+    if (secondSurface) {
+      stepB = {
+        id: `step_poi_${secondSurface.id}`,
+        label: secondSurface.name,
+        shortTag: CATEGORY_META[secondSurface.category].shortLabel,
+        kind: 'poi',
+        lat: secondSurface.lat,
+        lng: secondSurface.lng,
+        isSubterranean: false,
+        poiId: secondSurface.id,
+        reachRadiusMeters: secondSurface.unlockRadiusMeters || 48,
+      };
+      anchorBShortTitle = 'un repère voisin';
+    }
   }
-  const sortedCats = Array.from(countsByCat.entries()).sort((a, b) => b[1].length - a[1].length);
-  if (sortedCats.length > 0 && sortedCats[0][1].length >= 2) {
-    const [domCat, catPois] = sortedCats[0];
-    const targetCount = Math.min(3, catPois.length);
-    contracts.push({
-      id: `dyn_cat_${sectorKey}_${domCat}`,
-      sectorKey,
-      title: `Mandat local : ${CATEGORY_META[domCat].shortLabel}`,
-      description: `Ce secteur est riche en archives « ${CATEGORY_META[domCat].label} ». Révélez ${targetCount} sceaux de cette Guilde dans les environs.`,
-      category: domCat,
-      xpBonus: targetCount * 65,
-      targetPoiIds: catPois.map((p) => p.id),
-      targetCount,
+
+  // Build Anchor C: prioritize a real subterranean cavity / crypt / culverted river
+  const subCandidate =
+    subterraneanPois.find(
+      (sp) =>
+        !sp.id.startsWith('subpoi_bed_') &&
+        (!anchorA || haversineMeters(anchorA.lat, anchorA.lng, sp.lat, sp.lng) >= 60)
+    ) ||
+    subterraneanPois[0] ||
+    surfacePois.find(
+      (p) =>
+        p.nearWaterway &&
+        (!anchorA || p.id !== anchorA.id) &&
+        (!stepB?.poiId || p.id !== stepB.poiId)
+    ) ||
+    null;
+
+  const triSteps: DynamicContractStep[] = [];
+  if (anchorA) {
+    triSteps.push({
+      id: `step_poi_${anchorA.id}`,
+      label: anchorA.name,
+      shortTag: 'Surface',
+      kind: 'poi',
+      lat: anchorA.lat,
+      lng: anchorA.lng,
+      isSubterranean: Boolean(anchorA.isSubterranean),
+      poiId: anchorA.id,
+      reachRadiusMeters: anchorA.unlockRadiusMeters || 48,
+    });
+  }
+  if (stepB) {
+    triSteps.push(stepB);
+  }
+  if (subCandidate) {
+    triSteps.push({
+      id: `step_poi_${subCandidate.id}`,
+      label: subCandidate.name,
+      shortTag: subCandidate.isSubterranean ? 'Sous-sol' : 'Rive',
+      kind: 'poi',
+      lat: subCandidate.lat,
+      lng: subCandidate.lng,
+      isSubterranean: Boolean(subCandidate.isSubterranean),
+      poiId: subCandidate.id,
+      reachRadiusMeters: subCandidate.unlockRadiusMeters || 58,
     });
   }
 
-  // Contract 2: Waterway / River Exploration if a river or fountain network crosses this sector
-  const waterPois = pois.filter((p) => p.nearWaterway);
-  const namedWater =
-    waterPois.find((p) => p.waterwayName)?.waterwayName ||
-    terrain.find((t) => (t.kind === 'waterway' || t.kind === 'water') && t.name)?.name ||
-    '';
-  if (waterPois.length >= 2) {
-    const targetCount = Math.min(2, waterPois.length);
+  if (triSteps.length >= 2) {
+    const labelA = anchorA ? classifyRuralLabel(anchorA) : 'un monument';
+    const labelC = subCandidate
+      ? subCandidate.isSubterranean
+        ? classifySubLabel(subCandidate)
+        : 'la rive'
+      : 'un troisième repère';
     contracts.push({
-      id: `dyn_water_${sectorKey}`,
+      id: `dyn_tri_${sectorKey}`,
       sectorKey,
-      title: namedWater ? `Sentinelle de « ${namedWater} »` : 'Arpenteur des Berges Locales',
-      description: `Suivez le fil de l’eau${
-        namedWater ? ` (${namedWater})` : ''
-      } et brisez ${targetCount} sceaux liés au réseau hydrographique de ce secteur.`,
+      archetype: 'triangulation',
+      kicker: 'Contrat I · Triangulation géodésique',
+      title:
+        triSteps.length === 3
+          ? `Triangulation : relier ${labelA}, ${anchorBShortTitle} et ${labelC}`
+          : `Relevé croisé : relier ${labelA} et ${anchorBShortTitle}`,
+      description:
+        'Validez successivement ces jalons géographiques réels du secteur pour établir une coupe complète entre patrimoine bâti, relief et sous-sol.',
       category: 'geographie',
-      xpBonus: 140,
-      targetPoiIds: waterPois.map((p) => p.id),
-      targetCount,
+      xpBonus: triSteps.length === 3 ? 210 : 145,
+      weatherBonusXp: 45,
+      weatherConditionLabel: atmosActive
+        ? 'Bonus météo / nocturne actif (+45 XP)'
+        : 'Bonus +45 XP sous la pluie, l’orage ou de nuit',
+      isWeatherBonusActive: atmosActive,
+      steps: triSteps,
+      targetPoiIds: [],
+      targetCount: triSteps.length,
     });
   }
 
-  // Contract 3: Dominant Historical Stratum or Connected Pair in this sector
-  const countsByStrat = new Map<PoiItem['stratum'], PoiItem[]>();
-  for (const p of pois) {
-    const arr = countsByStrat.get(p.stratum) || [];
-    arr.push(p);
-    countsByStrat.set(p.stratum, arr);
-  }
-  const sortedStrats = Array.from(countsByStrat.entries()).sort((a, b) => b[1].length - a[1].length);
-  if (sortedStrats.length > 0 && sortedStrats[0][1].length >= 2) {
-    const [domStrat, stratPois] = sortedStrats[0];
-    const targetCount = Math.min(2, stratPois.length);
+  // ==========================================================================
+  // CONTRAT II — CHASSE AU COFFRE GÉOMORPHOLOGIQUE & MÉTÉO
+  // ==========================================================================
+  if (worldChests.length > 0) {
+    // Prefer confluence when wet/riverine, or subterranean mouth / summit / forest cul-de-sac
+    const confluenceChest = worldChests.find((c) => c.archetype === 'confluence_eaux');
+    const subChest = worldChests.find((c) => c.archetype === 'bouche_souterraine');
+    const hillChest = worldChests.find((c) => c.archetype === 'sommet_colline');
+    const chosenChest =
+      (isWetOrStormy && confluenceChest) ||
+      confluenceChest ||
+      subChest ||
+      hillChest ||
+      worldChests[0];
+
+    const archMeta = CHEST_ARCHETYPE_META[chosenChest.archetype];
+    let chestTitle = `Exhumer le ${chosenChest.title.toLowerCase()}`;
+    if (chosenChest.archetype === 'confluence_eaux') {
+      chestTitle =
+        weather?.condition === 'rain' || weather?.condition === 'storm'
+          ? 'Déterrer un coffre de confluence sous la pluie'
+          : 'Déterrer le coffre de confluence des eaux';
+    } else if (chosenChest.archetype === 'sommet_colline') {
+      chestTitle = isNightOrDusk
+        ? 'Ouvrir le coffre des crêtes à la lanterne'
+        : 'Exhumer le coffre du promontoire local';
+    } else if (chosenChest.archetype === 'bouche_souterraine') {
+      chestTitle = 'Sonder le coffre d’Archiviste des profondeurs';
+    } else if (chosenChest.archetype === 'cul_de_sac_forestier') {
+      chestTitle = 'Débusquer le coffre du sentier en cul-de-sac';
+    }
+
     contracts.push({
-      id: `dyn_strat_${sectorKey}_${domStrat}`,
+      id: `dyn_chest_${chosenChest.chestId}`,
       sectorKey,
-      title: `Enquête stratigraphique : ${STRATUM_META[domStrat].short}`,
-      description: `Comparez ${targetCount} témoignages locaux appartenant à la strate « ${STRATUM_META[domStrat].label} ».`,
-      category: stratPois[0].category,
-      xpBonus: 135,
-      targetPoiIds: stratPois.map((p) => p.id),
+      archetype: 'coffre_meteo',
+      kicker: `Contrat II · ${archMeta.shortFr} & Intempéries`,
+      title: chestTitle,
+      description: `Localisez « ${chosenChest.title} » (${chosenChest.placeNote}) à moins de 45 m pour briser son sceau. Les averses, brumes et veillées nocturnes amplifient la prime d’Archiviste.`,
+      category: chosenChest.category,
+      xpBonus: 165,
+      weatherBonusXp: 55,
+      weatherConditionLabel: isWetOrStormy
+        ? `Ciel d’intempéries (${weather?.labelFr || 'Averse'}) : +55 XP actif`
+        : isNightOrDusk
+        ? 'Veillée à la lanterne : +55 XP actif'
+        : 'Prime +55 XP si ouvert sous la pluie, l’orage ou de nuit',
+      isWeatherBonusActive: atmosActive,
+      steps: [
+        {
+          id: `step_chest_${chosenChest.chestId}`,
+          label: `${chosenChest.title} · ${chosenChest.placeNote}`,
+          shortTag: chosenChest.isSubterranean ? 'Coffre Sous-sol' : archMeta.shortFr,
+          kind: 'chest',
+          lat: chosenChest.lat,
+          lng: chosenChest.lng,
+          isSubterranean: chosenChest.isSubterranean,
+          chestId: chosenChest.chestId,
+          altitudeMeters: chosenChest.altitudeMeters,
+          reachRadiusMeters: 45,
+        },
+      ],
+      targetPoiIds: [],
+      targetChestId: chosenChest.chestId,
+      targetCount: 1,
+    });
+  }
+
+  // ==========================================================================
+  // CONTRAT III — MANDAT SPÉCIALISÉ DU TERROIR (IGN / Rural / Sous-sol / Vivant)
+  // ==========================================================================
+  const ignPois = surfacePois.filter((p) => ignRegex.test(`${p.subType} ${p.name} ${p.source}`));
+  const ruralPois = surfacePois.filter((p) => vernacularRegex.test(`${p.subType} ${p.name}`));
+  const realSubPois = subterraneanPois.filter((p) => !p.id.startsWith('subpoi_bed_'));
+  const ecoPois = surfacePois.filter((p) => p.category === 'ecosysteme');
+
+  if (ignPois.length >= 2) {
+    const targetCount = Math.min(2, ignPois.length);
+    contracts.push({
+      id: `dyn_ign_${sectorKey}`,
+      sectorKey,
+      archetype: 'mandat_terroir',
+      kicker: 'Contrat III · Canevas Géodésique IGN',
+      title: 'Chasse aux médaillons & bornes géodésiques IGN',
+      description: `Ce secteur abrite ${ignPois.length} repères officiels de nivellement ou bornes géodésiques IGN. Relevez ${targetCount} médaillons scellés sur le terrain.`,
+      category: 'geographie',
+      xpBonus: 175,
+      weatherBonusXp: 35,
+      weatherConditionLabel: atmosActive
+        ? 'Prime météo / lanterne active (+35 XP)'
+        : 'Bonus +35 XP sous intempéries ou de nuit',
+      isWeatherBonusActive: atmosActive,
+      steps: ignPois.slice(0, 3).map((p) => ({
+        id: `step_poi_${p.id}`,
+        label: p.name,
+        shortTag: 'IGN',
+        kind: 'poi' as const,
+        lat: p.lat,
+        lng: p.lng,
+        isSubterranean: false,
+        poiId: p.id,
+        reachRadiusMeters: p.unlockRadiusMeters || 45,
+      })),
+      targetPoiIds: ignPois.map((p) => p.id),
       targetCount,
     });
+  } else if (ruralPois.length >= 2) {
+    const targetCount = Math.min(2, ruralPois.length);
+    contracts.push({
+      id: `dyn_rural_${sectorKey}`,
+      sectorKey,
+      archetype: 'mandat_terroir',
+      kicker: 'Contrat III · Petit Patrimoine Vernaculaire',
+      title: 'Ronde des lavoirs, moulins & fontaines',
+      description: `Consignez ${targetCount} témoins du petit patrimoine bâti ou hydraulique parmi les ${ruralPois.length} recensés autour de vous.`,
+      category: 'histoire',
+      xpBonus: 165,
+      weatherBonusXp: 35,
+      weatherConditionLabel: atmosActive
+        ? 'Prime météo / lanterne active (+35 XP)'
+        : 'Bonus +35 XP sous intempéries ou de nuit',
+      isWeatherBonusActive: atmosActive,
+      steps: ruralPois.slice(0, 3).map((p) => ({
+        id: `step_poi_${p.id}`,
+        label: p.name,
+        shortTag: 'Patrimoine',
+        kind: 'poi' as const,
+        lat: p.lat,
+        lng: p.lng,
+        isSubterranean: false,
+        poiId: p.id,
+        reachRadiusMeters: p.unlockRadiusMeters || 48,
+      })),
+      targetPoiIds: ruralPois.map((p) => p.id),
+      targetCount,
+    });
+  } else if (realSubPois.length >= 2) {
+    const targetCount = Math.min(2, realSubPois.length);
+    const rockHint = bedrock?.lithology ? ` (${bedrock.lithology.slice(0, 32)})` : '';
+    contracts.push({
+      id: `dyn_sub_${sectorKey}`,
+      sectorKey,
+      archetype: 'mandat_terroir',
+      kicker: 'Contrat III · Exploration Souterraine',
+      title: `Sondeur des profondeurs${rockHint}`,
+      description: `Basculez en vue Sous-sol et cartographiez ${targetCount} cavités, cryptes, failles ou rivières enterrées du secteur.`,
+      category: 'etrange',
+      xpBonus: 180,
+      weatherBonusXp: 40,
+      weatherConditionLabel: atmosActive
+        ? 'Prime météo / lanterne active (+40 XP)'
+        : 'Bonus +40 XP sous intempéries ou de nuit',
+      isWeatherBonusActive: atmosActive,
+      steps: realSubPois.slice(0, 3).map((p) => ({
+        id: `step_poi_${p.id}`,
+        label: p.name,
+        shortTag: 'Sous-sol',
+        kind: 'poi' as const,
+        lat: p.lat,
+        lng: p.lng,
+        isSubterranean: true,
+        poiId: p.id,
+        reachRadiusMeters: p.unlockRadiusMeters || 60,
+      })),
+      targetPoiIds: realSubPois.map((p) => p.id),
+      targetCount,
+    });
+  } else if (ecoPois.length >= 2) {
+    const targetCount = Math.min(2, ecoPois.length);
+    contracts.push({
+      id: `dyn_eco_${sectorKey}`,
+      sectorKey,
+      archetype: 'mandat_terroir',
+      kicker: 'Contrat III · Sanctuaires & Biodiversité',
+      title: 'Veilleur des sanctuaires naturels & ZNIEFF',
+      description: `Explorez ${targetCount} réserves, zones humides, parcs ou arbres remarquables inventoriés dans ce secteur.`,
+      category: 'ecosysteme',
+      xpBonus: 160,
+      weatherBonusXp: 35,
+      weatherConditionLabel: atmosActive
+        ? 'Prime météo / lanterne active (+35 XP)'
+        : 'Bonus +35 XP sous intempéries ou de nuit',
+      isWeatherBonusActive: atmosActive,
+      steps: ecoPois.slice(0, 3).map((p) => ({
+        id: `step_poi_${p.id}`,
+        label: p.name,
+        shortTag: 'Vivant',
+        kind: 'poi' as const,
+        lat: p.lat,
+        lng: p.lng,
+        isSubterranean: false,
+        poiId: p.id,
+        reachRadiusMeters: p.unlockRadiusMeters || 50,
+      })),
+      targetPoiIds: ecoPois.map((p) => p.id),
+      targetCount,
+    });
+  } else {
+    // Fallback: Riverbank or Dominant Guild survey
+    const namedWater =
+      surfacePois.find((p) => p.waterwayName)?.waterwayName ||
+      terrain.find((t) => (t.kind === 'waterway' || t.kind === 'water') && t.name)?.name ||
+      '';
+    const countsByCat = new Map<ExplorationCategory, PoiItem[]>();
+    for (const p of allPois) {
+      const arr = countsByCat.get(p.category) || [];
+      arr.push(p);
+      countsByCat.set(p.category, arr);
+    }
+    const sortedCats = Array.from(countsByCat.entries()).sort((a, b) => b[1].length - a[1].length);
+    if (sortedCats.length > 0) {
+      const [domCat, catPois] = sortedCats[0];
+      const targetCount = Math.min(3, catPois.length);
+      contracts.push({
+        id: `dyn_cat_${sectorKey}_${domCat}`,
+        sectorKey,
+        archetype: 'mandat_terroir',
+        kicker: `Contrat III · Mandat de Guilde${namedWater ? ` (${namedWater})` : ''}`,
+        title: `Archives locales : ${CATEGORY_META[domCat].shortLabel}`,
+        description: `Révélez ${targetCount} sceaux de la branche « ${CATEGORY_META[domCat].label} » dans les environs.`,
+        category: domCat,
+        xpBonus: targetCount * 65,
+        weatherBonusXp: 35,
+        weatherConditionLabel: atmosActive
+          ? 'Prime météo / lanterne active (+35 XP)'
+          : 'Bonus +35 XP sous intempéries ou de nuit',
+        isWeatherBonusActive: atmosActive,
+        steps: catPois.slice(0, 3).map((p) => ({
+          id: `step_poi_${p.id}`,
+          label: p.name,
+          shortTag: CATEGORY_META[p.category].shortLabel,
+          kind: 'poi' as const,
+          lat: p.lat,
+          lng: p.lng,
+          isSubterranean: Boolean(p.isSubterranean),
+          poiId: p.id,
+          reachRadiusMeters: p.unlockRadiusMeters || 48,
+        })),
+        targetPoiIds: catPois.map((p) => p.id),
+        targetCount,
+      });
+    }
   }
 
   return contracts.slice(0, 3);
 }
 
+export interface DynamicContractEvalInput {
+  entries: UnlockedEntry[];
+  openedChests: OpenedArchivistChestRecord[];
+  visitedStepIds: ReadonlySet<string>;
+}
+
 export function evaluateDynamicContract(
   contract: DynamicSectorContract,
-  entries: UnlockedEntry[]
-): { current: number; target: number } {
-  const unlockedSet = new Set(entries.map((e) => e.poiId));
-  let hits = 0;
-  for (const pid of contract.targetPoiIds) {
-    if (unlockedSet.has(pid)) hits++;
+  input: DynamicContractEvalInput
+): { current: number; target: number; completedStepIds: Set<string> } {
+  const unlockedPoiIds = new Set(input.entries.map((e) => e.poiId));
+  const openedChestIds = new Set(input.openedChests.map((c) => c.chestId));
+  const completedStepIds = new Set<string>();
+
+  for (const step of contract.steps) {
+    if (step.kind === 'poi' && step.poiId && unlockedPoiIds.has(step.poiId)) {
+      completedStepIds.add(step.id);
+    } else if (step.kind === 'chest' && step.chestId && openedChestIds.has(step.chestId)) {
+      completedStepIds.add(step.id);
+    } else if (input.visitedStepIds.has(step.id)) {
+      completedStepIds.add(step.id);
+    }
   }
+
+  // Pool-based terroir contract (e.g. any 2 out of 5 IGN benchmarks)
+  if (contract.targetPoiIds.length > 0) {
+    let poolHits = 0;
+    for (const pid of contract.targetPoiIds) {
+      if (unlockedPoiIds.has(pid)) poolHits++;
+    }
+    return {
+      current: Math.min(contract.targetCount, poolHits),
+      target: contract.targetCount,
+      completedStepIds,
+    };
+  }
+
   return {
-    current: Math.min(contract.targetCount, hits),
+    current: Math.min(contract.targetCount, completedStepIds.size),
     target: contract.targetCount,
+    completedStepIds,
   };
 }
+

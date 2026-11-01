@@ -1,4 +1,5 @@
-import { CATEGORY_META, UnlockedEntry } from './types';
+import { CATEGORY_META, ExplorerGender, TrophyId, UnlockedEntry } from './types';
+import { drawTrophyMedallion16Bit, getGenderedTrophyTitle, getTrophyById } from './trophies';
 
 function wrapCanvasText(
   ctx: CanvasRenderingContext2D,
@@ -51,7 +52,9 @@ export function computeArchiveSealCode(poiId: string): string {
 export function downloadCollectibleCardPng(
   entry: UnlockedEntry,
   explorerCallsign: string,
-  altitudeMeters?: number | null
+  altitudeMeters?: number | null,
+  pinnedTrophyId?: TrophyId | '',
+  explorerGender?: ExplorerGender
 ): void {
   const W = 720;
   const H = 960;
@@ -265,11 +268,22 @@ export function downloadCollectibleCardPng(
     month: 'short',
     year: 'numeric',
   });
+  const pinnedTrophy = getTrophyById(pinnedTrophyId);
+  const trophyTitle = pinnedTrophy ? getGenderedTrophyTitle(pinnedTrophy, explorerGender) : '';
+
   ctx.fillStyle = '#54361d';
   ctx.font = 'bold 15px sans-serif';
-  ctx.fillText(`Découvert sur le terrain le ${dateFr}`, 58, footerY + 14);
+  ctx.fillText(`Découvert sur le terrain le ${dateFr}`, 58, footerY + 12);
   ctx.font = '14px "JetBrains Mono", monospace';
-  ctx.fillText(`Cartographe : ${explorerCallsign || 'Explorateur'}`, 58, footerY + 38);
+  ctx.fillText(
+    `Cartographe : ${explorerCallsign || 'Explorateur'}${trophyTitle ? ` · ${trophyTitle}` : ''}`,
+    58,
+    footerY + 36
+  );
+
+  if (pinnedTrophy) {
+    drawTrophyMedallion16Bit(ctx, pinnedTrophy.id, W - 242, footerY - 8, 2, true, 0);
+  }
 
   // Wax Stamp Circle on bottom right
   const sx = W - 122;
