@@ -63,11 +63,15 @@ service cloud.firestore {
           'outfitId',
           'toolId',
           'packId',
+          'familiarId',
           'pinnedTrophyId',
           'walkedMeters',
           'nightFeatsCount',
           'stormFeatsCount',
           'completedContractsCount',
+          'solvedRiddlesCount',
+          'completedHuntsCount',
+          'claimedAlmanacCount',
           'discoveriesCount',
           'completedMissions',
           'createdAt',
@@ -85,15 +89,19 @@ service cloud.firestore {
         && (!('gender' in data) || (data.gender is string && data.gender.size() >= 1 && data.gender.size() <= 16 && data.gender in ['feminin', 'masculin', 'neutre']))
         && (!('avatarPreset' in data) || (data.avatarPreset is string && data.avatarPreset.size() >= 1 && data.avatarPreset.size() <= 32 && data.avatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
         && (!('skinTone' in data) || (data.skinTone is string && data.skinTone.size() >= 1 && data.skinTone.size() <= 32 && data.skinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
-        && (!('headgearId' in data) || (data.headgearId is string && data.headgearId.size() >= 1 && data.headgearId.size() <= 32 && data.headgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro']))
-        && (!('outfitId' in data) || (data.outfitId is string && data.outfitId.size() <= 32 && data.outfitId.size() >= 1 && data.outfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
-        && (!('toolId' in data) || (data.toolId is string && data.toolId.size() >= 1 && data.toolId.size() <= 32 && data.toolId in ['lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee', 'fiole_spectrale']))
-        && (!('packId' in data) || (data.packId is string && data.packId.size() >= 1 && data.packId.size() <= 32 && data.packId in ['besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate']))
+        && (!('headgearId' in data) || (data.headgearId is string && data.headgearId.size() >= 1 && data.headgearId.size() <= 32 && data.headgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire', 'couronne_saisons']))
+        && (!('outfitId' in data) || (data.outfitId is string && data.outfitId.size() <= 32 && data.outfitId.size() >= 1 && data.outfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde', 'almanach_solaire', 'chasseur_reliques']))
+        && (!('toolId' in data) || (data.toolId is string && data.toolId.size() >= 1 && data.toolId.size() <= 32 && data.toolId in ['lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee', 'fiole_spectrale', 'loupe_sceau_or', 'clef_coffres_anciens', 'sablier_ephemeride']))
+        && (!('packId' in data) || (data.packId is string && data.packId.size() >= 1 && data.packId.size() <= 32 && data.packId in ['besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate', 'coffret_piste', 'grimoire_almanach', 'astrolabe_dorsal']))
+        && (!('familiarId' in data) || (data.familiarId is string && data.familiarId.size() >= 1 && data.familiarId.size() <= 32 && data.familiarId in ['aucun', 'chouette_erudite', 'goupil_saisons', 'scarabee_boussole', 'salamandre_cristal', 'corbeau_cartographe', 'feu_follet_astral', 'hermine_royale']))
         && (!('pinnedTrophyId' in data) || (data.pinnedTrophyId is string && data.pinnedTrophyId.size() <= 40 && data.pinnedTrophyId in ['', 'oiseau_de_nuit', 'marcheur_orage', 'speleologue', 'arpenteur_10km', 'grand_randonneur_50km', 'maitre_7_roches', 'chasseur_geodesique', 'gardien_petit_patrimoine', 'ouvreur_reliques', 'leveur_brumes', 'naturaliste_complet', 'champion_contrats']))
         && (!('walkedMeters' in data) || (data.walkedMeters is number && data.walkedMeters >= 0 && data.walkedMeters <= 100000000))
         && (!('nightFeatsCount' in data) || (data.nightFeatsCount is number && data.nightFeatsCount >= 0 && data.nightFeatsCount <= 100000))
         && (!('stormFeatsCount' in data) || (data.stormFeatsCount is number && data.stormFeatsCount >= 0 && data.stormFeatsCount <= 100000))
         && (!('completedContractsCount' in data) || (data.completedContractsCount is number && data.completedContractsCount >= 0 && data.completedContractsCount <= 100000))
+        && (!('solvedRiddlesCount' in data) || (data.solvedRiddlesCount is number && data.solvedRiddlesCount >= 0 && data.solvedRiddlesCount <= 100000))
+        && (!('completedHuntsCount' in data) || (data.completedHuntsCount is number && data.completedHuntsCount >= 0 && data.completedHuntsCount <= 100000))
+        && (!('claimedAlmanacCount' in data) || (data.claimedAlmanacCount is number && data.claimedAlmanacCount >= 0 && data.claimedAlmanacCount <= 100000))
         && data.discoveriesCount is number && data.discoveriesCount >= 0 && data.discoveriesCount <= 100000
         && isBoundedStringArray(data.completedMissions, 50)
         && data.createdAt is timestamp
@@ -207,8 +215,8 @@ service cloud.firestore {
         && (!('authorGender' in data) || (data.authorGender is string && data.authorGender.size() >= 1 && data.authorGender.size() <= 16 && data.authorGender in ['feminin', 'masculin', 'neutre']))
         && (!('authorAvatarPreset' in data) || (data.authorAvatarPreset is string && data.authorAvatarPreset.size() >= 1 && data.authorAvatarPreset.size() <= 32 && data.authorAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
         && (!('authorSkinTone' in data) || (data.authorSkinTone is string && data.authorSkinTone.size() >= 1 && data.authorSkinTone.size() <= 32 && data.authorSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
-        && (!('authorHeadgearId' in data) || (data.authorHeadgearId is string && data.authorHeadgearId.size() >= 1 && data.authorHeadgearId.size() <= 32 && data.authorHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro']))
-        && (!('authorOutfitId' in data) || (data.authorOutfitId is string && data.authorOutfitId.size() >= 1 && data.authorOutfitId.size() <= 32 && data.authorOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
+        && (!('authorHeadgearId' in data) || (data.authorHeadgearId is string && data.authorHeadgearId.size() >= 1 && data.authorHeadgearId.size() <= 32 && data.authorHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire', 'couronne_saisons']))
+        && (!('authorOutfitId' in data) || (data.authorOutfitId is string && data.authorOutfitId.size() >= 1 && data.authorOutfitId.size() <= 32 && data.authorOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde', 'almanach_solaire', 'chasseur_reliques']))
         && isValidId(data.poiId)
         && data.poiName is string && data.poiName.size() >= 1 && data.poiName.size() <= 200
         && data.tag is string && data.tag.size() >= 1 && data.tag.size() <= 32 && data.tag in ['architecture', 'acces', 'point_de_vue', 'conseil_heure', 'secret']
@@ -395,8 +403,8 @@ service cloud.firestore {
         && (!('authorGender' in data) || (data.authorGender is string && data.authorGender.size() >= 1 && data.authorGender.size() <= 16 && data.authorGender in ['feminin', 'masculin', 'neutre']))
         && (!('authorAvatarPreset' in data) || (data.authorAvatarPreset is string && data.authorAvatarPreset.size() >= 1 && data.authorAvatarPreset.size() <= 32 && data.authorAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
         && (!('authorSkinTone' in data) || (data.authorSkinTone is string && data.authorSkinTone.size() >= 1 && data.authorSkinTone.size() <= 32 && data.authorSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
-        && (!('authorHeadgearId' in data) || (data.authorHeadgearId is string && data.authorHeadgearId.size() >= 1 && data.authorHeadgearId.size() <= 32 && data.authorHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro']))
-        && (!('authorOutfitId' in data) || (data.authorOutfitId is string && data.authorOutfitId.size() >= 1 && data.authorOutfitId.size() <= 32 && data.authorOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
+        && (!('authorHeadgearId' in data) || (data.authorHeadgearId is string && data.authorHeadgearId.size() >= 1 && data.authorHeadgearId.size() <= 32 && data.authorHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire', 'couronne_saisons']))
+        && (!('authorOutfitId' in data) || (data.authorOutfitId is string && data.authorOutfitId.size() >= 1 && data.authorOutfitId.size() <= 32 && data.authorOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde', 'almanach_solaire', 'chasseur_reliques']))
         && isValidId(data.sectorKey)
         && data.sectorKey.size() >= 3 && data.sectorKey.size() <= 32
         && data.placementMode is string && data.placementMode.size() >= 8 && data.placementMode.size() <= 16
@@ -453,8 +461,8 @@ service cloud.firestore {
         && (!('finderGender' in data) || (data.finderGender is string && data.finderGender.size() >= 1 && data.finderGender.size() <= 16 && data.finderGender in ['feminin', 'masculin', 'neutre']))
         && (!('finderAvatarPreset' in data) || (data.finderAvatarPreset is string && data.finderAvatarPreset.size() >= 1 && data.finderAvatarPreset.size() <= 32 && data.finderAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
         && (!('finderSkinTone' in data) || (data.finderSkinTone is string && data.finderSkinTone.size() >= 1 && data.finderSkinTone.size() <= 32 && data.finderSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
-        && (!('finderHeadgearId' in data) || (data.finderHeadgearId is string && data.finderHeadgearId.size() >= 1 && data.finderHeadgearId.size() <= 32 && data.finderHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro']))
-        && (!('finderOutfitId' in data) || (data.finderOutfitId is string && data.finderOutfitId.size() >= 1 && data.finderOutfitId.size() <= 32 && data.finderOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde']))
+        && (!('finderHeadgearId' in data) || (data.finderHeadgearId is string && data.finderHeadgearId.size() >= 1 && data.finderHeadgearId.size() <= 32 && data.finderHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire', 'couronne_saisons']))
+        && (!('finderOutfitId' in data) || (data.finderOutfitId is string && data.finderOutfitId.size() >= 1 && data.finderOutfitId.size() <= 32 && data.finderOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde', 'almanach_solaire', 'chasseur_reliques']))
         && data.note is string && data.note.size() >= 3 && data.note.size() <= 240
         && data.visibility is string && data.visibility.size() == 6 && data.visibility == 'public'
         && data.foundAt is timestamp
@@ -526,6 +534,9 @@ service cloud.firestore {
             && (!('nightFeatsCount' in existing()) || ('nightFeatsCount' in incoming() && incoming().nightFeatsCount >= existing().nightFeatsCount))
             && (!('stormFeatsCount' in existing()) || ('stormFeatsCount' in incoming() && incoming().stormFeatsCount >= existing().stormFeatsCount))
             && (!('completedContractsCount' in existing()) || ('completedContractsCount' in incoming() && incoming().completedContractsCount >= existing().completedContractsCount))
+            && (!('solvedRiddlesCount' in existing()) || ('solvedRiddlesCount' in incoming() && incoming().solvedRiddlesCount >= existing().solvedRiddlesCount))
+            && (!('completedHuntsCount' in existing()) || ('completedHuntsCount' in incoming() && incoming().completedHuntsCount >= existing().completedHuntsCount))
+            && (!('claimedAlmanacCount' in existing()) || ('claimedAlmanacCount' in incoming() && incoming().claimedAlmanacCount >= existing().claimedAlmanacCount))
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'totalXp',
               'xpHistoire',
@@ -540,18 +551,22 @@ service cloud.firestore {
               'outfitId',
               'toolId',
               'packId',
+              'familiarId',
               'pinnedTrophyId',
               'walkedMeters',
               'nightFeatsCount',
               'stormFeatsCount',
               'completedContractsCount',
+              'solvedRiddlesCount',
+              'completedHuntsCount',
+              'claimedAlmanacCount',
               'discoveriesCount',
               'completedMissions',
               'updatedAt'
             ])
           )
           ||
-          // Action 2: Rename explorer callsign, pin trophy, or customize 16-bit gender, avatar & cosmetic equipment
+          // Action 2: Rename explorer callsign, pin trophy, or customize 16-bit gender, avatar, familiar & cosmetic equipment
           (
             incoming().diff(existing()).affectedKeys().hasOnly([
               'displayName',
@@ -562,6 +577,7 @@ service cloud.firestore {
               'outfitId',
               'toolId',
               'packId',
+              'familiarId',
               'pinnedTrophyId',
               'updatedAt'
             ])
@@ -579,6 +595,9 @@ service cloud.firestore {
             && (!('nightFeatsCount' in incoming()) || incoming().nightFeatsCount == 0)
             && (!('stormFeatsCount' in incoming()) || incoming().stormFeatsCount == 0)
             && (!('completedContractsCount' in incoming()) || incoming().completedContractsCount == 0)
+            && (!('solvedRiddlesCount' in incoming()) || incoming().solvedRiddlesCount == 0)
+            && (!('completedHuntsCount' in incoming()) || incoming().completedHuntsCount == 0)
+            && (!('claimedAlmanacCount' in incoming()) || incoming().claimedAlmanacCount == 0)
             && (!('pinnedTrophyId' in incoming()) || incoming().pinnedTrophyId == '')
             && incoming().discoveriesCount == 0
             && incoming().completedMissions.size() == 0
@@ -597,11 +616,15 @@ service cloud.firestore {
               'outfitId',
               'toolId',
               'packId',
+              'familiarId',
               'pinnedTrophyId',
               'walkedMeters',
               'nightFeatsCount',
               'stormFeatsCount',
               'completedContractsCount',
+              'solvedRiddlesCount',
+              'completedHuntsCount',
+              'claimedAlmanacCount',
               'discoveriesCount',
               'completedMissions',
               'updatedAt'

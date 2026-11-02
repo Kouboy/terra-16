@@ -103,6 +103,9 @@ export interface OutfitDefinition {
   subtitle: string;
   requiredCategory: ExplorationCategory | null;
   requiredLevel: number;
+  minClaimedAlmanac?: number;
+  minCompletedHunts?: number;
+  lockRequirementLabel?: string;
   palette: {
     coatDark: string;
     coatMid: string;
@@ -239,6 +242,50 @@ export const OUTFITS_CATALOG: OutfitDefinition[] = [
       lanternAuraRgba: 'rgba(163, 230, 53, 0.22)',
     },
   },
+  {
+    id: 'almanach_solaire',
+    name: 'Manteau de l’Almanach Solaire',
+    subtitle: 'Almanach (2 quêtes calendaires) · Drap ivoire céleste, broderies d’or & équinoxe',
+    requiredCategory: null,
+    requiredLevel: 1,
+    minClaimedAlmanac: 2,
+    lockRequirementLabel: '2 quêtes de l’Almanach',
+    palette: {
+      coatDark: '#92400e',
+      coatMid: '#d97706',
+      coatLight: '#fde68a',
+      scarfDark: '#0369a1',
+      scarfLight: '#7dd3fc',
+      hatBrim: '#78350f',
+      hatMid: '#b45309',
+      hatLight: '#fde047',
+      pauldron: '#fef9c3',
+      lanternCore: '#fef08a',
+      lanternAuraRgba: 'rgba(253, 224, 71, 0.26)',
+    },
+  },
+  {
+    id: 'chasseur_reliques',
+    name: 'Pelisse de Maître des Pistes',
+    subtitle: 'Chasse aux Trésors (3 pistes) · Cuir corsaire moka, revers carmin & boucles d’or',
+    requiredCategory: null,
+    requiredLevel: 1,
+    minCompletedHunts: 3,
+    lockRequirementLabel: '3 chasses aux trésors',
+    palette: {
+      coatDark: '#451a03',
+      coatMid: '#78350f',
+      coatLight: '#b45309',
+      scarfDark: '#881337',
+      scarfLight: '#f43f5e',
+      hatBrim: '#1c1917',
+      hatMid: '#44403c',
+      hatLight: '#d97706',
+      pauldron: '#fbbf24',
+      lanternCore: '#fbbf24',
+      lanternAuraRgba: 'rgba(251, 191, 36, 0.24)',
+    },
+  },
 ];
 
 export function getOutfitById(id?: ExplorerOutfitId): OutfitDefinition {
@@ -246,6 +293,12 @@ export function getOutfitById(id?: ExplorerOutfitId): OutfitDefinition {
 }
 
 export function isOutfitUnlocked(outfit: OutfitDefinition, progress: ExplorerProgress): boolean {
+  if (outfit.minClaimedAlmanac) {
+    return (progress.claimedAlmanacCount || 0) >= outfit.minClaimedAlmanac;
+  }
+  if (outfit.minCompletedHunts) {
+    return (progress.completedHuntsCount || 0) >= outfit.minCompletedHunts;
+  }
   if (!outfit.requiredCategory) return true;
   const globalLvl = computeLevelFromXp(progress.totalXp).level;
   const catLvl = computeLevelFromXp(getCategoryXp(progress, outfit.requiredCategory)).level;

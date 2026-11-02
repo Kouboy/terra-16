@@ -148,7 +148,10 @@ export type ExplorerHeadgearId =
   | 'casque_mineur'
   | 'capuche_sylvestre'
   | 'couronne_menhir'
-  | 'lunettes_astro';
+  | 'lunettes_astro'
+  | 'monocle_erudit'
+  | 'tricorne_reliquaire'
+  | 'couronne_saisons';
 
 export type ExplorerOutfitId =
   | 'arpenteur'
@@ -156,20 +159,38 @@ export type ExplorerOutfitId =
   | 'geomancien'
   | 'sylvestre'
   | 'ombres'
-  | 'barde';
+  | 'barde'
+  | 'almanach_solaire'
+  | 'chasseur_reliques';
 
 export type ExplorerToolId =
   | 'lanterne_laiton'
   | 'boussole_astrale'
   | 'marteau_geologue'
   | 'plume_enluminee'
-  | 'fiole_spectrale';
+  | 'fiole_spectrale'
+  | 'loupe_sceau_or'
+  | 'clef_coffres_anciens'
+  | 'sablier_ephemeride';
 
 export type ExplorerPackId =
   | 'besace_cuir'
   | 'rouleau_cartes'
   | 'hotte_cristaux'
-  | 'ailerons_automate';
+  | 'ailerons_automate'
+  | 'coffret_piste'
+  | 'grimoire_almanach'
+  | 'astrolabe_dorsal';
+
+export type ExplorerFamiliarId =
+  | 'aucun'
+  | 'chouette_erudite'
+  | 'goupil_saisons'
+  | 'scarabee_boussole'
+  | 'salamandre_cristal'
+  | 'corbeau_cartographe'
+  | 'feu_follet_astral'
+  | 'hermine_royale';
 
 export type ExplorerGender = 'feminin' | 'masculin' | 'neutre';
 
@@ -181,6 +202,7 @@ export interface ExplorerAppearance {
   outfitId: ExplorerOutfitId;
   toolId: ExplorerToolId;
   packId: ExplorerPackId;
+  familiarId?: ExplorerFamiliarId;
 }
 
 export type CairnTag =
@@ -573,11 +595,15 @@ export interface ExplorerProgress {
   outfitId?: ExplorerOutfitId;
   toolId?: ExplorerToolId;
   packId?: ExplorerPackId;
+  familiarId?: ExplorerFamiliarId;
   pinnedTrophyId?: TrophyId | '';
   walkedMeters?: number;
   nightFeatsCount?: number;
   stormFeatsCount?: number;
   completedContractsCount?: number;
+  solvedRiddlesCount?: number;
+  completedHuntsCount?: number;
+  claimedAlmanacCount?: number;
   discoveriesCount: number;
   completedMissions: string[];
 }

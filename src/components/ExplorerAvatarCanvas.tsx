@@ -58,7 +58,7 @@ export const ExplorerSpriteCanvas: React.FC<ExplorerSpriteCanvasProps> = ({
     };
   }, [animated]);
 
-  const vw = stageBackdrop ? 46 : 28;
+  const vw = stageBackdrop ? 52 : 34;
   const vh = stageBackdrop ? 42 : 30;
   // Ensure even integer scale so `u = renderScale * 0.5` is always a crisp integer pixel!
   const subUnit = Math.max(1, Math.round(pixelScale));
@@ -120,34 +120,34 @@ export const ExplorerSpriteCanvas: React.FC<ExplorerSpriteCanvasProps> = ({
       if (isNight) {
         p(5, 4, 1, 1, '#fef08a');
         p(14, 7, 1, 1, '#ffffff');
-        p(26, 3, 1, 1, '#bae6fd');
-        p(36, 4, 3, 3, '#fde047');
-        p(37, 4, 2, 2, '#ffffff');
+        p(28, 3, 1, 1, '#bae6fd');
+        p(41, 4, 3, 3, '#fde047');
+        p(42, 4, 2, 2, '#ffffff');
       } else {
-        p(35, 3, 5, 5, '#fef08a');
-        p(36, 4, 3, 3, '#ffffff');
+        p(40, 3, 5, 5, '#fef08a');
+        p(41, 4, 3, 3, '#ffffff');
         // Soft pixel cloud
         p(6, 6, 8, 2, 'rgba(255, 255, 255, 0.78)');
         p(8, 5, 4, 1, 'rgba(255, 255, 255, 0.9)');
       }
 
       // Distant 16-bit evergreen hills & village silhouette
-      p(0, 18, 18, 4, '#14532d');
-      p(13, 16, 20, 6, '#166534');
-      p(29, 18, 17, 4, '#14532d');
+      p(0, 18, 20, 4, '#14532d');
+      p(15, 16, 22, 6, '#166534');
+      p(33, 18, vw - 33, 4, '#14532d');
 
       // Lush meadow + cobbled explorer road
       p(0, 22, vw, vh - 22, isNight ? '#14532d' : '#228b3b');
       p(0, 22, vw, 1.5, isNight ? '#166534' : '#4ade80');
-      p(7, 28, 32, 10, '#6b4f32');
-      p(8, 29, 30, 8, '#d6c3a3');
-      for (let bx = 9; bx < 36; bx += 5) {
+      p(7, 28, vw - 14, 10, '#6b4f32');
+      p(8, 29, vw - 16, 8, '#d6c3a3');
+      for (let bx = 9; bx < vw - 10; bx += 5) {
         p(bx, 30, 3.5, 2, '#fbf6ea');
         p(bx + 1.5, 33, 3.5, 2, '#e7d8be');
       }
       // Wildflowers along verge
       p(3, 26, 1, 1, '#fde047');
-      p(41, 27, 1, 1, '#fb7185');
+      p(vw - 5, 27, 1, 1, '#fb7185');
     }
 
     drawExplorerSprite16Bit(ctx, {

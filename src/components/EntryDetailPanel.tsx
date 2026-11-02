@@ -36,6 +36,8 @@ interface EntryDetailPanelProps {
   onSaveJournalAnnotation: (poiId: string, note: string, photoCount: number) => Promise<void>;
   onNavigateToRelatedPoi: (relatedPoiId: string) => void;
   onOpenPostcard?: (subject: PostcardSubject) => void;
+  isRiddleSolved?: boolean;
+  onOpenRiddle?: (entry: UnlockedEntry) => void;
   onBackToList?: () => void;
   backLabel?: string;
 }
@@ -53,6 +55,8 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
   onSaveJournalAnnotation,
   onNavigateToRelatedPoi,
   onOpenPostcard,
+  isRiddleSolved = false,
+  onOpenRiddle,
   onBackToList,
   backLabel = 'Retour aux feuillets',
 }) => {
@@ -229,8 +233,24 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
           <span />
         )}
 
-        {/* Exportable 16-Bit Postcard & Collectible Card Buttons */}
+        {/* Contextual Field Riddle, Postcard & Collectible Card Buttons */}
         <div className="flex flex-wrap items-center gap-2">
+          {onOpenRiddle && (
+            <button
+              type="button"
+              onClick={() => onOpenRiddle(entry)}
+              className={`min-h-[42px] px-3.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center gap-2 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0 ${
+                isRiddleSolved
+                  ? 'bg-[#ecfdf5] hover:bg-emerald-100 text-emerald-950 border-emerald-800'
+                  : 'bg-[#28160d] hover:bg-[#3f2416] text-amber-300 border-[#d97706]'
+              }`}
+            >
+              <PixelUiIcon name="star" className="w-4 h-4" />
+              <span>
+                {isRiddleSolved ? 'Sceau d’Or d’Érudit ✓' : 'Énigme du Lieu (+XP)'}
+              </span>
+            </button>
+          )}
           {onOpenPostcard && (
             <button
               type="button"
@@ -279,7 +299,7 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
               +{entry.xpAwarded} XP
             </span>
           </div>
-          <h3 className="text-2xl font-bold font-display text-[#23170e] leading-tight">
+          <h3 className="text-xl sm:text-2xl font-bold font-display text-[#23170e] leading-tight break-words">
             {entry.name}
           </h3>
           <div className="flex flex-wrap items-center gap-2 text-xs text-[#6b4e31] font-mono tabular-nums">
@@ -299,23 +319,35 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
           </div>
         </div>
 
-        {/* Procedural Crimson Ink Archive Stamp */}
-        <div
-          className="self-start sm:self-center shrink-0 px-3 py-2 border-2 border-rose-900/90 bg-rose-50/70 text-rose-900 font-mono text-center -rotate-2 select-none"
-          aria-label={`Sceau d’archive ${sealCode}`}
-        >
-          <div className="text-[9px] font-bold tracking-widest uppercase">Sceau d’Archive</div>
-          <div className="text-xs font-bold tabular-nums">{sealCode}</div>
-          <div className="text-[9px] font-sans font-semibold">{cat.shortLabel}</div>
+        {/* Procedural Crimson Ink Archive Stamp + Optional Golden Scholar Seal */}
+        <div className="self-start sm:self-center shrink-0 flex items-center gap-2">
+          {isRiddleSolved && (
+            <div
+              className="px-2.5 py-2 border-2 border-amber-700 bg-amber-100/90 text-amber-950 font-mono text-center rotate-1 select-none"
+              aria-label="Sceau d’Or d’Érudit obtenu"
+            >
+              <div className="text-[9px] font-bold tracking-widest uppercase">Sceau d’Or</div>
+              <div className="text-xs font-bold">★ ÉRUDIT ★</div>
+              <div className="text-[9px] font-sans font-semibold">Énigme résolue</div>
+            </div>
+          )}
+          <div
+            className="px-3 py-2 border-2 border-rose-900/90 bg-rose-50/70 text-rose-900 font-mono text-center -rotate-2 select-none"
+            aria-label={`Sceau d’archive ${sealCode}`}
+          >
+            <div className="text-[9px] font-bold tracking-widest uppercase">Sceau d’Archive</div>
+            <div className="text-xs font-bold tabular-nums">{sealCode}</div>
+            <div className="text-[9px] font-sans font-semibold">{cat.shortLabel}</div>
+          </div>
         </div>
       </div>
 
       {/* Waterway Context */}
       {entry.nearWaterway && (
-        <div className="text-xs text-sky-950 bg-sky-100/80 border-2 border-sky-800 px-4 py-2.5 flex items-center justify-between gap-3">
-          <span className="inline-flex items-center gap-2">
-            <PixelUiIcon name="water" className="w-4 h-4" />
-            <span>
+        <div className="text-xs text-sky-950 bg-sky-100/80 border-2 border-sky-800 px-3.5 sm:px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-2 min-w-0">
+            <PixelUiIcon name="water" className="w-4 h-4 shrink-0" />
+            <span className="break-words">
               Relié au réseau hydrologique :{' '}
               <strong>{entry.waterwayName || 'Cours d’eau local'}</strong>
             </span>
@@ -326,15 +358,15 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
 
       {/* Safety / Conservation Notice */}
       {entry.safetyNotice && (
-        <div className="text-xs text-amber-950 bg-amber-100/90 border-2 border-amber-800 px-4 py-3 flex items-start gap-2.5">
-          <PixelUiIcon name="warning" className="w-4 h-4 mt-0.5" />
-          <p className="leading-relaxed font-medium">{entry.safetyNotice}</p>
+        <div className="text-xs text-amber-950 bg-amber-100/90 border-2 border-amber-800 px-3.5 sm:px-4 py-3 flex items-start gap-2.5">
+          <PixelUiIcon name="warning" className="w-4 h-4 mt-0.5 shrink-0" />
+          <p className="leading-relaxed font-medium break-words">{entry.safetyNotice}</p>
         </div>
       )}
 
       {/* Encyclopedic Lore */}
       <div className="space-y-3">
-        <p className="text-[15px] text-[#2b1d12] leading-relaxed whitespace-pre-line">
+        <p className="text-[15px] text-[#2b1d12] leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">
           {entry.summary}
         </p>
         {entry.externalUrl && (

@@ -6,6 +6,7 @@ import {
   ExplorationCategory,
   ExplorerAppearance,
   ExplorerAvatarPreset,
+  ExplorerFamiliarId,
   ExplorerGender,
   ExplorerHeadgearId,
   ExplorerOutfitId,
@@ -201,13 +202,22 @@ export function resolveExplorerAppearance(progress: ExplorerProgress): ExplorerA
     outfitId: progress.outfitId || 'arpenteur',
     toolId: progress.toolId || 'lanterne_laiton',
     packId: progress.packId || 'besace_cuir',
+    familiarId: progress.familiarId || 'aucun',
   };
 }
 
 // ============================================================================
-// 2. CATALOGUE DES ÉQUIPEMENTS COSMÉTIQUES DÉBLOQUÉS PAR LES MISSIONS & GUILDES
+// 2. CATALOGUE DES ÉQUIPEMENTS COSMÉTIQUES & FAMILIERS (QUÊTES, ÉNIGMES, CHASSES & ALMANACH)
 // ============================================================================
-export type CosmeticSlot = 'headgear' | 'outfit' | 'tool' | 'pack';
+export type CosmeticSlot = 'headgear' | 'outfit' | 'tool' | 'pack' | 'familiar';
+export type CosmeticUnlockSourceKind =
+  | 'initial'
+  | 'mission'
+  | 'enigme'
+  | 'chasse'
+  | 'almanach'
+  | 'terrain'
+  | 'guilde';
 
 export interface CosmeticItemDef {
   id: string;
@@ -219,6 +229,9 @@ export interface CosmeticItemDef {
   fallbackCategoryLevel?: number;
   minDiscoveries?: number;
   minCompletedMissions?: number;
+  minSolvedRiddles?: number;
+  minCompletedHunts?: number;
+  minClaimedAlmanac?: number;
 }
 
 export const HEADGEAR_CATALOG: Array<CosmeticItemDef & { id: ExplorerHeadgearId }> = [
@@ -270,6 +283,27 @@ export const HEADGEAR_CATALOG: Array<CosmeticItemDef & { id: ExplorerHeadgearId 
     unlockMissionId: 'm_time_traveler',
     fallbackCategory: 'histoire',
     fallbackCategoryLevel: 3,
+  },
+  {
+    id: 'tricorne_reliquaire',
+    slot: 'headgear',
+    name: 'Bicorne de Chasseur de Reliques',
+    subtitle: 'Feutre d’obsidienne galonné d’or & panache écarlate de pisteur',
+    minCompletedHunts: 1,
+  },
+  {
+    id: 'couronne_saisons',
+    slot: 'headgear',
+    name: 'Couronne des Quatre Saisons',
+    subtitle: 'Tresse de feuilles d’or, bourgeon printanier & cristal de givre',
+    minClaimedAlmanac: 2,
+  },
+  {
+    id: 'monocle_erudit',
+    slot: 'headgear',
+    name: 'Toque & Monocle du Sceau d’Or',
+    subtitle: 'Toque d’érudit pourpre, monocle cerclé d’or & fine chaînette',
+    minSolvedRiddles: 3,
   },
 ];
 
@@ -325,6 +359,20 @@ export const OUTFIT_COSMETICS_CATALOG: Array<CosmeticItemDef & { id: ExplorerOut
     fallbackCategory: 'ecosysteme',
     fallbackCategoryLevel: 2,
   },
+  {
+    id: 'almanach_solaire',
+    slot: 'outfit',
+    name: 'Manteau de l’Almanach Solaire',
+    subtitle: 'Drap d’ivoire doré des solstices, galons ambrés & écharpe carmin',
+    minClaimedAlmanac: 2,
+  },
+  {
+    id: 'chasseur_reliques',
+    slot: 'outfit',
+    name: 'Pelisse de Maître des Pistes',
+    subtitle: 'Cuir fauve de chercheur de coffres, épaulettes d’or & foulard sarcelle',
+    minCompletedHunts: 3,
+  },
 ];
 
 export const TOOL_CATALOG: Array<CosmeticItemDef & { id: ExplorerToolId }> = [
@@ -368,6 +416,27 @@ export const TOOL_CATALOG: Array<CosmeticItemDef & { id: ExplorerToolId }> = [
     fallbackCategory: 'legende',
     fallbackCategoryLevel: 2,
   },
+  {
+    id: 'sablier_ephemeride',
+    slot: 'tool',
+    name: 'Sablier Astral des Éphémérides',
+    subtitle: 'Ampoules de verre céleste où s’écoule le sable d’or des saisons',
+    minClaimedAlmanac: 1,
+  },
+  {
+    id: 'loupe_sceau_or',
+    slot: 'tool',
+    name: 'Loupe d’Érudit en Or Cisélé',
+    subtitle: 'Lentille de saphir taillée pour déchiffrer les énigmes sur la pierre',
+    minSolvedRiddles: 2,
+  },
+  {
+    id: 'clef_coffres_anciens',
+    slot: 'tool',
+    name: 'Passe-Partout des Caches Anciennes',
+    subtitle: 'Grande clef squelette en or massif ouvrant les coffres de piste',
+    minCompletedHunts: 2,
+  },
 ];
 
 export const PACK_CATALOG: Array<CosmeticItemDef & { id: ExplorerPackId }> = [
@@ -398,6 +467,85 @@ export const PACK_CATALOG: Array<CosmeticItemDef & { id: ExplorerPackId }> = [
     subtitle: 'Mécanisme de laiton animé réservé aux vétérans des Quêtes',
     minCompletedMissions: 4,
   },
+  {
+    id: 'coffret_piste',
+    slot: 'pack',
+    name: 'Coffre-Reliquaire de Piste',
+    subtitle: 'Malle de cèdre cerclée de laiton sanglée sur les épaules',
+    minCompletedHunts: 3,
+  },
+  {
+    id: 'grimoire_almanach',
+    slot: 'pack',
+    name: 'Grand Almanach Enluminé Dorsal',
+    subtitle: 'Folio géant à fermoirs d’or & signets des quatre saisons',
+    minClaimedAlmanac: 3,
+  },
+  {
+    id: 'astrolabe_dorsal',
+    slot: 'pack',
+    name: 'Sphère Armillaire d’Érudit',
+    subtitle: 'Anneaux célestes de laiton tournoyant dans le dos du marcheur',
+    minSolvedRiddles: 4,
+  },
+];
+
+export const FAMILIAR_CATALOG: Array<CosmeticItemDef & { id: ExplorerFamiliarId }> = [
+  {
+    id: 'aucun',
+    slot: 'familiar',
+    name: 'Marche Solitaire',
+    subtitle: 'Aucun familier à vos côtés · Arpentez le monde en éclaireur discret',
+  },
+  {
+    id: 'hermine_royale',
+    slot: 'familiar',
+    name: 'Hermine Blanche des Éclaireurs',
+    subtitle: 'Vive hermine d’ivoire à pointe d’ébène qui bondit joyeusement dans vos pas',
+    unlockMissionId: 'm_first_discovery',
+  },
+  {
+    id: 'chouette_erudite',
+    slot: 'familiar',
+    name: 'Athéna, Chouette du Sceau d’Or',
+    subtitle: 'Chouette hulotte à besicles de laiton voletant près de votre épaule',
+    minSolvedRiddles: 1,
+  },
+  {
+    id: 'goupil_saisons',
+    slot: 'familiar',
+    name: 'Goupil des Quatre Saisons',
+    subtitle: 'Petit renard roux au foulard vert forêt qui trottine au fil de l’Almanach',
+    minClaimedAlmanac: 1,
+  },
+  {
+    id: 'scarabee_boussole',
+    slot: 'familiar',
+    name: 'Scarabée Boussole d’Airain',
+    subtitle: 'Coléoptère mécanique doré aux élytres d’émeraude vibrant près des trésors',
+    minCompletedHunts: 1,
+  },
+  {
+    id: 'corbeau_cartographe',
+    slot: 'familiar',
+    name: 'Corbeau Porte-Parchemin',
+    subtitle: 'Grand corbeau d’encre bleutée portant un rouleau scellé dans son bec',
+    minCompletedHunts: 2,
+  },
+  {
+    id: 'salamandre_cristal',
+    slot: 'familiar',
+    name: 'Salamandre des Géodes',
+    subtitle: 'Salamandre d’azur constellée de cristaux luminescents des souterrains',
+    minSolvedRiddles: 3,
+  },
+  {
+    id: 'feu_follet_astral',
+    slot: 'familiar',
+    name: 'Feu-Follet des Éphémérides',
+    subtitle: 'Esprit stellaire doré coiffé d’une minuscule couronne astrale',
+    minClaimedAlmanac: 3,
+  },
 ];
 
 export const ALL_COSMETIC_ITEMS: CosmeticItemDef[] = [
@@ -405,6 +553,7 @@ export const ALL_COSMETIC_ITEMS: CosmeticItemDef[] = [
   ...OUTFIT_COSMETICS_CATALOG,
   ...TOOL_CATALOG,
   ...PACK_CATALOG,
+  ...FAMILIAR_CATALOG.filter((f) => f.id !== 'aucun'),
 ];
 
 export function isCosmeticUnlocked(
@@ -416,7 +565,10 @@ export function isCosmeticUnlocked(
     !item.unlockMissionId &&
     !item.fallbackCategory &&
     !item.minDiscoveries &&
-    !item.minCompletedMissions
+    !item.minCompletedMissions &&
+    !item.minSolvedRiddles &&
+    !item.minCompletedHunts &&
+    !item.minClaimedAlmanac
   ) {
     return true;
   }
@@ -436,6 +588,15 @@ export function isCosmeticUnlocked(
   if (item.minCompletedMissions && progress.completedMissions.length >= item.minCompletedMissions) {
     return true;
   }
+  if (item.minSolvedRiddles && (progress.solvedRiddlesCount || 0) >= item.minSolvedRiddles) {
+    return true;
+  }
+  if (item.minCompletedHunts && (progress.completedHuntsCount || 0) >= item.minCompletedHunts) {
+    return true;
+  }
+  if (item.minClaimedAlmanac && (progress.claimedAlmanacCount || 0) >= item.minClaimedAlmanac) {
+    return true;
+  }
   return false;
 }
 
@@ -449,8 +610,39 @@ export function getCosmeticUnlockStatus(
   current: number;
   target: number;
   missionId?: string;
+  sourceKind: CosmeticUnlockSourceKind;
 } {
   const unlocked = isCosmeticUnlocked(item, progress, entries);
+  if (item.minSolvedRiddles) {
+    const cur = Math.min(item.minSolvedRiddles, progress.solvedRiddlesCount || 0);
+    return {
+      unlocked,
+      requirementLabel: `Résoudre ${item.minSolvedRiddles} énigme${item.minSolvedRiddles > 1 ? 's' : ''} contextuelle${item.minSolvedRiddles > 1 ? 's' : ''}`,
+      current: cur,
+      target: item.minSolvedRiddles,
+      sourceKind: 'enigme',
+    };
+  }
+  if (item.minCompletedHunts) {
+    const cur = Math.min(item.minCompletedHunts, progress.completedHuntsCount || 0);
+    return {
+      unlocked,
+      requirementLabel: `Accomplir ${item.minCompletedHunts} chasse${item.minCompletedHunts > 1 ? 's' : ''} au trésor`,
+      current: cur,
+      target: item.minCompletedHunts,
+      sourceKind: 'chasse',
+    };
+  }
+  if (item.minClaimedAlmanac) {
+    const cur = Math.min(item.minClaimedAlmanac, progress.claimedAlmanacCount || 0);
+    return {
+      unlocked,
+      requirementLabel: `Valider ${item.minClaimedAlmanac} quête${item.minClaimedAlmanac > 1 ? 's' : ''} de l’Almanach`,
+      current: cur,
+      target: item.minClaimedAlmanac,
+      sourceKind: 'almanach',
+    };
+  }
   if (item.unlockMissionId) {
     const m = MISSIONS_CATALOG.find((x) => x.id === item.unlockMissionId);
     if (m) {
@@ -461,6 +653,7 @@ export function getCosmeticUnlockStatus(
         current: unlocked ? ev.target : ev.current,
         target: ev.target,
         missionId: m.id,
+        sourceKind: 'mission',
       };
     }
   }
@@ -471,6 +664,7 @@ export function getCosmeticUnlockStatus(
       requirementLabel: `Révéler ${item.minDiscoveries} lieux sur le terrain`,
       current: cur,
       target: item.minDiscoveries,
+      sourceKind: 'terrain',
     };
   }
   if (item.minCompletedMissions) {
@@ -480,6 +674,7 @@ export function getCosmeticUnlockStatus(
       requirementLabel: `Accomplir ${item.minCompletedMissions} quêtes du Grimoire`,
       current: cur,
       target: item.minCompletedMissions,
+      sourceKind: 'mission',
     };
   }
   if (item.fallbackCategory && item.fallbackCategoryLevel) {
@@ -490,13 +685,39 @@ export function getCosmeticUnlockStatus(
       requirementLabel: `Guilde ${catMeta.shortLabel} Niv. ${item.fallbackCategoryLevel}`,
       current: Math.min(item.fallbackCategoryLevel, catLvl),
       target: item.fallbackCategoryLevel,
+      sourceKind: 'guilde',
     };
   }
-  return { unlocked: true, requirementLabel: 'Équipement initial', current: 1, target: 1 };
+  return {
+    unlocked: true,
+    requirementLabel: 'Équipement initial',
+    current: 1,
+    target: 1,
+    sourceKind: 'initial',
+  };
+}
+
+export function getCosmeticRewardsForMission(missionId: string): CosmeticItemDef[] {
+  return ALL_COSMETIC_ITEMS.filter((item) => item.unlockMissionId === missionId);
 }
 
 export function getCosmeticRewardForMission(missionId: string): CosmeticItemDef | null {
   return ALL_COSMETIC_ITEMS.find((item) => item.unlockMissionId === missionId) || null;
+}
+
+export function getNewlyUnlockedCosmetics(
+  prevProgress: ExplorerProgress,
+  nextProgress: ExplorerProgress,
+  prevEntries: UnlockedEntry[],
+  nextEntries: UnlockedEntry[]
+): CosmeticItemDef[] {
+  const newly = ALL_COSMETIC_ITEMS.filter(
+    (item) =>
+      !isCosmeticUnlocked(item, prevProgress, prevEntries) &&
+      isCosmeticUnlocked(item, nextProgress, nextEntries)
+  );
+  // Prioritize familiars first so newly adopted companions shine in celebration banners
+  return newly.sort((a, b) => (a.slot === 'familiar' ? -1 : b.slot === 'familiar' ? 1 : 0));
 }
 
 const GENDERED_GUILD_TITLES: Record<
@@ -603,6 +824,7 @@ export function drawExplorerSprite16Bit(
   const headgear = appearance.headgearId || 'tricorne_fauve';
   const tool = appearance.toolId || 'lanterne_laiton';
   const pack = appearance.packId || 'besace_cuir';
+  const familiar = appearance.familiarId || 'aucun';
 
   // Half-virtual-pixel fine grid: 1 unit = 0.5 virtual px (= 1 physical px on the map!)
   const u = scale * 0.5;
@@ -635,9 +857,9 @@ export function drawExplorerSprite16Bit(
   const auraColor =
     tool === 'fiole_spectrale'
       ? 'rgba(192, 132, 252, 0.24)'
-      : tool === 'marteau_geologue'
+      : tool === 'marteau_geologue' || tool === 'sablier_ephemeride'
       ? 'rgba(56, 189, 248, 0.23)'
-      : tool === 'boussole_astrale'
+      : tool === 'boussole_astrale' || tool === 'loupe_sceau_or' || tool === 'clef_coffres_anciens'
       ? 'rgba(253, 224, 71, 0.23)'
       : outfitPal.lanternAuraRgba;
 
@@ -793,6 +1015,73 @@ export function drawExplorerSprite16Bit(
         fp(gx + 2, ty, 4, 6, '#fde047');
         fp(gx + 3, ty + 2, 2, 2, '#38bdf8');
         fp(gx + (facingDir === 'right' ? -2 : 7), ty - 1 + toothPhase * 3, 3, 3, '#fde047');
+      }
+    } else if (pack === 'coffret_piste') {
+      // Brass-bound cedar & crimson treasure chest strapped to shoulders
+      if (facingDir === 'up') {
+        fp(-12, ty - 2, 24, 15, OUT);
+        fp(-10, ty - 1, 20, 12, '#7f1d1d');
+        fp(-10, ty - 1, 20, 4, '#b91c1c');
+        // Brass bands & central keyhole plate
+        fp(-10, ty + 3, 20, 2, '#d97706');
+        fp(-7, ty - 1, 2, 12, '#fbbf24');
+        fp(5, ty - 1, 2, 12, '#fbbf24');
+        fp(-2, ty + 2, 4, 5, '#fde047');
+        fp(-1, ty + 4, 2, 2, OUT);
+      } else {
+        const cx0 = facingDir === 'right' ? -15 : 8;
+        fp(cx0, ty - 2, 8, 14, OUT);
+        fp(cx0 + 1, ty - 1, 6, 11, '#7f1d1d');
+        fp(cx0 + 1, ty - 1, 6, 3, '#dc2626');
+        fp(cx0 + 1, ty + 3, 6, 2, '#fbbf24');
+        fp(cx0 + 3, ty + 6, 2, 3, '#fde047');
+      }
+    } else if (pack === 'grimoire_almanach') {
+      // Grand Illuminated Almanac Tome with golden clasps & seasonal ribbons
+      if (facingDir === 'up') {
+        fp(-12, ty - 4, 24, 17, OUT);
+        fp(-10, ty - 3, 20, 14, '#1e3a8a');
+        fp(-9, ty - 2, 18, 12, '#2563eb');
+        // Gilded border & sun crest
+        fp(-9, ty - 2, 18, 2, '#fbbf24');
+        fp(-9, ty + 8, 18, 2, '#fbbf24');
+        fp(-3, ty + 1, 6, 5, '#fde047');
+        fp(-2, ty + 2, 4, 3, '#ffffff');
+        // Fluttering seasonal bookmark ribbons
+        fp(-5, ty + 11, 2, 4 + breeze, '#dc2626');
+        fp(3, ty + 11, 2, 3 + (1 - breeze), '#10b981');
+      } else {
+        const bx0 = facingDir === 'right' ? -15 : 8;
+        fp(bx0, ty - 4, 7, 16, OUT);
+        fp(bx0 + 1, ty - 3, 5, 13, '#1e3a8a');
+        fp(bx0 + 2, ty - 2, 3, 11, '#fef3c7'); // gilded page edges
+        fp(bx0 + 1, ty + 1, 5, 2, '#fbbf24');
+        fp(bx0 + 1, ty + 6, 5, 2, '#fbbf24');
+      }
+    } else if (pack === 'astrolabe_dorsal') {
+      // Dorsal Armillary Sphere with rotating celestial rings & glowing core
+      const ringPhase = Math.floor(animTick / 2) % 2;
+      if (facingDir === 'up') {
+        fp(-13, ty - 5, 26, 17, OUT);
+        fp(-11, ty - 3, 22, 13, '#d97706');
+        fp(-9, ty - 1, 18, 9, '#1e1b4b');
+        if (ringPhase === 0) {
+          fp(-11, ty + 2, 22, 3, '#fde047');
+          fp(-2, ty - 3, 4, 13, '#fbbf24');
+        } else {
+          fp(-9, ty - 2, 18, 3, '#fde047');
+          fp(-9, ty + 6, 18, 3, '#fde047');
+          fp(-5, ty - 1, 10, 9, '#fbbf24');
+        }
+        fp(-3, ty + 1, 6, 5, '#38bdf8');
+        fp(-1, ty + 2, 2, 3, '#ffffff');
+      } else {
+        const ax0 = facingDir === 'right' ? -15 : 8;
+        fp(ax0, ty - 5, 8, 16, OUT);
+        fp(ax0 + 1, ty - 3, 6, 12, '#d97706');
+        fp(ax0 + 2, ty - 1, 4, 8, '#fde047');
+        fp(ax0 + 2, ty + 1 + ringPhase, 4, 4, '#38bdf8');
+        fp(ax0 + 3, ty + 2 + ringPhase, 2, 2, '#ffffff');
       }
     }
   };
@@ -1231,6 +1520,51 @@ export function drawExplorerSprite16Bit(
     fp(2, hy - 7, 5, 3, '#38bdf8');
     fp(-7, hy - 7, 2, 2, '#ffffff');
     fp(2, hy - 7, 2, 2, '#ffffff');
+  } else if (headgear === 'tricorne_reliquaire') {
+    // Obsidian Relic-Hunter Bicorne + Gold Trim + Scarlet Plume
+    fp(-17, hy - 4, 34, 6, OUT);
+    fp(-15, hy - 3, 30, 4, '#1c1917');
+    fp(-15, hy - 3, 30, 1, '#fbbf24'); // gold braid along brim
+    fp(-12, hy - 11, 24, 8, OUT);
+    fp(-10, hy - 10, 20, 6, '#292524');
+    fp(-8, hy - 9, 14, 3, '#44403c');
+    // Gold compass cockade & swaying crimson feather
+    fp(-2, hy - 8, 5, 5, '#fbbf24');
+    fp(-1, hy - 7, 3, 3, '#fef08a');
+    const plumeShift = breeze === 0 ? 0 : 2;
+    fp(7, hy - 16, 8, 9, OUT);
+    fp(8, hy - 15, 6, 7, '#dc2626');
+    fp(9 + plumeShift, hy - 15, 4, 4, '#fca5a5');
+  } else if (headgear === 'couronne_saisons') {
+    // Wreath of the Four Seasons (Spring blossom, Summer gold, Autumn russet, Winter frost)
+    fp(-12, hy - 6, 24, 6, OUT);
+    fp(-11, hy - 5, 22, 4, '#15803d');
+    fp(-9, hy - 6, 5, 3, '#4ade80'); // spring leaf
+    fp(-5, hy - 7, 4, 4, '#f472b6'); // spring blossom
+    fp(-1, hy - 7, 4, 4, '#fde047'); // summer sun-gem
+    fp(3, hy - 6, 5, 3, '#ea580c'); // autumn oak leaf
+    fp(7, hy - 7, 4, 4, '#38bdf8'); // winter frost crystal
+    fp(8, hy - 6, 2, 2, '#ffffff');
+  } else if (headgear === 'monocle_erudit') {
+    // Velvet Burgundy Scholar Toque + Gleaming Gold Monocle & Chain
+    fp(-13, hy - 9, 26, 8, OUT);
+    fp(-11, hy - 8, 22, 6, '#581c87');
+    fp(-9, hy - 8, 16, 4, '#7e22ce');
+    fp(-11, hy - 3, 22, 2, '#fbbf24');
+    // Gold tassel on side
+    fp(-13, hy - 4, 3, 5 + breeze, '#fde047');
+    // Monocle over eye & delicate gold chain when face is visible
+    if (facingDir !== 'up') {
+      const mx = facingDir === 'left' ? -6 + faceShift : 2 + faceShift;
+      fp(mx - 1, hy + 2, 6, 1, '#fde047');
+      fp(mx - 1, hy + 8, 6, 1, '#d97706');
+      fp(mx - 1, hy + 3, 1, 5, '#fbbf24');
+      fp(mx + 4, hy + 3, 1, 5, '#fbbf24');
+      fp(mx, hy + 3, 2, 2, 'rgba(186, 230, 253, 0.78)');
+      // Hanging gold monocle chain
+      fp(mx + 4, hy + 8, 1, 3, '#fde047');
+      fp(mx + 3, hy + 10, 2, 1, '#d97706');
+    }
   }
 
   // ==========================================================================
@@ -1280,5 +1614,199 @@ export function drawExplorerSprite16Bit(
     fp(orbX, orbY, 5, 5, '#2e1065');
     fp(orbX + 1, orbY + 1, 3, 3, '#67e8f9');
     fp(orbX + 1, orbY + 1, 2, 2, '#ffffff');
+  } else if (tool === 'sablier_ephemeride') {
+    // Astral Hourglass with brass caps & trickling golden sand
+    const sandStep = animTick % 4;
+    fp(toolX, toolY - 2, 8, 12, OUT);
+    fp(toolX + 1, toolY - 1, 6, 2, '#fbbf24'); // top brass cap
+    fp(toolX + 1, toolY + 7, 6, 2, '#fbbf24'); // bottom brass cap
+    fp(toolX + 1, toolY + 1, 6, 3, '#38bdf8'); // upper bulb
+    fp(toolX + 2, toolY + 2, 4, 2, '#fde047'); // upper sand
+    fp(toolX + 3, toolY + 3 + (sandStep % 2), 2, 3, '#fef08a'); // falling sand stream
+    fp(toolX + 1, toolY + 4, 6, 3, '#0284c7'); // lower bulb
+    fp(toolX + 2, toolY + 6, 4, 1, '#fde047'); // lower sand mound
+  } else if (tool === 'loupe_sceau_or') {
+    // Chiselled Gold Scholar Magnifying Glass with Sapphire Lens
+    fp(toolX - 1, toolY - 4, 9, 9, OUT);
+    fp(toolX, toolY - 3, 7, 7, '#fbbf24');
+    fp(toolX + 1, toolY - 2, 5, 5, '#38bdf8');
+    fp(toolX + 1, toolY - 2, 2, 2, '#ffffff');
+    fp(toolX + 2, toolY + 5, 3, 6, OUT);
+    fp(toolX + 3, toolY + 5, 1, 5, '#d97706');
+  } else if (tool === 'clef_coffres_anciens') {
+    // Gleaming Golden Skeleton Key of Ancient Caches
+    fp(toolX, toolY - 4, 7, 6, OUT);
+    fp(toolX + 1, toolY - 3, 5, 4, '#fde047');
+    fp(toolX + 2, toolY - 2, 3, 2, OUT); // bow hole
+    fp(toolX + 2, toolY + 2, 3, 9, OUT);
+    fp(toolX + 3, toolY + 2, 1, 8, '#fbbf24');
+    // Key ward teeth
+    fp(toolX + 4, toolY + 6, 3, 4, OUT);
+    fp(toolX + 4, toolY + 7, 2, 1, '#fde047');
+    fp(toolX + 4, toolY + 9, 2, 1, '#fde047');
+  }
+
+  // ==========================================================================
+  // LAYER F: ANIMATED 16-BIT COMPANION FAMILIAR (SIDE / TRAILING LOYAL PET)
+  // ==========================================================================
+  if (familiar && familiar !== 'aucun') {
+    // Position beside explorer (left side when down/up; trailing behind when walking left/right)
+    const fx = facingDir === 'left' ? 21 : facingDir === 'right' ? -22 : -21;
+    const fLookRight = facingDir !== 'left';
+    const fFlip = fLookRight ? 1 : -1;
+    const wingFlap = Math.floor(animTick / 2) % 2;
+    const petHop = isWalking ? (stride % 2 === 1 ? -2 : 0) : idleBreathe ? -1 : 0;
+
+    // Subtle ground shadow under the companion
+    fp(fx - 6, -2, 12, 3, 'rgba(20, 12, 7, 0.34)');
+
+    if (familiar === 'chouette_erudite') {
+      // Athéna: Hovering Tawny Owl with Brass Scholar Spectacles
+      const oyPet = -18 + (wingFlap === 0 ? -2 : 0);
+      // Flapping wings
+      if (wingFlap === 0) {
+        fp(fx - 9, oyPet - 2, 18, 6, OUT);
+        fp(fx - 8, oyPet - 1, 16, 4, '#92400e');
+      } else {
+        fp(fx - 8, oyPet + 2, 16, 5, OUT);
+        fp(fx - 7, oyPet + 3, 14, 3, '#78350f');
+      }
+      // Rounded owl body & ear tufts
+      fp(fx - 6, oyPet - 5, 12, 13, OUT);
+      fp(fx - 5, oyPet - 6, 3, 2, OUT);
+      fp(fx + 2, oyPet - 6, 3, 2, OUT);
+      fp(fx - 5, oyPet - 4, 10, 11, '#b45309');
+      fp(fx - 3, oyPet + 1, 6, 5, '#fef3c7'); // speckled cream belly
+      fp(fx - 2, oyPet + 3, 1, 1, '#92400e');
+      fp(fx + 1, oyPet + 3, 1, 1, '#92400e');
+      // Brass spectacles + golden eyes + beak
+      fp(fx - 4, oyPet - 2, 3, 3, '#fbbf24');
+      fp(fx + 1, oyPet - 2, 3, 3, '#fbbf24');
+      fp(fx - 3, oyPet - 1, 2, 2, '#160d07');
+      fp(fx + 2, oyPet - 1, 2, 2, '#160d07');
+      fp(fx - 3, oyPet - 1, 1, 1, '#ffffff');
+      fp(fx + 2, oyPet - 1, 1, 1, '#ffffff');
+      fp(fx - 1, oyPet, 2, 2, '#f59e0b');
+    } else if (familiar === 'goupil_saisons') {
+      // Goupil: Russet Fox with White-Tipped Tail & Emerald Scarf
+      const gy = -11 + petHop;
+      // Fluffy wagging tail
+      const tailX = fx - fFlip * 8;
+      fp(tailX - 2, gy - 1 - breeze, 6, 7, OUT);
+      fp(tailX - 1, gy - breeze, 4, 5, '#ea580c');
+      fp(tailX - (fLookRight ? 1 : -1), gy - breeze, 2, 3, '#ffffff');
+      // Fox body & paws
+      fp(fx - 5, gy + 1, 10, 8, OUT);
+      fp(fx - 4, gy + 2, 8, 5, '#ea580c');
+      fp(fx - 3, gy + 7, 2, 3, '#1c1917');
+      fp(fx + 1, gy + 7, 2, 3, '#1c1917');
+      // Emerald neckerchief
+      fp(fx - 4, gy + 1, 8, 2, '#059669');
+      // Pointed ears & fox head
+      fp(fx - 5, gy - 6, 10, 8, OUT);
+      fp(fx - 5, gy - 8, 3, 3, OUT);
+      fp(fx + 2, gy - 8, 3, 3, OUT);
+      fp(fx - 4, gy - 7, 2, 2, '#ea580c');
+      fp(fx + 2, gy - 7, 2, 2, '#ea580c');
+      fp(fx - 4, gy - 5, 8, 6, '#f97316');
+      fp(fx - 3, gy - 1, 6, 2, '#fff7ed'); // white cheeks
+      fp(fx - 3, gy - 3, 2, 2, OUT);
+      fp(fx + 1, gy - 3, 2, 2, OUT);
+      fp(fx + fFlip * 2, gy - 1, 2, 1, OUT); // nose
+    } else if (familiar === 'scarabee_boussole') {
+      // Scarabée Boussole d'Airain: Clockwork Gold & Emerald Beetle
+      const sy = -16 + (wingFlap === 0 ? -1 : 1);
+      // Translucent fluttering wings
+      if (wingFlap === 0) {
+        fp(fx - 9, sy - 2, 18, 4, 'rgba(186, 230, 253, 0.85)');
+      } else {
+        fp(fx - 7, sy, 14, 3, 'rgba(125, 211, 252, 0.75)');
+      }
+      // Golden carapace & emerald elytra
+      fp(fx - 5, sy - 4, 10, 10, OUT);
+      fp(fx - 4, sy - 3, 8, 8, '#fbbf24');
+      fp(fx - 3, sy - 1, 6, 5, '#059669');
+      fp(fx - 1, sy, 2, 3, flamePulse === 0 ? '#ffffff' : '#fde047'); // glowing compass needle
+      // Golden antennae
+      fp(fx - 3, sy - 6, 2, 2, '#fde047');
+      fp(fx + 1, sy - 6, 2, 2, '#fde047');
+    } else if (familiar === 'hermine_royale') {
+      // Hermine Blanche des Éclaireurs: Snowy Stoat with Black-Tipped Tail & Crimson Bell
+      const ey = -10 + petHop;
+      const tailX = fx - fFlip * 7;
+      fp(tailX - 2, ey - breeze, 5, 6, OUT);
+      fp(tailX - 1, ey + 1 - breeze, 3, 4, '#ffffff');
+      fp(tailX - (fLookRight ? 1 : 0), ey - breeze, 2, 2, '#0f172a'); // iconic black tail tip!
+      // Slender white body & collar
+      fp(fx - 4, ey + 1, 8, 8, OUT);
+      fp(fx - 3, ey + 2, 6, 6, '#f8fafc');
+      fp(fx - 3, ey + 1, 6, 2, '#dc2626');
+      fp(fx - 1, ey + 2, 2, 2, '#fde047'); // golden bell
+      // Rounded stoat head & bright dark eyes
+      fp(fx - 4, ey - 5, 8, 7, OUT);
+      fp(fx - 3, ey - 4, 6, 5, '#ffffff');
+      fp(fx - 3, ey - 5, 2, 2, '#fda4af');
+      fp(fx + 1, ey - 5, 2, 2, '#fda4af');
+      fp(fx - 2, ey - 2, 1, 2, OUT);
+      fp(fx + 1, ey - 2, 1, 2, OUT);
+    } else if (familiar === 'corbeau_cartographe') {
+      // Corbeau Porte-Parchemin: Midnight Raven with Wax-Sealed Scroll in Beak
+      const ry = -18 + (wingFlap === 0 ? -2 : 0);
+      if (wingFlap === 0) {
+        fp(fx - 9, ry - 3, 18, 6, OUT);
+        fp(fx - 8, ry - 2, 16, 4, '#1e293b');
+      } else {
+        fp(fx - 7, ry + 1, 14, 5, OUT);
+        fp(fx - 6, ry + 2, 12, 3, '#334155');
+      }
+      fp(fx - 5, ry - 5, 10, 11, OUT);
+      fp(fx - 4, ry - 4, 8, 9, '#0f172a');
+      fp(fx - 3, ry - 3, 5, 4, '#334155'); // iridescent blue-slate sheen
+      fp(fx + (fLookRight ? 1 : -2), ry - 2, 2, 2, '#fde047'); // bright eye
+      // Beak + miniature parchment scroll with red wax seal
+      const beakX = fx + fFlip * 4;
+      fp(beakX - 1, ry - 1, 3, 2, '#f59e0b');
+      fp(beakX - 2, ry + 1, 6, 3, '#fef3c7');
+      fp(beakX, ry + 1, 2, 2, '#dc2626');
+    } else if (familiar === 'salamandre_cristal') {
+      // Salamandre des Géodes: Cobalt Cave Salamander with Glowing Crystal Dorsal Spines
+      const cyPet = -8 + (stride % 2 === 1 ? -1 : 0);
+      const crystalGlow = flamePulse === 0 ? '#ffffff' : '#38bdf8';
+      // Curling tail
+      const tailX = fx - fFlip * 7;
+      fp(tailX - 2, cyPet + 1, 6, 5, OUT);
+      fp(tailX - 1, cyPet + 2, 4, 3, '#1d4ed8');
+      // Body + glowing dorsal crystals
+      fp(fx - 5, cyPet, 10, 7, OUT);
+      fp(fx - 4, cyPet + 1, 8, 5, '#1e40af');
+      fp(fx - 3, cyPet - 3, 2, 3, crystalGlow);
+      fp(fx, cyPet - 4, 2, 4, '#fde047');
+      fp(fx + 2, cyPet - 2, 2, 3, crystalGlow);
+      // Head & golden eyes
+      const hx = fx + fFlip * 3;
+      fp(hx - 3, cyPet - 1, 6, 6, OUT);
+      fp(hx - 2, cyPet, 4, 4, '#2563eb');
+      fp(hx + (fLookRight ? 0 : -1), cyPet + 1, 2, 2, '#fde047');
+    } else if (familiar === 'feu_follet_astral') {
+      // Feu-Follet des Éphémérides: Starlight Wisp with Miniature Golden Crown
+      const wy = -19 + (wingFlap === 0 ? -2 : 1);
+      // Outer celestial aura
+      fp(fx - 6, wy - 4, 12, 12, 'rgba(56, 189, 248, 0.35)');
+      fp(fx - 4, wy - 3, 8, 9, OUT);
+      fp(fx - 3, wy - 2, 6, 7, '#38bdf8');
+      fp(fx - 2, wy - 1, 4, 5, '#fef08a');
+      fp(fx - 1, wy, 2, 2, '#ffffff');
+      // Expressive eyes
+      fp(fx - 2, wy + 1, 1, 2, OUT);
+      fp(fx + 1, wy + 1, 1, 2, OUT);
+      // Tiny 3-point golden crown floating above wisp
+      fp(fx - 3, wy - 6, 6, 3, '#fbbf24');
+      fp(fx - 3, wy - 7, 1, 1, '#fde047');
+      fp(fx, wy - 7, 1, 1, '#ffffff');
+      fp(fx + 2, wy - 7, 1, 1, '#fde047');
+      // Orbiting stardust mote
+      const moteX = fx + (animTick % 6 < 3 ? -7 : 6);
+      fp(moteX, wy - 2 + breeze * 2, 2, 2, '#fde047');
+    }
   }
 }

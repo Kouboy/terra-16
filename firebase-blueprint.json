@@ -72,7 +72,10 @@
             "casque_mineur",
             "capuche_sylvestre",
             "couronne_menhir",
-            "lunettes_astro"
+            "lunettes_astro",
+            "monocle_erudit",
+            "tricorne_reliquaire",
+            "couronne_saisons"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -80,7 +83,16 @@
         "outfitId": {
           "type": "string",
           "description": "Selected 16-bit explorer sprite outfit identifier.",
-          "enum": ["arpenteur", "chroniqueur", "geomancien", "sylvestre", "ombres", "barde"],
+          "enum": [
+            "arpenteur",
+            "chroniqueur",
+            "geomancien",
+            "sylvestre",
+            "ombres",
+            "barde",
+            "almanach_solaire",
+            "chasseur_reliques"
+          ],
           "minLength": 1,
           "maxLength": 32
         },
@@ -92,7 +104,10 @@
             "boussole_astrale",
             "marteau_geologue",
             "plume_enluminee",
-            "fiole_spectrale"
+            "fiole_spectrale",
+            "loupe_sceau_or",
+            "clef_coffres_anciens",
+            "sablier_ephemeride"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -100,7 +115,31 @@
         "packId": {
           "type": "string",
           "description": "Equipped 16-bit cosmetic dorsal pack identifier.",
-          "enum": ["besace_cuir", "rouleau_cartes", "hotte_cristaux", "ailerons_automate"],
+          "enum": [
+            "besace_cuir",
+            "rouleau_cartes",
+            "hotte_cristaux",
+            "ailerons_automate",
+            "coffret_piste",
+            "grimoire_almanach",
+            "astrolabe_dorsal"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "familiarId": {
+          "type": "string",
+          "description": "Equipped 16-bit animated companion familiar identifier.",
+          "enum": [
+            "aucun",
+            "chouette_erudite",
+            "goupil_saisons",
+            "scarabee_boussole",
+            "salamandre_cristal",
+            "corbeau_cartographe",
+            "feu_follet_astral",
+            "hermine_royale"
+          ],
           "minLength": 1,
           "maxLength": 32
         },
@@ -140,6 +179,18 @@
         "completedContractsCount": {
           "type": "number",
           "description": "Cumulative count of dynamically generated local sector contracts completed."
+        },
+        "solvedRiddlesCount": {
+          "type": "number",
+          "description": "Cumulative count of contextual field riddles solved."
+        },
+        "completedHuntsCount": {
+          "type": "number",
+          "description": "Cumulative count of multi-step clue treasure hunts completed."
+        },
+        "claimedAlmanacCount": {
+          "type": "number",
+          "description": "Cumulative count of seasonal and calendar almanac quests claimed."
         },
         "discoveriesCount": {
           "type": "number",
@@ -364,7 +415,10 @@
             "casque_mineur",
             "capuche_sylvestre",
             "couronne_menhir",
-            "lunettes_astro"
+            "lunettes_astro",
+            "monocle_erudit",
+            "tricorne_reliquaire",
+            "couronne_saisons"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -372,7 +426,16 @@
         "authorOutfitId": {
           "type": "string",
           "description": "Optional 16-bit outfit identifier of the cairn author.",
-          "enum": ["arpenteur", "chroniqueur", "geomancien", "sylvestre", "ombres", "barde"],
+          "enum": [
+            "arpenteur",
+            "chroniqueur",
+            "geomancien",
+            "sylvestre",
+            "ombres",
+            "barde",
+            "almanach_solaire",
+            "chasseur_reliques"
+          ],
           "minLength": 1,
           "maxLength": 32
         },
@@ -733,7 +796,10 @@
             "casque_mineur",
             "capuche_sylvestre",
             "couronne_menhir",
-            "lunettes_astro"
+            "lunettes_astro",
+            "monocle_erudit",
+            "tricorne_reliquaire",
+            "couronne_saisons"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -741,7 +807,16 @@
         "authorOutfitId": {
           "type": "string",
           "description": "Optional 16-bit outfit of the author.",
-          "enum": ["arpenteur", "chroniqueur", "geomancien", "sylvestre", "ombres", "barde"],
+          "enum": [
+            "arpenteur",
+            "chroniqueur",
+            "geomancien",
+            "sylvestre",
+            "ombres",
+            "barde",
+            "almanach_solaire",
+            "chasseur_reliques"
+          ],
           "minLength": 1,
           "maxLength": 32
         },
@@ -916,7 +991,10 @@
             "casque_mineur",
             "capuche_sylvestre",
             "couronne_menhir",
-            "lunettes_astro"
+            "lunettes_astro",
+            "monocle_erudit",
+            "tricorne_reliquaire",
+            "couronne_saisons"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -924,7 +1002,16 @@
         "finderOutfitId": {
           "type": "string",
           "description": "Optional 16-bit outfit of the discoverer.",
-          "enum": ["arpenteur", "chroniqueur", "geomancien", "sylvestre", "ombres", "barde"],
+          "enum": [
+            "arpenteur",
+            "chroniqueur",
+            "geomancien",
+            "sylvestre",
+            "ombres",
+            "barde",
+            "almanach_solaire",
+            "chasseur_reliques"
+          ],
           "minLength": 1,
           "maxLength": 32
         },

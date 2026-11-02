@@ -214,7 +214,7 @@ export const BestiaryRencontresView: React.FC<{
 
       {/* Segmented Grimoire Sub-Navigation */}
       <div
-        className="inline-flex flex-wrap items-center bg-[#f8edd6] border-2 border-[#2b1a0e] jrpg-shadow"
+        className="max-w-full overflow-x-auto no-scrollbar inline-flex items-center bg-[#f8edd6] border-2 border-[#2b1a0e] jrpg-shadow"
         role="tablist"
         aria-label="Sections du Bestiaire et des Récits"
       >
@@ -223,13 +223,13 @@ export const BestiaryRencontresView: React.FC<{
           role="tab"
           aria-selected={subTab === 'bestiaire'}
           onClick={() => setSubTab('bestiaire')}
-          className={`min-h-[40px] px-3.5 py-2 text-xs font-bold inline-flex items-center gap-2 transition-colors whitespace-nowrap ${
+          className={`min-h-[42px] px-3 sm:px-3.5 py-2 text-xs font-bold inline-flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap shrink-0 ${
             subTab === 'bestiaire'
               ? 'bg-[#991b1b] text-[#fffbeb]'
               : 'text-[#24160c] hover:bg-amber-200/80'
           }`}
         >
-          <PixelUiIcon name="paw" className="w-4 h-4" />
+          <PixelUiIcon name="paw" className="w-4 h-4 shrink-0" />
           <span>Bestiaire</span>
           <span className="font-mono tabular-nums opacity-90">
             {observedSpeciesCount}/{totalSpeciesCount}
@@ -241,14 +241,15 @@ export const BestiaryRencontresView: React.FC<{
           role="tab"
           aria-selected={subTab === 'habitants'}
           onClick={() => setSubTab('habitants')}
-          className={`min-h-[40px] px-3.5 py-2 text-xs font-bold border-l-2 border-[#2b1a0e] inline-flex items-center gap-2 transition-colors whitespace-nowrap ${
+          className={`min-h-[42px] px-3 sm:px-3.5 py-2 text-xs font-bold border-l-2 border-[#2b1a0e] inline-flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap shrink-0 ${
             subTab === 'habitants'
               ? 'bg-[#991b1b] text-[#fffbeb]'
               : 'text-[#24160c] hover:bg-amber-200/80'
           }`}
         >
-          <PixelUiIcon name="quill" className="w-4 h-4" />
-          <span>Récits des habitants</span>
+          <PixelUiIcon name="quill" className="w-4 h-4 shrink-0" />
+          <span>Récits</span>
+          <span className="hidden sm:inline">des habitants</span>
           <span className="font-mono tabular-nums opacity-90">{humanEncounters.length}</span>
         </button>
 
@@ -257,16 +258,16 @@ export const BestiaryRencontresView: React.FC<{
           role="tab"
           aria-selected={subTab === 'rumeurs'}
           onClick={() => setSubTab('rumeurs')}
-          className={`min-h-[40px] px-3.5 py-2 text-xs font-bold border-l-2 border-[#2b1a0e] inline-flex items-center gap-2 transition-colors whitespace-nowrap ${
+          className={`min-h-[42px] px-3 sm:px-3.5 py-2 text-xs font-bold border-l-2 border-[#2b1a0e] inline-flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap shrink-0 ${
             subTab === 'rumeurs'
               ? 'bg-[#991b1b] text-[#fffbeb]'
               : 'text-[#24160c] hover:bg-amber-200/80'
           }`}
         >
-          <PixelUiIcon name="rumor" className="w-4 h-4" />
+          <PixelUiIcon name="rumor" className="w-4 h-4 shrink-0" />
           <span>Pistes & Rumeurs</span>
           <span className="font-mono tabular-nums opacity-90">
-            {activeRumors.length > 0 ? `${activeRumors.length} actives` : rumorLeads.length}
+            {activeRumors.length > 0 ? `${activeRumors.length}` : rumorLeads.length}
           </span>
         </button>
       </div>

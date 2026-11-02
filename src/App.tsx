@@ -17,7 +17,8 @@ import {
 import { PixelMapCanvas } from './components/PixelMapCanvas';
 import { ResilientPixelImage } from './components/ResilientPixelImage';
 import {
-  getCosmeticRewardForMission,
+  getCosmeticRewardsForMission,
+  getNewlyUnlockedCosmetics,
   resolveExplorerAppearance,
 } from './explorerAvatar';
 import {
@@ -61,6 +62,18 @@ import {
   saveSectorToBesace,
 } from './fogAndOffline';
 import { usePWAInstall } from './hooks/usePWAInstall';
+import { useScreenWakeLock } from './hooks/useWakeLock';
+import {
+  isVibrationSupported,
+  loadHapticsPreference,
+  saveHapticsPreference,
+  vibrateBuriedTreasureHot,
+  vibrateBuriedTreasureWarm,
+  vibrateMysterySealNearby,
+  vibrateRumorLeadNearby,
+  vibrateToggleTap,
+  vibrateUnlockCelebration,
+} from './mobileHaptics';
 import {
   BESTIARY_SPECIES_CATALOG,
   NpcRumorDraft,
@@ -108,7 +121,30 @@ const LazyGeocacheModal = React.lazy(() =>
     default: m.GeocacheModal,
   }))
 );
-import type { ProfileSectionTab } from './components/ExplorerProfileView';
+import {
+  ActiveHuntMapBanner,
+  AlmanacSeasonalPanel,
+  ClueTreasureHuntPanel,
+  ContextualRiddleModal,
+} from './components/AlmanacAndHuntsView';
+import {
+  AlmanacQuestEvalContext,
+  ContextualRiddle,
+  generateContextualRiddleForEntry,
+  generateSectorTreasureHunt,
+  loadClaimedAlmanacQuestIds,
+  loadCompletedHuntIds,
+  loadHuntVisitedStepMap,
+  loadSolvedRiddleIds,
+  resolveSeasonForDate,
+  saveClaimedAlmanacQuestIds,
+  saveCompletedHuntIds,
+  saveHuntVisitedStepMap,
+  saveSolvedRiddleIds,
+  SEASON_META,
+  SectorAlmanacPayload,
+} from './almanacAndQuests';
+import type { ProfileSectionTab, WorkshopSlotTab } from './components/ExplorerProfileView';
 import { TelluricDetectorCard } from './components/TreasuresAndGeocachesView';
 import { isMissionUnlocked, MISSIONS_CATALOG } from './missions';
 import { resolveRegionalTheme } from './regionalBiomes';
@@ -213,6 +249,7 @@ const INITIAL_PROGRESS: ExplorerProgress = {
   outfitId: 'arpenteur',
   toolId: 'lanterne_laiton',
   packId: 'besace_cuir',
+  familiarId: 'aucun',
   walkedMeters: 0,
   totalXp: 0,
   xpHistoire: 0,
@@ -221,6 +258,9 @@ const INITIAL_PROGRESS: ExplorerProgress = {
   xpEtrange: 0,
   xpLegende: 0,
   discoveriesCount: 0,
+  solvedRiddlesCount: 0,
+  completedHuntsCount: 0,
+  claimedAlmanacCount: 0,
   completedMissions: [],
 };
 
@@ -242,11 +282,12 @@ interface CutInAlert {
   emblemSrc?: string;
   poiId?: string;
   unlockedCosmeticName?: string;
+  unlockedCosmeticSlot?: WorkshopSlotTab;
   unlockedTrophyId?: TrophyId;
   openReliquary?: boolean;
 }
 
-type MobileDrawerMode = 'none' | 'filters' | 'travel' | 'signals' | 'ios-install';
+type MobileDrawerMode = 'none' | 'filters' | 'travel' | 'signals' | 'install-app';
 
 function computeBearingDeg(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const toRad = (d: number) => (d * Math.PI) / 180;
@@ -410,7 +451,20 @@ const BrassPixelCompass: React.FC<{ bearingDeg: number; hot: boolean; compact?: 
 );
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('carte');
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (typeof window === 'undefined') return 'carte';
+    const tabParam = new URLSearchParams(window.location.search).get('tab');
+    if (
+      tabParam === 'carte' ||
+      tabParam === 'carnet' ||
+      tabParam === 'missions' ||
+      tabParam === 'branches' ||
+      tabParam === 'profil'
+    ) {
+      return tabParam;
+    }
+    return 'carte';
+  });
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [cloudOnline, setCloudOnline] = useState<boolean>(
@@ -452,7 +506,23 @@ export default function App() {
   });
   const [mobileJournalDetailOpen, setMobileJournalDetailOpen] = useState(false);
   const [fullscreenModalPoiId, setFullscreenModalPoiId] = useState<string | null>(null);
-  const { isInstallable, isInstalled, isIOS, promptInstall } = usePWAInstall();
+  const {
+    isInstallable,
+    isInstalled,
+    isAndroid,
+    isIOS,
+    isEmbeddedIframe,
+    promptInstall,
+  } = usePWAInstall();
+  const {
+    wakeLockSupported,
+    wakeLockWanted,
+    wakeLockActive,
+    setWakeLockWanted,
+    toggleWakeLock,
+  } = useScreenWakeLock();
+  const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(() => loadHapticsPreference());
+  const [urlCopiedNotice, setUrlCopiedNotice] = useState<boolean>(false);
 
   // Geolocation, Topological A* Walk Queue, Weather & Living World State
   const [playerPos, setPlayerPos] = useState<{ lat: number; lng: number }>({
@@ -511,8 +581,9 @@ export default function App() {
     surface: 'stone',
     nearWater: false,
   });
-  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
-  const proximityChimeIdsRef = useRef<Set<string>>(new Set());
+  const hapticSealIdsRef = useRef<Set<string>>(new Set());
+  const hapticRumorIdsRef = useRef<Set<string>>(new Set());
+  const hapticTreasureStageRef = useRef<Map<string, 'warm' | 'hot'>>(new Map());
 
   // Multi-Source Sector, Real Z15 Topology, Subterranean Cavities, DEM Elevation, Weather & Offline Besace
   const [pois, setPois] = useState<PoiItem[]>([]);
@@ -580,6 +651,8 @@ export default function App() {
     loadVisitedContractSteps()
   );
   const [profileInitialTab, setProfileInitialTab] = useState<ProfileSectionTab>('atelier');
+  const [profileInitialWorkshopSlot, setProfileInitialWorkshopSlot] =
+    useState<WorkshopSlotTab>('familiar');
   const [encounters, setEncounters] = useState<NpcEncounterRecord[]>(() =>
     loadSavedEncounters()
   );
@@ -602,6 +675,28 @@ export default function App() {
     { mode: 'bury' } | { mode: 'inspect'; cache: ExplorerGeocacheRecord } | null
   >(null);
   const [postcardSubject, setPostcardSubject] = useState<PostcardSubject | null>(null);
+  const [missionsSubTab, setMissionsSubTab] = useState<
+    'almanach' | 'chasse' | 'contrats' | 'guildes'
+  >('almanach');
+  const [almanacData, setAlmanacData] = useState<SectorAlmanacPayload | null>(null);
+  const [loadingAlmanac, setLoadingAlmanac] = useState<boolean>(false);
+  const [almanacPreviewDate, setAlmanacPreviewDate] = useState<{
+    month: number;
+    day: number;
+  } | null>(null);
+  const [solvedRiddleIds, setSolvedRiddleIds] = useState<Set<string>>(() => loadSolvedRiddleIds());
+  const [claimedAlmanacQuests, setClaimedAlmanacQuests] = useState<Set<string>>(() =>
+    loadClaimedAlmanacQuestIds()
+  );
+  const [completedHuntIds, setCompletedHuntIds] = useState<Set<string>>(() =>
+    loadCompletedHuntIds()
+  );
+  const [huntStepMap, setHuntStepMap] = useState<Record<string, number>>(() =>
+    loadHuntVisitedStepMap()
+  );
+  const [trackingHuntOnMap, setTrackingHuntOnMap] = useState<boolean>(false);
+  const [activeRiddleEntry, setActiveRiddleEntry] = useState<UnlockedEntry | null>(null);
+  const hapticHuntStageRef = useRef<Map<string, 'warm' | 'hot'>>(new Map());
   const [soundscapeEnabled, setSoundscapeEnabled] = useState<boolean>(() => {
     try {
       return localStorage.getItem('terra16_soundscape_v1') !== '0';
@@ -673,6 +768,18 @@ export default function App() {
     }
   }, [isFullscreenMap, enterFullscreenMap, exitFullscreenMap]);
 
+  const openWorkshopAtSlot = useCallback(
+    (slot: WorkshopSlotTab = 'familiar') => {
+      setActiveRiddleEntry(null);
+      setUiCollapsed(false);
+      if (isFullscreenMap) exitFullscreenMap();
+      setProfileInitialTab('atelier');
+      setProfileInitialWorkshopSlot(slot);
+      setActiveTab('profil');
+    },
+    [isFullscreenMap, exitFullscreenMap]
+  );
+
   useEffect(() => {
     const onFsChange = () => {
       const docWithWebkit = document as Document & { webkitFullscreenElement?: Element | null };
@@ -698,7 +805,9 @@ export default function App() {
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (geocacheModal) {
+        if (activeRiddleEntry) {
+          setActiveRiddleEntry(null);
+        } else if (geocacheModal) {
           setGeocacheModal(null);
         } else if (postcardSubject) {
           setPostcardSubject(null);
@@ -720,6 +829,7 @@ export default function App() {
     window.addEventListener('keydown', onEsc);
     return () => window.removeEventListener('keydown', onEsc);
   }, [
+    activeRiddleEntry,
     geocacheModal,
     postcardSubject,
     fullscreenModalPoiId,
@@ -806,6 +916,22 @@ export default function App() {
   }, [visitedContractSteps]);
 
   useEffect(() => {
+    saveSolvedRiddleIds(solvedRiddleIds);
+  }, [solvedRiddleIds]);
+
+  useEffect(() => {
+    saveClaimedAlmanacQuestIds(claimedAlmanacQuests);
+  }, [claimedAlmanacQuests]);
+
+  useEffect(() => {
+    saveCompletedHuntIds(completedHuntIds);
+  }, [completedHuntIds]);
+
+  useEffect(() => {
+    saveHuntVisitedStepMap(huntStepMap);
+  }, [huntStepMap]);
+
+  useEffect(() => {
     try {
       localStorage.setItem('terra16_soundscape_v1', soundscapeEnabled ? '1' : '0');
     } catch {
@@ -814,8 +940,20 @@ export default function App() {
   }, [soundscapeEnabled]);
 
   useEffect(() => {
+    saveHapticsPreference(hapticsEnabled);
+  }, [hapticsEnabled]);
+
+  useEffect(() => {
+    if (!auth) {
+      setUser(null);
+      setCloudOnline(false);
+      setAuthReady(true);
+      return;
+    }
+
     let active = true;
-    const unsubAuth = onAuthStateChanged(auth, async (currentUser) => {
+    const authInstance = auth;
+    const unsubAuth = onAuthStateChanged(authInstance, async (currentUser) => {
       if (!currentUser) {
         if (!active) return;
         setUser(null);
@@ -833,7 +971,7 @@ export default function App() {
     });
 
     const handleOnline = async () => {
-      const check = await validateExplorerAuthSession(auth.currentUser);
+      const check = await validateExplorerAuthSession(authInstance.currentUser);
       if (!active) return;
       setCloudOnline(check.cloudReachable);
       setUser(check.validUser);
@@ -874,6 +1012,18 @@ export default function App() {
             setProgress((prev) => ({
               ...cloudProfile,
               walkedMeters: Math.max(cloudProfile.walkedMeters || 0, prev.walkedMeters || 0),
+              solvedRiddlesCount: Math.max(
+                cloudProfile.solvedRiddlesCount || 0,
+                prev.solvedRiddlesCount || 0
+              ),
+              completedHuntsCount: Math.max(
+                cloudProfile.completedHuntsCount || 0,
+                prev.completedHuntsCount || 0
+              ),
+              claimedAlmanacCount: Math.max(
+                cloudProfile.claimedAlmanacCount || 0,
+                prev.claimedAlmanacCount || 0
+              ),
             })),
           (cloudEntries) => setEntries(cloudEntries),
           (cloudSpecimens) => setSpecimens(cloudSpecimens),
@@ -926,6 +1076,37 @@ export default function App() {
 
   const guildPerks = useMemo(() => computeGuildPerks(progress), [progress]);
   const explorerAppearance = useMemo(() => resolveExplorerAppearance(progress), [progress]);
+
+  // Keep progress counters reconciled with local sets for existing saves
+  useEffect(() => {
+    const targetRiddles = Math.max(progress.solvedRiddlesCount || 0, solvedRiddleIds.size);
+    const targetHunts = Math.max(progress.completedHuntsCount || 0, completedHuntIds.size);
+    const targetAlmanac = Math.max(progress.claimedAlmanacCount || 0, claimedAlmanacQuests.size);
+    if (
+      targetRiddles !== (progress.solvedRiddlesCount || 0) ||
+      targetHunts !== (progress.completedHuntsCount || 0) ||
+      targetAlmanac !== (progress.claimedAlmanacCount || 0)
+    ) {
+      const synced: ExplorerProgress = {
+        ...progress,
+        solvedRiddlesCount: targetRiddles,
+        completedHuntsCount: targetHunts,
+        claimedAlmanacCount: targetAlmanac,
+      };
+      setProgress(synced);
+      if (user && cloudOnline) {
+        syncProgressToCloud(user.uid, synced).catch(handleCloudSyncError);
+      }
+    }
+  }, [
+    progress,
+    solvedRiddleIds.size,
+    completedHuntIds.size,
+    claimedAlmanacQuests.size,
+    user,
+    cloudOnline,
+    handleCloudSyncError,
+  ]);
 
   // Sync callsign input when cloud profile loads
   useEffect(() => {
@@ -980,39 +1161,27 @@ export default function App() {
     }
   }, [playerPos.lat, playerPos.lng, elevation]);
 
-  // Mode Boussole en poche: Screen WakeLock management (safe inside iframes & mobile browsers)
+  // Automatically activate Screen Wake Lock when "Boussole en poche" is switched on
   useEffect(() => {
-    let active = true;
-    const navWithWake = navigator as Navigator & {
-      wakeLock?: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> };
-    };
-
-    if (pocketCompassMode && navWithWake.wakeLock) {
-      navWithWake.wakeLock
-        .request('screen')
-        .then((sentinel) => {
-          if (!active) {
-            sentinel.release().catch(() => {});
-          } else {
-            wakeLockRef.current = sentinel;
-          }
-        })
-        .catch(() => {
-          // Gracefully ignore WakeLock permission restrictions in embedded frames
-        });
-    } else if (!pocketCompassMode && wakeLockRef.current) {
-      wakeLockRef.current.release().catch(() => {});
-      wakeLockRef.current = null;
+    if (pocketCompassMode && !wakeLockWanted) {
+      setWakeLockWanted(true);
     }
+  }, [pocketCompassMode, wakeLockWanted, setWakeLockWanted]);
 
-    return () => {
-      active = false;
-      if (wakeLockRef.current) {
-        wakeLockRef.current.release().catch(() => {});
-        wakeLockRef.current = null;
+  const handleToggleScreenAwake = useCallback(async () => {
+    vibrateToggleTap(hapticsEnabled);
+    await toggleWakeLock();
+  }, [hapticsEnabled, toggleWakeLock]);
+
+  const handleToggleHaptics = useCallback(() => {
+    setHapticsEnabled((prev) => {
+      const next = !prev;
+      if (next) {
+        vibrateToggleTap(true);
       }
-    };
-  }, [pocketCompassMode]);
+      return next;
+    });
+  }, []);
 
   const prevAppliedSectorCenterRef = useRef<{ lat: number; lng: number } | null>(null);
   const sectorClientCacheRef = useRef<
@@ -1518,6 +1687,8 @@ export default function App() {
       let newlyCompletedTitle = '';
       let newlyCompletedBonus = 0;
       let newlyCompletedRewardName = '';
+      let newlyCompletedRewardSlot: WorkshopSlotTab | undefined;
+      let newlyCompletedHasFamiliar = false;
 
       for (const mission of MISSIONS_CATALOG) {
         if (updated.completedMissions.includes(mission.id)) continue;
@@ -1536,8 +1707,13 @@ export default function App() {
           }
           newlyCompletedTitle = mission.title;
           newlyCompletedBonus = mission.xpBonus;
-          const reward = getCosmeticRewardForMission(mission.id);
-          newlyCompletedRewardName = reward ? reward.name : '';
+          const rewards = getCosmeticRewardsForMission(mission.id);
+          newlyCompletedRewardName = rewards.map((r) => r.name).join(' & ');
+          newlyCompletedHasFamiliar = rewards.some((r) => r.slot === 'familiar');
+          const familiarReward = rewards.find((r) => r.slot === 'familiar');
+          newlyCompletedRewardSlot = familiarReward
+            ? 'familiar'
+            : rewards[0]?.slot;
         }
       }
 
@@ -1547,13 +1723,16 @@ export default function App() {
           id: `mission_${Date.now()}`,
           kind: 'mission',
           kicker: newlyCompletedRewardName
-            ? 'Quête scellée · Nouvel équipement cosmétique débloqué !'
+            ? newlyCompletedHasFamiliar
+              ? 'Quête scellée · Familier & Cosmétique débloqués !'
+              : 'Quête scellée · Nouvel équipement cosmétique débloqué !'
             : 'Quête scellée au Grimoire !',
           title: newlyCompletedTitle,
           subtitle: newlyCompletedRewardName
-            ? `+${newlyCompletedBonus} XP · Équipement débloqué : « ${newlyCompletedRewardName} »`
+            ? `+${newlyCompletedBonus} XP · Débloqué : « ${newlyCompletedRewardName} »`
             : `Récompense de maîtrise accordée : +${newlyCompletedBonus} XP`,
           unlockedCosmeticName: newlyCompletedRewardName || undefined,
+          unlockedCosmeticSlot: newlyCompletedRewardSlot,
         });
       }
 
@@ -1653,6 +1832,7 @@ export default function App() {
     });
 
     playDiscoveryFanfare(muted);
+    vibrateUnlockCelebration(hapticsEnabled);
 
     const combinedEntries = [...newEntries, ...entries];
     setEntries(combinedEntries);
@@ -1707,6 +1887,7 @@ export default function App() {
     progress,
     evaluateMissionsWithEntries,
     muted,
+    hapticsEnabled,
     user,
     cloudOnline,
     handleCloudSyncError,
@@ -1879,7 +2060,9 @@ export default function App() {
     setWalkQueue([]);
     setExpeditionStops([]);
     unlockingGuardRef.current.clear();
-    proximityChimeIdsRef.current.clear();
+    hapticSealIdsRef.current.clear();
+    hapticRumorIdsRef.current.clear();
+    hapticTreasureStageRef.current.clear();
     knownUnlockedTrophiesRef.current = new Set();
     setCutIn(null);
     setSelectedPoiId(null);
@@ -1911,6 +2094,20 @@ export default function App() {
     const emptyVisitedSteps = new Set<string>();
     setVisitedContractSteps(emptyVisitedSteps);
     saveVisitedContractSteps(emptyVisitedSteps);
+    const emptyRiddles = new Set<string>();
+    setSolvedRiddleIds(emptyRiddles);
+    saveSolvedRiddleIds(emptyRiddles);
+    const emptyAlmanacQuests = new Set<string>();
+    setClaimedAlmanacQuests(emptyAlmanacQuests);
+    saveClaimedAlmanacQuestIds(emptyAlmanacQuests);
+    const emptyHunts = new Set<string>();
+    setCompletedHuntIds(emptyHunts);
+    saveCompletedHuntIds(emptyHunts);
+    setHuntStepMap({});
+    saveHuntVisitedStepMap({});
+    setTrackingHuntOnMap(false);
+    setActiveRiddleEntry(null);
+    hapticHuntStageRef.current.clear();
     setSessionMeters(0);
     setSessionElevGainM(0);
     setBreadcrumbTrail([{ lat: playerPos.lat, lng: playerPos.lng }]);
@@ -2006,10 +2203,26 @@ export default function App() {
   };
 
   const handleInstallClick = async () => {
+    vibrateToggleTap(hapticsEnabled);
     if (isInstallable) {
-      await promptInstall();
-    } else if (isIOS) {
-      setMobileDrawer('ios-install');
+      const accepted = await promptInstall();
+      if (!accepted) {
+        setMobileDrawer('install-app');
+      }
+    } else {
+      setMobileDrawer('install-app');
+    }
+  };
+
+  const handleCopyDirectAppUrl = async () => {
+    try {
+      const targetUrl = window.location.origin;
+      await navigator.clipboard.writeText(targetUrl);
+      vibrateToggleTap(hapticsEnabled);
+      setUrlCopiedNotice(true);
+      window.setTimeout(() => setUrlCopiedNotice(false), 2800);
+    } catch {
+      // Ignore clipboard permission restrictions
     }
   };
 
@@ -2059,32 +2272,72 @@ export default function App() {
     [sortedNearbyPois]
   );
 
-  // Pocket Compass Haptic + Crystalline Proximity Chime when approaching an undiscovered '?' seal
+  // Tactile Proximity Haptics + Crystalline Chime when walking near an undiscovered '?' seal (<= 135 m) or active NPC rumor (<= 150 m)
   useEffect(() => {
-    if (!nearestUndiscovered || nearestUndiscovered.distance > 145) return;
-    const pid = nearestUndiscovered.poi.id;
-    if (proximityChimeIdsRef.current.has(pid)) return;
-    proximityChimeIdsRef.current.add(pid);
-
-    if (pocketCompassMode) {
-      playProximityChimeSfx(muted);
-      try {
-        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          navigator.vibrate([70, 45, 110]);
-        }
-      } catch {
-        // Ignore vibration restrictions
+    // Re-arm seal haptics if explorer walked > 220 m away or unlocked the POI
+    for (const armedId of Array.from(hapticSealIdsRef.current)) {
+      if (unlockedIds.has(armedId)) {
+        hapticSealIdsRef.current.delete(armedId);
+        continue;
       }
-    } else if (!muted) {
-      try {
-        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          navigator.vibrate(40);
-        }
-      } catch {
-        // Ignore vibration restrictions
+      const match = activeLayerPois.find((p) => p.id === armedId);
+      if (
+        !match ||
+        haversineMeters(playerPos.lat, playerPos.lng, match.lat, match.lng) > 220
+      ) {
+        hapticSealIdsRef.current.delete(armedId);
       }
     }
-  }, [nearestUndiscovered, pocketCompassMode, muted]);
+
+    if (nearestUndiscovered && nearestUndiscovered.distance <= 135) {
+      const pid = nearestUndiscovered.poi.id;
+      if (!hapticSealIdsRef.current.has(pid)) {
+        hapticSealIdsRef.current.add(pid);
+        vibrateMysterySealNearby(hapticsEnabled);
+        if (pocketCompassMode) {
+          playProximityChimeSfx(muted);
+        }
+      }
+    }
+
+    // Re-arm & trigger active NPC rumor proximity pulses (<= 150 m)
+    for (const armedLeadId of Array.from(hapticRumorIdsRef.current)) {
+      const lead = rumorLeads.find((l) => l.id === armedLeadId);
+      if (
+        !lead ||
+        lead.verified ||
+        haversineMeters(playerPos.lat, playerPos.lng, lead.lat, lead.lng) > 230
+      ) {
+        hapticRumorIdsRef.current.delete(armedLeadId);
+      }
+    }
+
+    for (const lead of rumorLeads) {
+      if (lead.verified) continue;
+      if (Boolean(lead.isSubterranean) !== subterraneanMode) continue;
+      if (hapticRumorIdsRef.current.has(lead.id)) continue;
+      const dist = haversineMeters(playerPos.lat, playerPos.lng, lead.lat, lead.lng);
+      if (dist <= 150) {
+        hapticRumorIdsRef.current.add(lead.id);
+        vibrateRumorLeadNearby(hapticsEnabled);
+        if (pocketCompassMode) {
+          playProximityChimeSfx(muted);
+        }
+        break;
+      }
+    }
+  }, [
+    nearestUndiscovered,
+    activeLayerPois,
+    unlockedIds,
+    rumorLeads,
+    subterraneanMode,
+    playerPos.lat,
+    playerPos.lng,
+    hapticsEnabled,
+    pocketCompassMode,
+    muted,
+  ]);
 
   const toggleExpeditionStop = useCallback((poi: PoiItem) => {
     setExpeditionStops((prev) => {
@@ -2522,6 +2775,68 @@ export default function App() {
     return Array.from(byId.values());
   }, [localFallbackGeocaches, cloudGeocaches]);
 
+  // Tactile Telluric Detector Haptics when walking near buried Archivist Chests or Explorer Geocaches
+  useEffect(() => {
+    const activeTargets: Array<{ key: string; lat: number; lng: number }> = [];
+    for (const ch of worldChests) {
+      if (openedChestIdSet.has(ch.chestId)) continue;
+      if (Boolean(ch.isSubterranean) !== subterraneanMode) continue;
+      activeTargets.push({ key: `chest_${ch.chestId}`, lat: ch.lat, lng: ch.lng });
+    }
+    for (const gc of mergedNearbyGeocaches) {
+      if (foundGeocacheIds.has(gc.id)) continue;
+      if (user && gc.authorId === user.uid) continue;
+      if (Boolean(gc.isSubterranean) !== subterraneanMode) continue;
+      activeTargets.push({ key: `cache_${gc.id}`, lat: gc.lat, lng: gc.lng });
+    }
+
+    const activeKeyMap = new Map(activeTargets.map((t) => [t.key, t]));
+    for (const [key] of Array.from(hapticTreasureStageRef.current.entries())) {
+      const target = activeKeyMap.get(key);
+      if (
+        !target ||
+        haversineMeters(playerPos.lat, playerPos.lng, target.lat, target.lng) > 235
+      ) {
+        hapticTreasureStageRef.current.delete(key);
+      }
+    }
+
+    let triggeredHot = false;
+    let triggeredWarm = false;
+    for (const t of activeTargets) {
+      const dist = haversineMeters(playerPos.lat, playerPos.lng, t.lat, t.lng);
+      const prevStage = hapticTreasureStageRef.current.get(t.key);
+      if (dist <= 55 && prevStage !== 'hot') {
+        hapticTreasureStageRef.current.set(t.key, 'hot');
+        triggeredHot = true;
+      } else if (dist <= 160 && !prevStage) {
+        hapticTreasureStageRef.current.set(t.key, 'warm');
+        triggeredWarm = true;
+      }
+    }
+
+    if (triggeredHot) {
+      vibrateBuriedTreasureHot(hapticsEnabled);
+      if (pocketCompassMode) {
+        playProximityChimeSfx(muted);
+      }
+    } else if (triggeredWarm) {
+      vibrateBuriedTreasureWarm(hapticsEnabled);
+    }
+  }, [
+    worldChests,
+    openedChestIdSet,
+    mergedNearbyGeocaches,
+    foundGeocacheIds,
+    user,
+    subterraneanMode,
+    playerPos.lat,
+    playerPos.lng,
+    hapticsEnabled,
+    pocketCompassMode,
+    muted,
+  ]);
+
   const handleOpenArchivistChest = useCallback(
     (chest: WorldArchivistChestNode) => {
       if (openedChestIdSet.has(chest.chestId)) {
@@ -2532,6 +2847,7 @@ export default function App() {
       }
 
       playChestOpenSfx(muted);
+      vibrateUnlockCelebration(hapticsEnabled);
       const record: OpenedArchivistChestRecord = {
         chestId: chest.chestId,
         archetype: chest.archetype,
@@ -2595,6 +2911,7 @@ export default function App() {
     [
       openedChestIdSet,
       muted,
+      hapticsEnabled,
       localAtmosphereLabel,
       user,
       cloudOnline,
@@ -2610,6 +2927,7 @@ export default function App() {
     (cache: ExplorerGeocacheRecord) => {
       if (foundGeocacheIds.has(cache.id)) return;
       playChestOpenSfx(muted);
+      vibrateUnlockCelebration(hapticsEnabled);
       setFoundGeocacheIds((prev) => {
         const next = new Set(prev);
         next.add(cache.id);
@@ -2640,7 +2958,7 @@ export default function App() {
         openReliquary: true,
       });
     },
-    [foundGeocacheIds, muted, user, cloudOnline, handleCloudSyncError]
+    [foundGeocacheIds, muted, hapticsEnabled, user, cloudOnline, handleCloudSyncError]
   );
 
   const handleFocusTreasureTargetOnMap = useCallback(
@@ -2893,6 +3211,329 @@ export default function App() {
     [simulationMode, surfacePois, subterraneanPois]
   );
 
+  // ==========================================================================
+  // PACK E : ALMANACH CALENDAIRE (GLOBAL + LOCAL), ÉNIGMES & CHASSES AUX TRÉSORS
+  // ==========================================================================
+  const almanacGeoKey = `${Math.round(playerPos.lat * 25) / 25}_${Math.round(playerPos.lng * 25) / 25}`;
+  const almanacDateKey = almanacPreviewDate
+    ? `${almanacPreviewDate.month}_${almanacPreviewDate.day}`
+    : 'today';
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoadingAlmanac(true);
+    const params = new URLSearchParams({
+      lat: playerPos.lat.toFixed(4),
+      lng: playerPos.lng.toFixed(4),
+    });
+    if (almanacPreviewDate) {
+      params.set('month', String(almanacPreviewDate.month));
+      params.set('day', String(almanacPreviewDate.day));
+    }
+    fetch(`/api/almanac?${params.toString()}`, { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload: SectorAlmanacPayload | null) => {
+        if (payload && !controller.signal.aborted) {
+          setAlmanacData(payload);
+        }
+      })
+      .catch(() => {
+        // Offline graceful fallback
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingAlmanac(false);
+      });
+
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [almanacGeoKey, almanacDateKey]);
+
+  const almanacEvalContext = useMemo<AlmanacQuestEvalContext>(() => {
+    const hour = new Date().getHours();
+    const isNightOrDusk =
+      effectiveTimeForContracts === 'dusk' ||
+      effectiveTimeForContracts === 'night' ||
+      hour >= 18 ||
+      hour < 7;
+    return {
+      entries,
+      solvedRiddleIds,
+      completedHuntIds,
+      weather,
+      isNightOrDusk,
+    };
+  }, [entries, solvedRiddleIds, completedHuntIds, weather, effectiveTimeForContracts]);
+
+  const handleClaimAlmanacReward = useCallback(
+    (questId: string, title: string, category: ExplorationCategory, xpBonus: number) => {
+      if (claimedAlmanacQuests.has(questId)) return;
+      const nextSetSize = claimedAlmanacQuests.size + 1;
+      setClaimedAlmanacQuests((prev) => {
+        const next = new Set(prev);
+        next.add(questId);
+        return next;
+      });
+      vibrateUnlockCelebration(hapticsEnabled);
+
+      const nextAlmanacCount = Math.max((progress.claimedAlmanacCount || 0) + 1, nextSetSize);
+      const nextProgress: ExplorerProgress = {
+        ...progress,
+        totalXp: progress.totalXp + xpBonus,
+        xpHistoire: progress.xpHistoire + (category === 'histoire' ? xpBonus : 0),
+        xpGeographie: progress.xpGeographie + (category === 'geographie' ? xpBonus : 0),
+        xpEcosysteme: progress.xpEcosysteme + (category === 'ecosysteme' ? xpBonus : 0),
+        xpEtrange: progress.xpEtrange + (category === 'etrange' ? xpBonus : 0),
+        xpLegende: (progress.xpLegende || 0) + (category === 'legende' ? xpBonus : 0),
+        claimedAlmanacCount: nextAlmanacCount,
+      };
+      const newlyUnlocked = getNewlyUnlockedCosmetics(progress, nextProgress, entries, entries);
+      setProgress(nextProgress);
+      if (user && cloudOnline) {
+        syncProgressToCloud(user.uid, nextProgress).catch(handleCloudSyncError);
+      }
+
+      const hasFamiliar = newlyUnlocked.some((item) => item.slot === 'familiar');
+      const rewardNames = newlyUnlocked.map((item) => item.name).join(' & ');
+      const primarySlot: WorkshopSlotTab | undefined =
+        newlyUnlocked.find((item) => item.slot === 'familiar')?.slot || newlyUnlocked[0]?.slot;
+
+      setCutIn({
+        id: `almanac_${questId}_${Date.now()}`,
+        kind: 'mission',
+        kicker: rewardNames
+          ? hasFamiliar
+            ? 'Quête de l’Almanach · Nouveau Familier débloqué !'
+            : 'Quête de l’Almanach · Nouvel équipement débloqué !'
+          : 'Quête de l’Almanach scellée !',
+        title,
+        subtitle: rewardNames
+          ? `+${xpBonus} XP ${CATEGORY_META[category].shortLabel} · Récompense : « ${rewardNames} »`
+          : `+${xpBonus} XP ${CATEGORY_META[category].shortLabel} accordés au Grimoire`,
+        unlockedCosmeticName: rewardNames || undefined,
+        unlockedCosmeticSlot: primarySlot,
+      });
+    },
+    [claimedAlmanacQuests, progress, entries, hapticsEnabled, user, cloudOnline, handleCloudSyncError]
+  );
+
+  const activeRiddle = useMemo(() => {
+    if (!activeRiddleEntry) return null;
+    const matchedPoi =
+      [...surfacePois, ...subterraneanPois].find((p) => p.id === activeRiddleEntry.poiId) || null;
+    return generateContextualRiddleForEntry({
+      entry: activeRiddleEntry,
+      sectorPoi: matchedPoi,
+      bedrock,
+      elevation,
+    });
+  }, [activeRiddleEntry, surfacePois, subterraneanPois, bedrock, elevation]);
+
+  const handleSolveContextualRiddle = useCallback(
+    (riddle: ContextualRiddle, firstTry: boolean) => {
+      if (solvedRiddleIds.has(riddle.poiId)) return;
+      const earnedXp = firstTry ? riddle.xpBonus : Math.max(15, Math.round(riddle.xpBonus * 0.6));
+      const nextSolvedSize = solvedRiddleIds.size + 1;
+      setSolvedRiddleIds((prev) => {
+        const next = new Set(prev);
+        next.add(riddle.poiId);
+        return next;
+      });
+      vibrateUnlockCelebration(hapticsEnabled);
+
+      const nextSolvedCount = Math.max((progress.solvedRiddlesCount || 0) + 1, nextSolvedSize);
+      const nextProgress: ExplorerProgress = {
+        ...progress,
+        totalXp: progress.totalXp + earnedXp,
+        xpHistoire: progress.xpHistoire + (riddle.category === 'histoire' ? earnedXp : 0),
+        xpGeographie: progress.xpGeographie + (riddle.category === 'geographie' ? earnedXp : 0),
+        xpEcosysteme: progress.xpEcosysteme + (riddle.category === 'ecosysteme' ? earnedXp : 0),
+        xpEtrange: progress.xpEtrange + (riddle.category === 'etrange' ? earnedXp : 0),
+        xpLegende: (progress.xpLegende || 0) + (riddle.category === 'legende' ? earnedXp : 0),
+        solvedRiddlesCount: nextSolvedCount,
+      };
+      const newlyUnlocked = getNewlyUnlockedCosmetics(progress, nextProgress, entries, entries);
+      setProgress(nextProgress);
+      if (user && cloudOnline) {
+        syncProgressToCloud(user.uid, nextProgress).catch(handleCloudSyncError);
+      }
+
+      if (newlyUnlocked.length > 0) {
+        const hasFamiliar = newlyUnlocked.some((item) => item.slot === 'familiar');
+        const rewardNames = newlyUnlocked.map((item) => item.name).join(' & ');
+        const primarySlot: WorkshopSlotTab =
+          newlyUnlocked.find((item) => item.slot === 'familiar')?.slot || newlyUnlocked[0].slot;
+        setCutIn({
+          id: `riddle_unlock_${riddle.poiId}_${Date.now()}`,
+          kind: 'mission',
+          kicker: hasFamiliar
+            ? 'Sceau d’Érudition · Nouveau Familier débloqué !'
+            : 'Sceau d’Érudition · Cosmétique débloqué !',
+          title: rewardNames,
+          subtitle: `+${earnedXp} XP · Énigme de « ${riddle.poiName} » percée (${nextSolvedCount} résolue${
+            nextSolvedCount > 1 ? 's' : ''
+          })`,
+          unlockedCosmeticName: rewardNames,
+          unlockedCosmeticSlot: primarySlot,
+        });
+      }
+    },
+    [solvedRiddleIds, progress, entries, hapticsEnabled, user, cloudOnline, handleCloudSyncError]
+  );
+
+  const currentSectorHunt = useMemo(
+    () =>
+      generateSectorTreasureHunt({
+        centerLat: sectorAnchorLat,
+        centerLng: sectorAnchorLng,
+        surfacePois,
+        subterraneanPois,
+        terrain,
+        elevation,
+        localityName: almanacData?.locality.commune || undefined,
+      }),
+    [
+      sectorAnchorLat,
+      sectorAnchorLng,
+      surfacePois,
+      subterraneanPois,
+      terrain,
+      elevation,
+      almanacData?.locality.commune,
+    ]
+  );
+
+  const currentHuntStepIdx = currentSectorHunt
+    ? huntStepMap[currentSectorHunt.huntId] || 0
+    : 0;
+  const isCurrentHuntCompleted = Boolean(
+    currentSectorHunt && completedHuntIds.has(currentSectorHunt.huntId)
+  );
+
+  const handleAdvanceCurrentHuntStep = useCallback(() => {
+    if (!currentSectorHunt || isCurrentHuntCompleted) return;
+    const stepIdx = huntStepMap[currentSectorHunt.huntId] || 0;
+    const step = currentSectorHunt.steps[stepIdx];
+    if (!step) return;
+
+    if (stepIdx + 1 < currentSectorHunt.steps.length) {
+      playDiscoveryFanfare(muted);
+      vibrateUnlockCelebration(hapticsEnabled);
+      setHuntStepMap((prev) => ({
+        ...prev,
+        [currentSectorHunt.huntId]: stepIdx + 1,
+      }));
+      setCutIn({
+        id: `hunt_step_${currentSectorHunt.huntId}_${stepIdx}`,
+        kind: 'discovery',
+        kicker: `Piste au Trésor · Jalon ${stepIdx + 1}/${currentSectorHunt.steps.length} trouvé !`,
+        title: step.trueName,
+        subtitle: 'La strophe suivante du parchemin vient de se révéler !',
+        emblemSrc: CATEGORY_META[step.category].emblemSrc,
+      });
+      return;
+    }
+
+    // Final step reached!
+    playMissionFanfare(muted);
+    vibrateUnlockCelebration(hapticsEnabled);
+    setHuntStepMap((prev) => ({
+      ...prev,
+      [currentSectorHunt.huntId]: currentSectorHunt.steps.length,
+    }));
+    const nextHuntsSize = completedHuntIds.size + 1;
+    setCompletedHuntIds((prev) => {
+      const next = new Set(prev);
+      next.add(currentSectorHunt.huntId);
+      return next;
+    });
+    setTrackingHuntOnMap(false);
+
+    const xpBonus = currentSectorHunt.xpReward;
+    const nextHuntsCount = Math.max((progress.completedHuntsCount || 0) + 1, nextHuntsSize);
+    const nextProgress: ExplorerProgress = {
+      ...progress,
+      totalXp: progress.totalXp + xpBonus,
+      xpGeographie: progress.xpGeographie + Math.round(xpBonus * 0.5),
+      xpHistoire: progress.xpHistoire + Math.round(xpBonus * 0.5),
+      completedHuntsCount: nextHuntsCount,
+    };
+    const newlyUnlocked = getNewlyUnlockedCosmetics(progress, nextProgress, entries, entries);
+    setProgress(nextProgress);
+    if (user && cloudOnline) {
+      syncProgressToCloud(user.uid, nextProgress).catch(handleCloudSyncError);
+    }
+
+    const hasFamiliar = newlyUnlocked.some((item) => item.slot === 'familiar');
+    const rewardNames = newlyUnlocked.map((item) => item.name).join(' & ');
+    const primarySlot: WorkshopSlotTab | undefined =
+      newlyUnlocked.find((item) => item.slot === 'familiar')?.slot || newlyUnlocked[0]?.slot;
+
+    setCutIn({
+      id: `hunt_done_${currentSectorHunt.huntId}`,
+      kind: 'mission',
+      kicker: rewardNames
+        ? hasFamiliar
+          ? 'Chasse au Trésor · Familier compagnon débloqué !'
+          : 'Chasse au Trésor · Butin cosmétique débloqué !'
+        : `Chasse au Trésor accomplie · +${xpBonus} XP !`,
+      title: currentSectorHunt.relicTitle,
+      subtitle: rewardNames
+        ? `+${xpBonus} XP · Récompense débloquée : « ${rewardNames} »`
+        : `${currentSectorHunt.title} — tous les jalons secrets ont été percés !`,
+      unlockedCosmeticName: rewardNames || undefined,
+      unlockedCosmeticSlot: primarySlot,
+    });
+  }, [
+    currentSectorHunt,
+    isCurrentHuntCompleted,
+    huntStepMap,
+    completedHuntIds.size,
+    progress,
+    entries,
+    muted,
+    hapticsEnabled,
+    user,
+    cloudOnline,
+    handleCloudSyncError,
+  ]);
+
+  // Auto-advance active clue hunt step on physical arrival + tactile hot/cold pulses when tracking
+  useEffect(() => {
+    if (!currentSectorHunt || isCurrentHuntCompleted) return;
+    const stepIdx = huntStepMap[currentSectorHunt.huntId] || 0;
+    const step = currentSectorHunt.steps[stepIdx];
+    if (!step) return;
+    if (Boolean(step.isSubterranean) !== subterraneanMode) return;
+
+    const dist = haversineMeters(playerPos.lat, playerPos.lng, step.lat, step.lng);
+    if (dist <= step.reachRadiusMeters) {
+      handleAdvanceCurrentHuntStep();
+      return;
+    }
+
+    if (trackingHuntOnMap) {
+      const stageKey = `${currentSectorHunt.huntId}_${stepIdx}`;
+      const prevStage = hapticHuntStageRef.current.get(stageKey);
+      if (dist <= 115 && prevStage !== 'hot') {
+        hapticHuntStageRef.current.set(stageKey, 'hot');
+        vibrateBuriedTreasureHot(hapticsEnabled);
+      } else if (dist <= 240 && !prevStage) {
+        hapticHuntStageRef.current.set(stageKey, 'warm');
+        vibrateBuriedTreasureWarm(hapticsEnabled);
+      }
+    }
+  }, [
+    currentSectorHunt,
+    isCurrentHuntCompleted,
+    huntStepMap,
+    subterraneanMode,
+    playerPos.lat,
+    playerPos.lng,
+    trackingHuntOnMap,
+    hapticsEnabled,
+    handleAdvanceCurrentHuntStep,
+  ]);
+
   // 16-Bit Trophy Medallion Evaluation & Unlock Celebration
   const evaluatedTrophies = useMemo(
     () =>
@@ -2945,6 +3586,7 @@ export default function App() {
     const trophyDef = TROPHIES_CATALOG.find((t) => t.id === newlyUnlockedId);
     if (!trophyDef) return;
     playMissionFanfare(muted);
+    vibrateUnlockCelebration(hapticsEnabled);
     const genderedTitle = getGenderedTrophyTitle(trophyDef, progress.gender);
     setCutIn({
       id: `trophy_${trophyDef.id}_${Date.now()}`,
@@ -2954,7 +3596,7 @@ export default function App() {
       subtitle: `Titre débloqué : « ${genderedTitle} »`,
       unlockedTrophyId: trophyDef.id,
     });
-  }, [unlockedTrophyIds, progress.gender, muted]);
+  }, [unlockedTrophyIds, progress.gender, muted, hapticsEnabled]);
 
   const handlePinTrophy = useCallback(
     async (trophyId: TrophyId | '') => {
@@ -3202,7 +3844,9 @@ export default function App() {
     return (
       <div
         className={`relative grimoire-folio-crimson text-[#24160c] ${
-          compactSheet ? 'p-3.5 sm:p-4 space-y-2.5' : 'p-5 space-y-4'
+          compactSheet
+            ? 'p-3.5 sm:p-4 space-y-2.5 max-h-[56dvh] overflow-y-auto overscroll-contain'
+            : 'p-5 space-y-4'
         }`}
       >
         <PixelCornerRivets className="bg-[#b91c1c]" />
@@ -3210,14 +3854,14 @@ export default function App() {
           type="button"
           onClick={() => setSelectedPoiId(null)}
           aria-label="Fermer ce signal"
-          className="absolute top-2.5 right-2.5 w-8 h-8 flex items-center justify-center bg-[#28160d] text-amber-300 hover:bg-[#991b1b] hover:text-[#fffbeb] border border-[#d97706] transition-colors z-10"
+          className="absolute top-2.5 right-2.5 w-9 h-9 flex items-center justify-center bg-[#28160d] text-amber-300 hover:bg-[#991b1b] hover:text-[#fffbeb] border border-[#d97706] transition-colors z-10"
         >
           <PixelUiIcon name="close" className="w-3.5 h-3.5" />
         </button>
 
         {selectedMapPoiEntry ? (
           <>
-            <div className="flex items-center gap-3 pr-8">
+            <div className="flex items-start gap-3 pr-10">
               <ResilientPixelImage
                 src={CATEGORY_META[selectedMapPoi.category].emblemSrc}
                 alt={CATEGORY_META[selectedMapPoi.category].label}
@@ -3225,9 +3869,9 @@ export default function App() {
                   compactSheet ? 'w-12 h-12' : 'w-14 h-14'
                 } border-2 border-[#2b1a0e] shrink-0`}
               />
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-rose-900 inline-flex items-center gap-1.5">
-                  <PixelGuildIcon category={selectedMapPoi.category} className="w-3.5 h-3.5" />
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="text-xs font-bold text-rose-900 flex items-center gap-1.5 min-w-0">
+                  <PixelGuildIcon category={selectedMapPoi.category} className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">
                     {CATEGORY_META[selectedMapPoi.category].shortLabel} · {selectedMapPoi.eraLabel}
                   </span>
@@ -3235,18 +3879,18 @@ export default function App() {
                 <h2
                   className={`${
                     compactSheet ? 'text-base' : 'text-lg'
-                  } font-bold font-display text-[#24160c] truncate`}
+                  } font-bold font-display text-[#24160c] leading-snug break-words`}
                 >
                   {selectedMapPoi.name}
                 </h2>
-                <div className="text-[11px] text-[#6b4928] font-semibold truncate">
+                <div className="text-[11px] text-[#6b4928] font-semibold break-words">
                   Archive : {selectedMapPoi.source}
                 </div>
               </div>
             </div>
             <p
-              className={`text-xs text-[#3b2312] leading-relaxed ${
-                compactSheet ? 'line-clamp-2' : 'line-clamp-4'
+              className={`text-xs text-[#3b2312] leading-relaxed break-words ${
+                compactSheet ? 'line-clamp-4' : 'line-clamp-5'
               }`}
             >
               {selectedMapPoi.summary}
@@ -3261,25 +3905,41 @@ export default function App() {
                 distanceMeters={distNow}
               />
             )}
-            <div className="flex flex-col sm:flex-row items-stretch gap-2">
+            <div className="flex flex-wrap items-stretch gap-2">
               <button
                 type="button"
                 onClick={() => openJournalEntry(selectedMapPoi.id)}
-                className="flex-1 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold bg-[#991b1b] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-[#b91c1c] transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
+                className="flex-1 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-bold bg-[#991b1b] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-[#b91c1c] transition-transform duration-150 active:translate-y-0.5 text-center whitespace-nowrap"
               >
-                <PixelUiIcon name="book" className="w-4 h-4" />
+                <PixelUiIcon name="book" className="w-4 h-4 shrink-0" />
                 <span>Lire au Carnet</span>
               </button>
               <button
                 type="button"
+                onClick={() => setActiveRiddleEntry(selectedMapPoiEntry)}
+                className={`min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow transition-colors text-center whitespace-nowrap ${
+                  solvedRiddleIds.has(selectedMapPoiEntry.poiId)
+                    ? 'bg-[#ecfdf5] text-emerald-950 border-emerald-800 hover:bg-emerald-100'
+                    : 'bg-[#28160d] text-amber-300 border-[#d97706] hover:bg-[#3f2416]'
+                }`}
+              >
+                <PixelUiIcon name="star" className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {solvedRiddleIds.has(selectedMapPoiEntry.poiId)
+                    ? 'Sceau d’Or ✓'
+                    : 'Énigme (+XP)'}
+                </span>
+              </button>
+              <button
+                type="button"
                 onClick={() => toggleExpeditionStop(selectedMapPoi)}
-                className={`min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow transition-colors whitespace-nowrap shrink-0 ${
+                className={`min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow transition-colors text-center whitespace-nowrap ${
                   isExpeditionStop
                     ? 'bg-emerald-800 text-[#fffbeb] hover:bg-emerald-700'
                     : 'bg-[#ecd8b1] text-[#24160c] hover:bg-amber-200'
                 }`}
               >
-                <PixelUiIcon name="constellation" className="w-3.5 h-3.5" />
+                <PixelUiIcon name="constellation" className="w-3.5 h-3.5 shrink-0" />
                 <span>
                   {isExpeditionStop
                     ? `Étape ${expeditionStopIndex + 1}/${expeditionStops.length}`
@@ -3290,30 +3950,32 @@ export default function App() {
           </>
         ) : (
           <>
-            <div className="space-y-1 pr-8">
-              <div className="text-xs font-bold text-rose-900 inline-flex items-center gap-1.5">
-                <PixelGuildIcon category={selectedMapPoi.category} className="w-4 h-4" />
-                <span>{CATEGORY_META[selectedMapPoi.category].shortLabel} · Sceau voilé</span>
+            <div className="space-y-1 pr-10">
+              <div className="text-xs font-bold text-rose-900 flex items-center gap-1.5 min-w-0">
+                <PixelGuildIcon category={selectedMapPoi.category} className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  {CATEGORY_META[selectedMapPoi.category].shortLabel} · Sceau voilé
+                </span>
               </div>
               <h2
                 className={`${
                   compactSheet ? 'text-base sm:text-lg' : 'text-xl'
-                } font-bold font-display text-[#24160c] leading-snug`}
+                } font-bold font-display text-[#24160c] leading-snug break-words`}
               >
                 ? {selectedMapPoi.mysteryTitle}
               </h2>
-              <div className="text-xs font-bold text-amber-900 truncate">
+              <div className="text-xs font-bold text-amber-900 break-words">
                 {selectedMapPoi.eraLabel} · {selectedMapPoi.source}
               </div>
               {isSpectrallyPierced && (
-                <div className="text-[11px] font-bold text-sky-900">
+                <div className="text-[11px] font-bold text-sky-900 break-words">
                   Lanterne Spectrale · {selectedMapPoi.subType}
                 </div>
               )}
             </div>
 
             {!compactSheet && (
-              <p className="text-xs text-[#3b2312] leading-relaxed">
+              <p className="text-xs text-[#3b2312] leading-relaxed break-words">
                 Approchez-vous à moins de{' '}
                 <strong className="font-mono tabular-nums text-rose-800">{effectiveRadius} m</strong>
                 {selectedMapPoi.nearWaterway
@@ -3334,7 +3996,7 @@ export default function App() {
               />
             )}
 
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs py-1.5 border-y-2 border-[#c89d62] font-mono tabular-nums">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs py-1.5 border-y-2 border-[#c89d62] font-mono tabular-nums">
               <span className="text-[#24160c] font-bold">
                 Distance : <span className="text-rose-800">{distNow} m</span> (sceau &lt;{' '}
                 {effectiveRadius} m)
@@ -3365,9 +4027,9 @@ export default function App() {
                     });
                     if (compactSheet) setSelectedPoiId(null);
                   }}
-                  className="flex-1 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
+                  className="flex-1 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 text-center"
                 >
-                  <PixelUiIcon name="boot" className="w-4 h-4" />
+                  <PixelUiIcon name="boot" className="w-4 h-4 shrink-0" />
                   <span>
                     {subterraneanMode ? 'Y marcher (galeries)' : 'Y marcher (rues & ponts)'}
                   </span>
@@ -3378,13 +4040,13 @@ export default function App() {
                 onClick={() => toggleExpeditionStop(selectedMapPoi)}
                 className={`${
                   simulationMode ? '' : 'w-full'
-                } min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow transition-colors whitespace-nowrap shrink-0 ${
+                } min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow transition-colors text-center ${
                   isExpeditionStop
                     ? 'bg-emerald-800 text-[#fffbeb] hover:bg-emerald-700'
                     : 'bg-[#ecd8b1] text-[#24160c] hover:bg-amber-200'
                 }`}
               >
-                <PixelUiIcon name="constellation" className="w-3.5 h-3.5" />
+                <PixelUiIcon name="constellation" className="w-3.5 h-3.5 shrink-0" />
                 <span>
                   {isExpeditionStop
                     ? `Étape ${expeditionStopIndex + 1}/${expeditionStops.length}`
@@ -3547,7 +4209,7 @@ export default function App() {
 
             {/* Sheet Header */}
             <div className="px-4 py-3 bg-[#ecd8b1] border-b-2 border-[#2b1a0e] flex items-center justify-between gap-3 shrink-0">
-              <h2 className="text-base sm:text-lg font-bold font-display text-[#24160c] flex items-center gap-2">
+              <h2 className="text-sm sm:text-lg font-bold font-display text-[#24160c] flex items-center gap-2 min-w-0 leading-snug">
                 <PixelUiIcon
                   name={
                     mobileDrawer === 'filters'
@@ -3558,13 +4220,14 @@ export default function App() {
                       ? 'lantern'
                       : 'install'
                   }
-                  className="w-4 h-4"
+                  className="w-4 h-4 shrink-0"
                 />
-                <span>
-                  {mobileDrawer === 'filters' && 'Filtres, Guildes & Strates du Temps'}
+                <span className="break-words">
+                  {mobileDrawer === 'filters' && 'Filtres, Guildes & Confort Terrain'}
                   {mobileDrawer === 'travel' && 'Voyage Rapide & Recherche de Lieu'}
                   {mobileDrawer === 'signals' && `Signaux à portée (${sortedNearbyPois.length})`}
-                  {mobileDrawer === 'ios-install' && 'Plein écran intégral sur iPhone / iPad'}
+                  {mobileDrawer === 'install-app' &&
+                    'Installation Android / Mobile (Plein écran)'}
                 </span>
               </h2>
               <button
@@ -3590,77 +4253,129 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => setReliefEnabled((r) => !r)}
-                        className={`min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 ${
+                        className={`min-h-[44px] px-2.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight ${
                           reliefEnabled
                             ? 'bg-amber-300 text-[#24160c]'
                             : 'bg-[#ecd8b1] text-[#54361d]'
                         }`}
                       >
-                        <PixelUiIcon name="mountain" className="w-4 h-4" />
+                        <PixelUiIcon name="mountain" className="w-4 h-4 shrink-0" />
                         <span>Relief 16-Bit</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setSubtleBuildings((s) => !s)}
-                        className={`min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 ${
+                        className={`min-h-[44px] px-2.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight ${
                           subtleBuildings
                             ? 'bg-[#28160d] text-amber-300'
                             : 'bg-[#ecd8b1] text-[#54361d]'
                         }`}
                       >
-                        <PixelUiIcon name="map" className="w-4 h-4" />
+                        <PixelUiIcon name="map" className="w-4 h-4 shrink-0" />
                         <span>Bâti discret</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setFogEnabled((f) => !f)}
-                        className={`min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 ${
+                        className={`min-h-[44px] px-2.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight ${
                           fogEnabled
                             ? 'bg-amber-300 text-[#24160c]'
                             : 'bg-[#ecd8b1] text-[#54361d]'
                         }`}
                       >
-                        <PixelUiIcon name="map" className="w-4 h-4" />
+                        <PixelUiIcon name="map" className="w-4 h-4 shrink-0" />
                         <span>Brouillard ({localExplorationPct}%)</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setPocketCompassMode((p) => !p)}
-                        className={`min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 ${
+                        className={`min-h-[44px] px-2.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight ${
                           pocketCompassMode
                             ? 'bg-emerald-700 text-[#fffbeb]'
                             : 'bg-[#ecd8b1] text-[#54361d]'
                         }`}
                       >
-                        <PixelUiIcon name="pocket-compass" className="w-4 h-4" />
+                        <PixelUiIcon name="pocket-compass" className="w-4 h-4 shrink-0" />
                         <span>Boussole poche</span>
                       </button>
                       <button
                         type="button"
+                        onClick={handleToggleScreenAwake}
+                        aria-pressed={wakeLockWanted}
+                        className={`min-h-[44px] px-2.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight ${
+                          wakeLockWanted
+                            ? 'bg-emerald-800 text-amber-200'
+                            : 'bg-[#ecd8b1] text-[#54361d]'
+                        }`}
+                      >
+                        <PixelUiIcon name="screen-awake" className="w-4 h-4 shrink-0" />
+                        <span>
+                          {wakeLockWanted
+                            ? wakeLockActive
+                              ? 'Écran éveillé ✓'
+                              : 'Écran éveillé'
+                            : 'Écran éveillé'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleToggleHaptics}
+                        aria-pressed={hapticsEnabled}
+                        className={`min-h-[44px] px-2.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight ${
+                          hapticsEnabled
+                            ? 'bg-emerald-800 text-amber-200'
+                            : 'bg-[#ecd8b1] text-[#54361d]'
+                        }`}
+                      >
+                        <PixelUiIcon name="haptic" className="w-4 h-4 shrink-0" />
+                        <span>{hapticsEnabled ? 'Haptique actif' : 'Haptique coupé'}</span>
+                      </button>
+                      {isVibrationSupported() && (
+                        <button
+                          type="button"
+                          onClick={() => vibrateBuriedTreasureHot(true)}
+                          className="col-span-2 min-h-[40px] px-3 py-1.5 text-xs font-bold bg-[#f8edd6] hover:bg-amber-200 text-[#24160c] border-2 border-[#6b4928] inline-flex items-center justify-center gap-1.5 text-center leading-snug"
+                        >
+                          <PixelUiIcon name="haptic" className="w-4 h-4 shrink-0" />
+                          <span>Tester la vibration haptique de proximité</span>
+                        </button>
+                      )}
+                      {!isInstalled && (
+                        <button
+                          type="button"
+                          onClick={handleInstallClick}
+                          className="col-span-2 min-h-[44px] px-3 py-2 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-snug"
+                        >
+                          <PixelUiIcon name="install" className="w-4 h-4 shrink-0" />
+                          <span>Installer sur Android / Mobile (Plein écran)</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
                         onClick={() => setSubterraneanMode((v) => !v)}
-                        className={`col-span-2 min-h-[44px] px-3 py-2 text-xs font-bold border-2 jrpg-shadow inline-flex items-center justify-center gap-1.5 ${
+                        className={`col-span-2 min-h-[44px] px-3 py-2 text-xs font-bold border-2 jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-snug ${
                           subterraneanMode
                             ? 'bg-[#1c130d] text-amber-300 border-amber-400'
                             : 'bg-[#ecd8b1] text-[#54361d] border-[#2b1a0e]'
                         }`}
                       >
-                        <PixelUiIcon name="dungeon" className="w-4 h-4" />
+                        <PixelUiIcon name="dungeon" className="w-4 h-4 shrink-0" />
                         <span>
                           {subterraneanMode
-                            ? `Strate Sous-sol & Donjon active (${subterranean.length} cavités/galeries)`
+                            ? `Strate Sous-sol active (${subterranean.length} cavités/galeries)`
                             : 'Explorer la strate Sous-sol & Cavités (Donjon 16-bit)'}
                         </span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setDashedTracesEnabled((d) => !d)}
-                        className={`col-span-2 min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 ${
+                        className={`col-span-2 min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-snug ${
                           dashedTracesEnabled
                             ? 'bg-amber-300 text-[#24160c]'
                             : 'bg-[#ecd8b1] text-[#54361d]'
                         }`}
                       >
-                        <PixelUiIcon name="constellation" className="w-4 h-4" />
+                        <PixelUiIcon name="constellation" className="w-4 h-4 shrink-0" />
                         <span>
                           {dashedTracesEnabled
                             ? 'Tracés pointillés : Activés'
@@ -3670,7 +4385,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => setSoundscapeEnabled((s) => !s)}
-                        className={`col-span-2 min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 ${
+                        className={`col-span-2 min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-snug ${
                           soundscapeEnabled && !muted
                             ? 'bg-emerald-800 text-[#fffbeb]'
                             : 'bg-[#ecd8b1] text-[#54361d]'
@@ -3678,7 +4393,7 @@ export default function App() {
                       >
                         <PixelUiIcon
                           name={soundscapeEnabled && !muted ? 'ambience-on' : 'ambience-off'}
-                          className="w-4 h-4"
+                          className="w-4 h-4 shrink-0"
                         />
                         <span>
                           {soundscapeEnabled
@@ -4044,24 +4759,136 @@ export default function App() {
                 </div>
               )}
 
-              {mobileDrawer === 'ios-install' && (
-                <div className="space-y-3 text-sm text-[#2b1a0e]">
-                  <p className="leading-relaxed">
-                    Pour explorer <strong>Terra 16</strong> sur iPhone ou iPad en{' '}
-                    <strong>plein écran intégral</strong> (sans les barres de Safari) :
+              {mobileDrawer === 'install-app' && (
+                <div className="space-y-3.5 text-sm text-[#2b1a0e]">
+                  <p className="text-xs sm:text-sm leading-relaxed">
+                    Installez <strong>Terra 16</strong> comme application native plein écran sans
+                    barre d’adresse, avec gestion propre des encoches Android, mode{' '}
+                    <strong>Écran Éveillé</strong> et <strong>vibrations haptiques</strong> en
+                    marchant.
                   </p>
-                  <ol className="space-y-2 text-xs font-semibold bg-[#ecd8b1] border-2 border-[#6b4928] p-3.5 list-decimal list-inside">
-                    <li>
-                      Touchez le bouton <strong>Partager</strong> dans la barre de Safari.
-                    </li>
-                    <li>
-                      Choisissez <strong>« Sur l’écran d’accueil »</strong> puis validez{' '}
-                      <strong>Ajouter</strong>.
-                    </li>
-                    <li>
-                      Ouvrez l’icône 16-bit <strong>Terra 16</strong> depuis votre écran d’accueil !
-                    </li>
-                  </ol>
+
+                  {isInstallable && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const accepted = await promptInstall();
+                        if (accepted) setMobileDrawer('none');
+                      }}
+                      className="w-full min-h-[48px] px-4 py-2.5 text-sm font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-2"
+                    >
+                      <PixelUiIcon name="install" className="w-4 h-4" />
+                      <span>Installer Terra 16 maintenant (1 clic)</span>
+                    </button>
+                  )}
+
+                  {isEmbeddedIframe && (
+                    <div className="p-3 bg-amber-100 border-2 border-[#d97706] space-y-2 text-xs">
+                      <p className="font-semibold text-[#24160c]">
+                        Vous consultez actuellement l’aperçu intégré : ouvrez le lien direct dans{' '}
+                        <strong>Chrome sur Android</strong> pour déclencher l’installation native en
+                        un clic.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleCopyDirectAppUrl}
+                        className="min-h-[42px] px-3.5 py-2 font-bold bg-[#28160d] text-amber-300 hover:bg-[#3f2416] border-2 border-[#d97706] inline-flex items-center gap-2"
+                      >
+                        <PixelUiIcon name="install" className="w-3.5 h-3.5" />
+                        <span>
+                          {urlCopiedNotice
+                            ? 'Lien direct copié dans le presse-papiers ✓'
+                            : 'Copier le lien direct de l’application'}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+
+                  {!isIOS ? (
+                    <div className="space-y-2 bg-[#ecd8b1] border-2 border-[#6b4928] p-3.5 text-xs">
+                      <div className="font-bold font-display text-sm text-[#24160c]">
+                        Sur Android (Chrome ou APK PWABuilder)
+                      </div>
+                      <ol className="space-y-1.5 font-semibold list-decimal list-inside">
+                        <li>
+                          Dans Chrome Android, touchez le bouton <strong>Installer</strong> ci-dessus
+                          ou le menu <strong>⋮ → Installer l’application</strong>.
+                        </li>
+                        <li>
+                          Lancez <strong>Terra 16</strong> depuis votre tiroir d’applications :
+                          affichage 100 % plein écran sans barre d’adresse et encoches respectées.
+                        </li>
+                        <li>
+                          Pour générer un paquet <strong>APK / AAB Google Play</strong>, collez
+                          simplement l’URL publique de l’application dans{' '}
+                          <span className="font-mono font-bold">pwabuilder.com</span> (manifeste et
+                          captures calibrés).
+                        </li>
+                      </ol>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 bg-[#ecd8b1] border-2 border-[#6b4928] p-3.5 text-xs">
+                      <div className="font-bold font-display text-sm text-[#24160c]">
+                        Sur iPhone ou iPad (Safari)
+                      </div>
+                      <ol className="space-y-1.5 font-semibold list-decimal list-inside">
+                        <li>
+                          Touchez le bouton <strong>Partager</strong> dans la barre de Safari.
+                        </li>
+                        <li>
+                          Choisissez <strong>« Sur l’écran d’accueil »</strong> puis validez{' '}
+                          <strong>Ajouter</strong>.
+                        </li>
+                        <li>
+                          Ouvrez l’icône 16-bit <strong>Terra 16</strong> en plein écran intégral.
+                        </li>
+                      </ol>
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t-2 border-[#c89d62] space-y-2">
+                    <div className="text-xs font-bold font-display text-[#24160c]">
+                      Réglages rapides « Confort Terrain Mobile »
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleToggleScreenAwake}
+                        aria-pressed={wakeLockWanted}
+                        className={`min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 ${
+                          wakeLockWanted
+                            ? 'bg-emerald-800 text-amber-200'
+                            : 'bg-[#ecd8b1] text-[#54361d]'
+                        }`}
+                      >
+                        <PixelUiIcon name="screen-awake" className="w-4 h-4" />
+                        <span>
+                          {wakeLockWanted
+                            ? 'Écran éveillé : Activé'
+                            : wakeLockSupported
+                            ? 'Activer Écran éveillé'
+                            : 'Écran éveillé (selon navigateur)'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleToggleHaptics}
+                        aria-pressed={hapticsEnabled}
+                        className={`min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 ${
+                          hapticsEnabled
+                            ? 'bg-emerald-800 text-amber-200'
+                            : 'bg-[#ecd8b1] text-[#54361d]'
+                        }`}
+                      >
+                        <PixelUiIcon name="haptic" className="w-4 h-4" />
+                        <span>
+                          {hapticsEnabled
+                            ? 'Vibrations proximité : Activées'
+                            : 'Activer vibrations haptiques'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -4135,6 +4962,23 @@ export default function App() {
         />
       </Suspense>
     ) : null;
+
+  const renderRiddleModal = () => (
+    <AnimatePresence>
+      {activeRiddle && (
+        <ContextualRiddleModal
+          key={activeRiddle.riddleId}
+          riddle={activeRiddle}
+          alreadySolved={solvedRiddleIds.has(activeRiddle.poiId)}
+          solvedRiddlesTotal={Math.max(progress.solvedRiddlesCount || 0, solvedRiddleIds.size)}
+          muted={muted}
+          onSolve={handleSolveContextualRiddle}
+          onOpenCosmeticWorkshop={(slot) => openWorkshopAtSlot(slot || 'familiar')}
+          onClose={() => setActiveRiddleEntry(null)}
+        />
+      )}
+    </AnimatePresence>
+  );
 
   // ==========================================================================
   // IMMERSIVE 100dvh FULLSCREEN MAP MODE (Desktop, Smartphone & AI Studio Iframe)
@@ -4211,10 +5055,10 @@ export default function App() {
                 initial={{ opacity: 0, y: -24 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -24 }}
-                className="absolute top-14 left-2.5 right-2.5 sm:left-auto sm:right-4 sm:w-[440px] z-30 grimoire-folio-crimson p-3.5 flex items-center justify-between gap-3"
+                className="absolute top-[3.5rem] left-2.5 right-2.5 sm:left-auto sm:right-4 sm:w-[440px] z-30 grimoire-folio-crimson p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2.5"
               >
                 <PixelCornerRivets className="bg-[#b91c1c]" />
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex items-start gap-2.5 min-w-0 flex-1">
                   {cutIn.unlockedTrophyId && (
                     <div className="p-1 bg-[#28160d] border-2 border-[#d97706] shrink-0">
                       <TrophyBadgeCanvas
@@ -4224,15 +5068,15 @@ export default function App() {
                       />
                     </div>
                   )}
-                  <div className="min-w-0">
-                    <div className="text-[11px] font-bold text-rose-800 truncate">{cutIn.kicker}</div>
-                    <div className="text-base font-bold font-display text-[#24160c] truncate">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-bold text-rose-800 break-words">{cutIn.kicker}</div>
+                    <div className="text-sm sm:text-base font-bold font-display text-[#24160c] leading-snug break-words">
                       {cutIn.title}
                     </div>
-                    <div className="text-xs font-semibold text-[#5c4028]">{cutIn.subtitle}</div>
+                    <div className="text-xs font-semibold text-[#5c4028] break-words">{cutIn.subtitle}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex flex-wrap items-center justify-end gap-1.5 w-full sm:w-auto shrink-0">
                   {cutIn.poiId && (
                     <button
                       type="button"
@@ -4241,7 +5085,7 @@ export default function App() {
                         setCutIn(null);
                         openJournalEntry(pid);
                       }}
-                      className="min-h-[44px] px-3 py-1.5 text-xs font-bold bg-[#991b1b] text-[#fffbeb] border-2 border-[#2b1a0e] whitespace-nowrap"
+                      className="min-h-[40px] px-3 py-1.5 text-xs font-bold bg-[#991b1b] text-[#fffbeb] border-2 border-[#2b1a0e] whitespace-nowrap"
                     >
                       Lire
                     </button>
@@ -4255,7 +5099,7 @@ export default function App() {
                         setProfileInitialTab('trophees');
                         setActiveTab('profil');
                       }}
-                      className="min-h-[44px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
+                      className="min-h-[40px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
                     >
                       Médaillier
                     </button>
@@ -4264,14 +5108,13 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
+                        const targetSlot = cutIn.unlockedCosmeticSlot || 'familiar';
                         setCutIn(null);
-                        exitFullscreenMap();
-                        setProfileInitialTab('atelier');
-                        setActiveTab('profil');
+                        openWorkshopAtSlot(targetSlot);
                       }}
-                      className="min-h-[44px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
+                      className="min-h-[40px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
                     >
-                      Équiper
+                      {cutIn.unlockedCosmeticSlot === 'familiar' ? 'Adopter' : 'Équiper'}
                     </button>
                   )}
                   {cutIn.openReliquary && (
@@ -4283,7 +5126,7 @@ export default function App() {
                         setCarnetView('tresors');
                         setActiveTab('carnet');
                       }}
-                      className="min-h-[44px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
+                      className="min-h-[40px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
                     >
                       Reliquaire
                     </button>
@@ -4292,7 +5135,7 @@ export default function App() {
                     type="button"
                     onClick={() => setCutIn(null)}
                     aria-label="Fermer l’alerte"
-                    className="w-11 h-11 flex items-center justify-center bg-[#28160d] text-amber-300 border-2 border-[#2b1a0e]"
+                    className="w-10 h-10 flex items-center justify-center bg-[#28160d] text-amber-300 border-2 border-[#2b1a0e]"
                   >
                     <PixelUiIcon name="close" className="w-3.5 h-3.5" />
                   </button>
@@ -4330,19 +5173,20 @@ export default function App() {
 
           {/* Fullscreen Bottom 16-Bit HUD Strip (Hidden when UI is folded!) */}
           {!uiCollapsed && (
-            <div className="absolute inset-x-0 bottom-0 z-20 grimoire-bottom-dock px-2.5 sm:px-4 py-2 pb-safe flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <div className="absolute inset-x-0 bottom-0 z-20 grimoire-bottom-dock px-2 sm:px-4 py-1.5 sm:py-2 pb-safe flex items-center justify-between gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setSimulationMode((s) => !s)}
-                  className={`min-h-[44px] px-2.5 sm:px-3 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  aria-label={simulationMode ? 'Passer en GPS Réel' : 'Passer en Marche Simulée'}
+                  className={`min-h-[42px] min-w-[42px] px-2 sm:px-3 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${
                     simulationMode
                       ? 'bg-amber-300 text-[#24160c]'
                       : 'bg-[#991b1b] text-[#fffbeb]'
                   }`}
                 >
-                  <PixelUiIcon name={simulationMode ? 'boot' : 'gps'} className="w-4 h-4" />
-                  <span className="hidden xs:inline">
+                  <PixelUiIcon name={simulationMode ? 'boot' : 'gps'} className="w-4 h-4 shrink-0" />
+                  <span className="hidden sm:inline">
                     {simulationMode ? 'Simulé' : 'GPS Réel'}
                   </span>
                 </button>
@@ -4350,12 +5194,12 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setMobileDrawer('filters')}
-                  className="min-h-[44px] px-2.5 sm:px-3 py-1.5 text-xs font-bold bg-[#f8edd6] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                  className="min-h-[42px] px-2 sm:px-3 py-1.5 text-xs font-bold bg-[#f8edd6] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                 >
-                  <PixelUiIcon name="sliders" className="w-4 h-4" />
+                  <PixelUiIcon name="sliders" className="w-4 h-4 shrink-0" />
                   <span>Filtres</span>
                   {activeFilterCount > 0 && (
-                    <span className="px-1.5 py-0.5 text-[10px] font-mono bg-[#991b1b] text-[#fffbeb]">
+                    <span className="px-1 py-0.5 text-[10px] font-mono bg-[#991b1b] text-[#fffbeb]">
                       {activeFilterCount}
                     </span>
                   )}
@@ -4364,18 +5208,20 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setMobileDrawer('travel')}
-                  className="min-h-[44px] min-w-[44px] sm:min-w-0 px-2.5 sm:px-3 py-1.5 text-xs font-bold bg-[#f8edd6] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
+                  aria-label="Voyage rapide et recherche"
+                  className="min-h-[42px] min-w-[42px] sm:min-w-0 px-2 sm:px-3 py-1.5 text-xs font-bold bg-[#f8edd6] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
                 >
-                  <PixelUiIcon name="search" className="w-4 h-4" />
+                  <PixelUiIcon name="search" className="w-4 h-4 shrink-0" />
                   <span className="hidden sm:inline">Voyage</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setMobileDrawer('signals')}
-                  className="min-h-[44px] px-2.5 sm:px-3 py-1.5 text-xs font-bold bg-[#f8edd6] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                  aria-label={`Signaux à portée (${sortedNearbyPois.length})`}
+                  className="min-h-[42px] px-2 sm:px-3 py-1.5 text-xs font-bold bg-[#f8edd6] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                 >
-                  <PixelUiIcon name="lantern" className="w-4 h-4" />
+                  <PixelUiIcon name="lantern" className="w-4 h-4 shrink-0" />
                   <span className="font-mono">{sortedNearbyPois.length}</span>
                 </button>
 
@@ -4385,13 +5231,13 @@ export default function App() {
                     onClick={() => setDpadOpen((v) => !v)}
                     title={dpadOpen ? 'Replier le D-Pad' : 'Déplier le D-Pad'}
                     aria-label={dpadOpen ? 'Replier le D-Pad' : 'Déplier le D-Pad'}
-                    className={`min-h-[44px] min-w-[44px] sm:min-w-0 px-2.5 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${
+                    className={`min-h-[42px] min-w-[42px] sm:min-w-0 px-2 sm:px-2.5 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${
                       dpadOpen
                         ? 'bg-amber-300 text-[#24160c]'
                         : 'bg-[#f8edd6] hover:bg-amber-200 text-[#24160c]'
                     }`}
                   >
-                    <PixelUiIcon name="dpad" className="w-4 h-4" />
+                    <PixelUiIcon name="dpad" className="w-4 h-4 shrink-0" />
                     <span className="hidden md:inline">D-Pad</span>
                   </button>
                 )}
@@ -4415,12 +5261,30 @@ export default function App() {
                 </button>
               )}
 
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleToggleScreenAwake}
+                  aria-pressed={wakeLockWanted}
+                  title={
+                    wakeLockWanted
+                      ? 'Mode Écran Éveillé actif (empêche le verrouillage en marche) — cliquer pour désactiver'
+                      : 'Activer le Mode Écran Éveillé (Screen Wake Lock)'
+                  }
+                  aria-label="Basculer le mode Écran Éveillé"
+                  className={`hidden md:flex w-10 h-10 items-center justify-center border-2 border-[#2b1a0e] transition-colors ${
+                    wakeLockWanted
+                      ? 'bg-emerald-900 text-amber-200'
+                      : 'bg-[#f8edd6] text-[#24160c] hover:bg-amber-200'
+                  }`}
+                >
+                  <PixelUiIcon name="screen-awake" className="w-4 h-4" />
+                </button>
                 <button
                   type="button"
                   onClick={cycleTimeMode}
                   title={`Lumière : ${TIME_MODE_LABELS[timeMode].label}`}
-                  className="w-11 h-11 flex items-center justify-center bg-[#f8edd6] border-2 border-[#2b1a0e] text-[#24160c]"
+                  className="hidden md:flex w-10 h-10 items-center justify-center bg-[#f8edd6] border-2 border-[#2b1a0e] text-[#24160c]"
                 >
                   <PixelUiIcon name={TIME_MODE_LABELS[timeMode].icon} className="w-4 h-4" />
                 </button>
@@ -4441,7 +5305,7 @@ export default function App() {
                         : 'Activer le paysage sonore d’ambiance par biome'
                     }
                     aria-label="Basculer l’ambiance sonore par biome"
-                    className={`w-11 h-11 flex items-center justify-center transition-colors ${
+                    className={`hidden md:flex w-10 h-10 items-center justify-center transition-colors ${
                       soundscapeEnabled && !muted
                         ? 'bg-emerald-900 text-amber-200'
                         : 'text-[#24160c] hover:bg-amber-200'
@@ -4457,7 +5321,7 @@ export default function App() {
                     onClick={() => setMuted((m) => !m)}
                     title={muted ? 'Activer les effets sonores' : 'Couper tout l’audio'}
                     aria-label={muted ? 'Activer le son' : 'Couper le son'}
-                    className={`w-11 h-11 flex items-center justify-center border-l-2 border-[#2b1a0e] transition-colors ${
+                    className={`w-[42px] h-[42px] md:w-10 md:h-10 flex items-center justify-center md:border-l-2 border-[#2b1a0e] transition-colors ${
                       muted
                         ? 'bg-[#3f2416] text-amber-300/75'
                         : 'text-[#24160c] hover:bg-amber-200'
@@ -4469,9 +5333,10 @@ export default function App() {
                 <button
                   type="button"
                   onClick={exitFullscreenMap}
-                  className="min-h-[44px] px-3 py-1.5 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-amber-400 inline-flex items-center gap-1.5 whitespace-nowrap"
+                  aria-label="Quitter le mode plein écran"
+                  className="min-h-[42px] min-w-[42px] px-2.5 sm:px-3 py-1.5 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-amber-400 inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
                 >
-                  <PixelUiIcon name="fullscreen-exit" className="w-4 h-4" />
+                  <PixelUiIcon name="fullscreen-exit" className="w-4 h-4 shrink-0" />
                   <span className="hidden sm:inline">Quitter</span>
                 </button>
               </div>
@@ -4518,6 +5383,8 @@ export default function App() {
                     onSaveJournalAnnotation={handleSaveJournalAnnotation}
                     onNavigateToRelatedPoi={handleNavigateToRelatedPoi}
                     onOpenPostcard={setPostcardSubject}
+                    isRiddleSolved={solvedRiddleIds.has(fullscreenModalEntry.poiId)}
+                    onOpenRiddle={(entry) => setActiveRiddleEntry(entry)}
                     onBackToList={() => setFullscreenModalPoiId(null)}
                     backLabel="Retour à la carte plein écran"
                   />
@@ -4530,6 +5397,7 @@ export default function App() {
         {renderOverlayDrawers()}
         {renderPostcardModal()}
         {renderGeocacheModal()}
+        {renderRiddleModal()}
       </div>
     );
   }
@@ -4545,13 +5413,13 @@ export default function App() {
       {/* Top Embossed Mahogany Leather Grimoire Spine (Hidden when UI is folded on Map!) */}
       {!isMapUiFolded && (
         <>
-          <header className="grimoire-spine sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-2 sm:py-2.5 shrink-0">
+          <header className="grimoire-spine sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-6 px-2.5 sm:px-6 py-2 sm:py-2.5 shrink-0">
             <button
               type="button"
               onClick={() => setActiveTab('carte')}
-              className="inline-flex items-center gap-2 text-lg sm:text-2xl font-bold font-display tracking-wide text-amber-300 hover:text-amber-200 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 sm:gap-2 text-base sm:text-2xl font-bold font-display tracking-wide text-amber-300 hover:text-amber-200 transition-colors whitespace-nowrap shrink-0"
             >
-              <PixelUiIcon name="lantern" className="w-5 h-5 lantern-breathe" />
+              <PixelUiIcon name="lantern" className="w-5 h-5 lantern-breathe shrink-0" />
               <span>Terra 16</span>
             </button>
 
@@ -4586,7 +5454,7 @@ export default function App() {
             </nav>
 
             {/* Right Actions: Consolidated Segmented Audio [Ambiance | Son], Install App (if eligible), Cloud Auth */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <div
                 className="flex items-center border-2 border-[#d97706] bg-[#3f2416] jrpg-shadow shrink-0"
                 role="group"
@@ -4604,7 +5472,7 @@ export default function App() {
                       : 'Activer le paysage sonore d’ambiance par biome'
                   }
                   aria-label="Basculer le paysage sonore d’ambiance"
-                  className={`min-h-[38px] px-2.5 flex items-center justify-center gap-1.5 text-xs font-bold transition-colors ${
+                  className={`hidden sm:flex min-h-[38px] px-2.5 items-center justify-center gap-1.5 text-xs font-bold transition-colors ${
                     soundscapeEnabled && !muted
                       ? 'bg-emerald-900 text-amber-200 hover:bg-emerald-800'
                       : 'text-amber-300/75 hover:bg-[#54301d] hover:text-amber-200'
@@ -4622,7 +5490,7 @@ export default function App() {
                   onClick={() => setMuted((m) => !m)}
                   title={muted ? 'Réactiver l’audio' : 'Couper tout l’audio'}
                   aria-label={muted ? 'Activer les effets sonores' : 'Couper le son'}
-                  className={`min-h-[38px] min-w-[38px] px-2 flex items-center justify-center border-l-2 border-[#d97706] transition-colors ${
+                  className={`min-h-[36px] min-w-[36px] sm:min-h-[38px] sm:min-w-[38px] px-2 flex items-center justify-center sm:border-l-2 border-[#d97706] transition-colors ${
                     muted
                       ? 'bg-[#28160d] text-amber-300/60 hover:text-amber-200'
                       : 'text-amber-300 hover:bg-[#54301d]'
@@ -4632,22 +5500,53 @@ export default function App() {
                 </button>
               </div>
 
-              {!isInstalled && (isInstallable || isIOS) && (
+              <button
+                type="button"
+                onClick={handleToggleScreenAwake}
+                aria-pressed={wakeLockWanted}
+                title={
+                  wakeLockWanted
+                    ? wakeLockActive
+                      ? 'Mode Écran Éveillé actif (Screen Wake Lock engagé) — cliquer pour relâcher'
+                      : 'Mode Écran Éveillé armé (se réactive dès que l’onglet est au premier plan)'
+                    : 'Activer le Mode Écran Éveillé en 1 clic pour marcher sans verrouillage d’écran'
+                }
+                aria-label="Basculer le mode Écran Éveillé"
+                className={`min-h-[36px] min-w-[36px] sm:min-h-[38px] sm:min-w-[38px] px-2 sm:px-2.5 py-1.5 text-xs font-bold border-2 border-[#d97706] inline-flex items-center justify-center gap-1.5 jrpg-shadow whitespace-nowrap shrink-0 transition-colors ${
+                  wakeLockWanted
+                    ? 'bg-emerald-900 text-amber-200 hover:bg-emerald-800'
+                    : 'bg-[#3f2416] text-amber-300/85 hover:bg-[#54301d] hover:text-amber-200'
+                }`}
+              >
+                <PixelUiIcon name="screen-awake" className="w-4 h-4" />
+                <span className="hidden xl:inline">
+                  {wakeLockWanted ? 'Écran éveillé' : 'Veille auto'}
+                </span>
+              </button>
+
+              {!isInstalled && (
                 <button
                   type="button"
                   onClick={handleInstallClick}
-                  title="Installer Terra 16 sur l’écran d’accueil"
-                  className="min-h-[38px] px-2.5 py-1.5 text-xs font-bold bg-[#3f2416] text-amber-300 border-2 border-[#d97706] hover:bg-[#54301d] inline-flex items-center gap-1.5 jrpg-shadow whitespace-nowrap shrink-0"
+                  title="Installer Terra 16 sur Android / Mobile en plein écran"
+                  aria-label="Installer l’application sur Android ou Mobile"
+                  className={`min-h-[36px] min-w-[36px] sm:min-h-[38px] px-2 sm:px-2.5 py-1.5 text-xs font-bold border-2 border-[#d97706] inline-flex items-center justify-center gap-1.5 jrpg-shadow whitespace-nowrap shrink-0 transition-colors ${
+                    isInstallable || isAndroid
+                      ? 'bg-amber-300 text-[#24160c] hover:bg-amber-200'
+                      : 'bg-[#3f2416] text-amber-300 hover:bg-[#54301d]'
+                  }`}
                 >
-                  <PixelUiIcon name="install" className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Installer</span>
+                  <PixelUiIcon name="install" className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">
+                    {isAndroid ? 'Installer Android' : 'Installer'}
+                  </span>
                 </button>
               )}
 
               <button
                 type="button"
                 onClick={handleAuthAction}
-                className="min-h-[38px] px-2.5 sm:px-3.5 py-1.5 text-xs font-bold bg-[#991b1b] text-[#fffbeb] border-2 border-amber-400 hover:bg-[#b91c1c] transition-transform duration-150 active:translate-y-0.5 jrpg-shadow whitespace-nowrap shrink-0"
+                className="min-h-[36px] sm:min-h-[38px] px-2.5 sm:px-3.5 py-1.5 text-xs font-bold bg-[#991b1b] text-[#fffbeb] border-2 border-amber-400 hover:bg-[#b91c1c] transition-transform duration-150 active:translate-y-0.5 jrpg-shadow whitespace-nowrap shrink-0"
               >
                 <span className="sm:hidden">{user ? 'Cloud ✓' : 'Cloud'}</span>
                 <span className="hidden sm:inline">
@@ -5123,12 +6022,12 @@ export default function App() {
               transition={{ type: 'spring', stiffness: 460, damping: 30 }}
               className={`${
                 isMapUiFolded
-                  ? 'fixed top-14 left-3 right-3 sm:left-auto sm:right-4 sm:w-[460px] z-40'
+                  ? 'fixed top-[3.5rem] left-3 right-3 sm:left-auto sm:right-4 sm:w-[460px] z-40'
                   : 'relative shrink-0'
-              } grimoire-folio-crimson text-[#24160c] p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3`}
+              } grimoire-folio-crimson text-[#24160c] p-3 sm:p-4 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3`}
             >
               <PixelCornerRivets className="bg-[#b91c1c]" />
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
                 {cutIn.unlockedTrophyId ? (
                   <div className="p-1.5 bg-[#28160d] border-2 border-[#d97706] shrink-0">
                     <TrophyBadgeCanvas
@@ -5146,22 +6045,22 @@ export default function App() {
                     />
                   )
                 )}
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-rose-800 inline-flex items-center gap-1.5">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-rose-800 flex items-center gap-1.5 min-w-0">
                     <PixelUiIcon
                       name={cutIn.unlockedTrophyId ? 'trophy' : 'star'}
-                      className="w-3.5 h-3.5"
+                      className="w-3.5 h-3.5 shrink-0"
                     />
                     <span className="truncate">{cutIn.kicker}</span>
                   </div>
-                  <p className="text-base sm:text-lg font-bold font-display text-[#24160c] truncate">
+                  <p className="text-base sm:text-lg font-bold font-display text-[#24160c] leading-snug break-words">
                     {cutIn.title}
                   </p>
-                  <p className="text-xs font-semibold text-[#5c4028]">{cutIn.subtitle}</p>
+                  <p className="text-xs font-semibold text-[#5c4028] break-words">{cutIn.subtitle}</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto shrink-0">
                 {cutIn.poiId && (
                   <button
                     type="button"
@@ -5170,9 +6069,9 @@ export default function App() {
                       setCutIn(null);
                       openJournalEntry(pid);
                     }}
-                    className="min-h-[42px] sm:min-h-0 inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold bg-[#991b1b] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-[#b91c1c] transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
+                    className="min-h-[40px] sm:min-h-0 inline-flex items-center gap-2 px-3 py-1.5 sm:py-2 text-xs font-bold bg-[#991b1b] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-[#b91c1c] transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
                   >
-                    <PixelUiIcon name="book" className="w-4 h-4" />
+                    <PixelUiIcon name="book" className="w-4 h-4 shrink-0" />
                     <span>Ouvrir au Carnet</span>
                   </button>
                 )}
@@ -5185,9 +6084,9 @@ export default function App() {
                       setProfileInitialTab('trophees');
                       setActiveTab('profil');
                     }}
-                    className="min-h-[42px] sm:min-h-0 inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
+                    className="min-h-[40px] sm:min-h-0 inline-flex items-center gap-2 px-3 py-1.5 sm:py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
                   >
-                    <PixelUiIcon name="trophy" className="w-4 h-4" />
+                    <PixelUiIcon name="trophy" className="w-4 h-4 shrink-0" />
                     <span>Voir & Épingler</span>
                   </button>
                 )}
@@ -5195,15 +6094,18 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      const targetSlot = cutIn.unlockedCosmeticSlot || 'familiar';
                       setCutIn(null);
-                      setUiCollapsed(false);
-                      setProfileInitialTab('atelier');
-                      setActiveTab('profil');
+                      openWorkshopAtSlot(targetSlot);
                     }}
-                    className="min-h-[42px] sm:min-h-0 inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
+                    className="min-h-[40px] sm:min-h-0 inline-flex items-center gap-2 px-3 py-1.5 sm:py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
                   >
-                    <PixelUiIcon name="user-profile" className="w-4 h-4" />
-                    <span>Équiper au Profil</span>
+                    <PixelUiIcon name="user-profile" className="w-4 h-4 shrink-0" />
+                    <span>
+                      {cutIn.unlockedCosmeticSlot === 'familiar'
+                        ? 'Adopter au Profil'
+                        : 'Équiper au Profil'}
+                    </span>
                   </button>
                 )}
                 {cutIn.openReliquary && (
@@ -5215,16 +6117,16 @@ export default function App() {
                       setCarnetView('tresors');
                       setActiveTab('carnet');
                     }}
-                    className="min-h-[42px] sm:min-h-0 inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
+                    className="min-h-[40px] sm:min-h-0 inline-flex items-center gap-2 px-3 py-1.5 sm:py-2 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow hover:bg-amber-200 transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
                   >
-                    <PixelUiIcon name="chest" className="w-4 h-4" />
+                    <PixelUiIcon name="chest" className="w-4 h-4 shrink-0" />
                     <span>Voir au Reliquaire</span>
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setCutIn(null)}
-                  className="min-h-[42px] sm:min-h-0 px-3 py-2 text-xs font-bold bg-[#28160d] text-amber-300 border-2 border-[#2b1a0e] whitespace-nowrap shrink-0"
+                  className="min-h-[40px] sm:min-h-0 px-3 py-1.5 sm:py-2 text-xs font-bold bg-[#28160d] text-amber-300 border-2 border-[#2b1a0e] whitespace-nowrap shrink-0"
                 >
                   Continuer
                 </button>
@@ -5545,6 +6447,32 @@ export default function App() {
                               <PixelUiIcon name="pocket-compass" className="w-3.5 h-3.5" />
                               <span>Poche</span>
                             </button>
+                            <button
+                              type="button"
+                              onClick={handleToggleScreenAwake}
+                              aria-pressed={wakeLockWanted}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold border-2 border-[#2b1a0e] whitespace-nowrap ${
+                                wakeLockWanted
+                                  ? 'bg-emerald-800 text-amber-200'
+                                  : 'bg-[#ecd8b1] text-[#54361d]'
+                              }`}
+                            >
+                              <PixelUiIcon name="screen-awake" className="w-3.5 h-3.5" />
+                              <span>Écran éveillé</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleToggleHaptics}
+                              aria-pressed={hapticsEnabled}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold border-2 border-[#2b1a0e] whitespace-nowrap ${
+                                hapticsEnabled
+                                  ? 'bg-emerald-800 text-amber-200'
+                                  : 'bg-[#ecd8b1] text-[#54361d]'
+                              }`}
+                            >
+                              <PixelUiIcon name="haptic" className="w-3.5 h-3.5" />
+                              <span>Haptique</span>
+                            </button>
                           </div>
                         </div>
 
@@ -5743,6 +6671,25 @@ export default function App() {
                 </div>
               )}
 
+              {/* Live Clue Treasure Hunt Hot/Cold Compass Strip on Map */}
+              {!uiCollapsed &&
+                trackingHuntOnMap &&
+                currentSectorHunt &&
+                !isCurrentHuntCompleted && (
+                  <ActiveHuntMapBanner
+                    hunt={currentSectorHunt}
+                    activeStepIdx={currentHuntStepIdx}
+                    playerLat={playerPos.lat}
+                    playerLng={playerPos.lng}
+                    onOpenHuntTab={() => {
+                      setMissionsSubTab('chasse');
+                      setActiveTab('missions');
+                    }}
+                    onClaimStepHere={handleAdvanceCurrentHuntStep}
+                    onCloseTracker={() => setTrackingHuntOnMap(false)}
+                  />
+                )}
+
               {/* Main Map Workspace: Full-Flex Zero-Scroll on Mobile + Expandable 8/12 Cols on Desktop */}
               <div
                 className={`flex-1 min-h-0 ${
@@ -5844,11 +6791,11 @@ export default function App() {
                     )}
                   </AnimatePresence>
 
-                  {/* MOBILE FLOATING ON-MAP CONTROLS (< lg) — Zero Page Scroll! */}
-                  {!uiCollapsed && (
+                  {/* MOBILE FLOATING ON-MAP CONTROLS (< lg) — Zero Page Scroll & Zero Overlap with POI Sheet! */}
+                  {!uiCollapsed && !selectedMapPoi && (
                     <>
                       {/* On-Demand Tactile D-Pad floating above Thumb Bar */}
-                      {simulationMode && dpadOpen && !selectedMapPoi && (
+                      {simulationMode && dpadOpen && (
                         <div className="lg:hidden absolute right-2.5 bottom-16 z-20">
                           {renderTactileDPad(true)}
                         </div>
@@ -5859,13 +6806,13 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => setSimulationMode((s) => !s)}
-                          className={`min-h-[46px] px-1.5 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5 ${
+                          className={`min-h-[46px] px-1 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5 ${
                             simulationMode
                               ? 'bg-amber-300 text-[#24160c]'
                               : 'bg-[#991b1b] text-[#fffbeb]'
                           }`}
                         >
-                          <PixelUiIcon name={simulationMode ? 'boot' : 'gps'} className="w-4 h-4" />
+                          <PixelUiIcon name={simulationMode ? 'boot' : 'gps'} className="w-4 h-4 shrink-0" />
                           <span className="text-[10px] leading-none truncate max-w-full">
                             {simulationMode ? 'Simulé' : 'GPS Réel'}
                           </span>
@@ -5874,10 +6821,10 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => setMobileDrawer('filters')}
-                          className="relative min-h-[46px] px-1.5 py-1.5 text-xs font-bold bg-[#f8edd6]/95 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5"
+                          className="relative min-h-[46px] px-1 py-1.5 text-xs font-bold bg-[#f8edd6]/95 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5"
                         >
-                          <PixelUiIcon name="sliders" className="w-4 h-4" />
-                          <span className="text-[10px] leading-none">Filtres</span>
+                          <PixelUiIcon name="sliders" className="w-4 h-4 shrink-0" />
+                          <span className="text-[10px] leading-none truncate max-w-full">Filtres</span>
                           {activeFilterCount > 0 && (
                             <span className="absolute top-0.5 right-0.5 px-1 text-[9px] font-mono bg-[#991b1b] text-[#fffbeb]">
                               {activeFilterCount}
@@ -5888,20 +6835,21 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => setMobileDrawer('travel')}
-                          className="min-h-[46px] px-1.5 py-1.5 text-xs font-bold bg-[#f8edd6]/95 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5"
+                          className="min-h-[46px] px-1 py-1.5 text-xs font-bold bg-[#f8edd6]/95 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5"
                         >
-                          <PixelUiIcon name="search" className="w-4 h-4" />
-                          <span className="text-[10px] leading-none">Voyage</span>
+                          <PixelUiIcon name="search" className="w-4 h-4 shrink-0" />
+                          <span className="text-[10px] leading-none truncate max-w-full">Voyage</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => setMobileDrawer('signals')}
-                          className="min-h-[46px] px-1.5 py-1.5 text-xs font-bold bg-[#f8edd6]/95 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5"
+                          className="relative min-h-[46px] px-1 py-1.5 text-xs font-bold bg-[#f8edd6]/95 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5"
                         >
-                          <PixelUiIcon name="lantern" className="w-4 h-4" />
-                          <span className="text-[10px] leading-none font-mono truncate max-w-full">
-                            Signaux ({sortedNearbyPois.length})
+                          <PixelUiIcon name="lantern" className="w-4 h-4 shrink-0" />
+                          <span className="text-[10px] leading-none truncate max-w-full">Signaux</span>
+                          <span className="absolute top-0.5 right-0.5 px-1 text-[9px] font-mono bg-[#28160d] text-amber-300">
+                            {sortedNearbyPois.length}
                           </span>
                         </button>
 
@@ -5910,14 +6858,14 @@ export default function App() {
                             type="button"
                             onClick={() => setDpadOpen((v) => !v)}
                             aria-label={dpadOpen ? 'Replier le D-Pad' : 'Déplier le D-Pad'}
-                            className={`min-h-[46px] px-1.5 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5 ${
+                            className={`min-h-[46px] px-1 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5 ${
                               dpadOpen
                                 ? 'bg-amber-300 text-[#24160c]'
                                 : 'bg-[#28160d]/95 text-amber-300'
                             }`}
                           >
-                            <PixelUiIcon name="dpad" className="w-4 h-4" />
-                            <span className="text-[10px] leading-none">D-Pad</span>
+                            <PixelUiIcon name="dpad" className="w-4 h-4 shrink-0" />
+                            <span className="text-[10px] leading-none truncate max-w-full">D-Pad</span>
                           </button>
                         ) : (
                           <button
@@ -5933,10 +6881,10 @@ export default function App() {
                               }
                             }}
                             aria-label="Recentrer sur ma position GPS"
-                            className="min-h-[46px] px-1.5 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5"
+                            className="min-h-[46px] px-1 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5"
                           >
-                            <PixelUiIcon name="gps" className="w-4 h-4" />
-                            <span className="text-[10px] leading-none">Centrer</span>
+                            <PixelUiIcon name="gps" className="w-4 h-4 shrink-0" />
+                            <span className="text-[10px] leading-none truncate max-w-full">Centrer</span>
                           </button>
                         )}
                       </div>
@@ -6145,7 +7093,7 @@ export default function App() {
                     className={`lg:hidden fixed inset-x-2.5 z-30 ${
                       uiCollapsed
                         ? 'bottom-[max(0.75rem,env(safe-area-inset-bottom))]'
-                        : 'bottom-[calc(4.4rem+env(safe-area-inset-bottom))] md:bottom-4'
+                        : 'bottom-[calc(3.8rem+env(safe-area-inset-bottom))] md:bottom-4'
                     }`}
                   >
                     {renderSelectedPoiCard(true)}
@@ -6479,6 +7427,12 @@ export default function App() {
                                 <span className="text-rose-800 font-bold">Annoté</span>
                               </>
                             )}
+                            {solvedRiddleIds.has(item.poiId) && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="text-emerald-800 font-bold">Sceau d’Or ★</span>
+                              </>
+                            )}
                           </div>
                         </button>
                       );
@@ -6516,6 +7470,8 @@ export default function App() {
                           onSaveJournalAnnotation={handleSaveJournalAnnotation}
                           onNavigateToRelatedPoi={handleNavigateToRelatedPoi}
                           onOpenPostcard={setPostcardSubject}
+                          isRiddleSolved={solvedRiddleIds.has(activeJournalEntry.poiId)}
+                          onOpenRiddle={(entry) => setActiveRiddleEntry(entry)}
                           onBackToList={
                             mobileJournalDetailOpen
                               ? () => setMobileJournalDetailOpen(false)
@@ -6530,7 +7486,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* ==================== VIEW 3: MISSIONS, CONTRATS DE TERRAIN & VITRINE DES TROPHÉES ==================== */}
+          {/* ==================== VIEW 3: ALMANACH CALENDAIRE, CHASSES AUX TRÉSORS, CONTRATS & QUÊTES ==================== */}
           {activeTab === 'missions' && (
             <motion.div
               key="view-missions"
@@ -6540,86 +7496,210 @@ export default function App() {
               transition={{ duration: 0.16 }}
               className="space-y-5 sm:space-y-6"
             >
-              <div className="border-b-2 border-[#8c653b] pb-3.5 sm:pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-                <div className="space-y-1">
-                  <h1
-                    className="text-xl sm:text-3xl font-bold font-display text-[#24160c] flex items-center gap-2.5"
-                    style={{ textWrap: 'balance' }}
-                  >
-                    <PixelUiIcon name="scroll" className="w-6 h-6" />
-                    <span>Contrats de Terrain & Parchemins de Quêtes</span>
-                  </h1>
-                  <p className="text-xs sm:text-sm text-[#54361d]">
-                    Trois mandats générés à la volée sur ce qui vous entoure réellement (relief,
-                    eaux, cavités, bornes IGN, météo) ainsi que les quêtes des cinq Guildes.
-                  </p>
-                </div>
-                <div className="text-xs font-mono tabular-nums text-[#54361d] shrink-0">
-                  <span>{Math.max(progress.completedContractsCount || 0, claimedContracts.size)} contrats honorés</span>
-                  <span aria-hidden="true"> · </span>
-                  <span className="font-bold text-rose-900">
-                    {progress.completedMissions.length} / {MISSIONS_CATALOG.length} quêtes
-                  </span>
-                </div>
-              </div>
-
-              {/* 16-Bit Trophy Showcase Strip */}
-              <div className="relative grimoire-folio-gold p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <PixelCornerRivets className="bg-[#d97706]" />
-                <div className="space-y-1.5 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-[#54361d]">
-                    <span className="font-bold text-rose-900 inline-flex items-center gap-1.5">
-                      <PixelUiIcon name="trophy" className="w-4 h-4" />
-                      <span>Médaillier d’Exploits 16-Bit</span>
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span className="font-mono tabular-nums font-bold text-[#24160c]">
-                      {unlockedTrophyIds.size} / {TROPHIES_CATALOG.length} ciselées
+              <div className="border-b-2 border-[#8c653b] pb-3.5 sm:pb-4 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+                  <div className="space-y-1">
+                    <h1
+                      className="text-xl sm:text-3xl font-bold font-display text-[#24160c] flex items-center gap-2.5"
+                      style={{ textWrap: 'balance' }}
+                    >
+                      <PixelUiIcon name="scroll" className="w-6 h-6" />
+                      <span>Almanach, Pistes aux Trésors & Quêtes</span>
+                    </h1>
+                    <p className="text-xs sm:text-sm text-[#54361d] max-w-3xl">
+                      Saisons astronomiques, fêtes thématiques et anniversaires historiques (globaux
+                      & locaux), chasses aux trésors par indices, contrats de secteur et quêtes des
+                      cinq Guildes.
+                    </p>
+                  </div>
+                  <div className="text-xs font-mono tabular-nums text-[#54361d] shrink-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-bold text-amber-950">
+                      {solvedRiddleIds.size} Sceau{solvedRiddleIds.size > 1 ? 'x' : ''} d’Or
                     </span>
                     <span aria-hidden="true">·</span>
                     <span>
-                      Titre porté : <strong className="text-[#24160c]">{explorerTitleInfo.title}</strong>
+                      {Math.max(progress.completedContractsCount || 0, claimedContracts.size)}{' '}
+                      contrats
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-bold text-rose-900">
+                      {progress.completedMissions.length}/{MISSIONS_CATALOG.length} quêtes
                     </span>
                   </div>
-                  <p className="text-xs text-[#4a321d]">
-                    Débloquez les médailles de marcheur (Oiseau de nuit, Marcheur d’orage,
-                    Spéléologue, 10 km / 50 km, Maître des 7 roches, Bornes IGN) et épinglez votre
-                    titre sur votre profil et vos cartes postales.
-                  </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 shrink-0">
-                  <div className="flex items-center gap-1.5 bg-[#28160d] border-2 border-[#6b4928] px-2.5 py-1.5">
-                    {evaluatedTrophies.slice(0, 6).map((item) => (
-                      <div
-                        key={item.trophy.id}
-                        title={`${item.trophy.name} (${item.current}/${item.target} ${item.trophy.unitLabel})`}
-                      >
-                        <TrophyBadgeCanvas
-                          trophyId={item.trophy.id}
-                          unlocked={item.unlocked}
-                          pixelScale={1}
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileInitialTab('trophees');
-                      setActiveTab('profil');
-                    }}
-                    className="min-h-[42px] px-4 py-2 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] inline-flex items-center gap-2 jrpg-shadow whitespace-nowrap"
-                  >
-                    <PixelUiIcon name="trophy" className="w-4 h-4" />
-                    <span>Ouvrir la Salle des Trophées</span>
-                  </button>
-                </div>
+                {/* Clean 4-Bookmark Horizontal Selector (Zero Mobile Wrapping!) */}
+                <ParchmentScrollStrip fadeColorFrom="vellum" innerClassName="gap-2 py-0.5">
+                  {(
+                    [
+                      {
+                        id: 'almanach',
+                        label: `Almanach & Calendrier · ${SEASON_META[resolveSeasonForDate()].nameFr}`,
+                        icon: 'star',
+                      },
+                      {
+                        id: 'chasse',
+                        label: isCurrentHuntCompleted
+                          ? 'Chasse au Trésor ✓'
+                          : currentSectorHunt
+                          ? `Chasse au Trésor · ${currentHuntStepIdx + 1}/${currentSectorHunt.steps.length}`
+                          : 'Chasse au Trésor',
+                        icon: 'chest',
+                      },
+                      {
+                        id: 'contrats',
+                        label: `Contrats du Secteur · ${dynamicContracts.length}`,
+                        icon: 'pocket-compass',
+                      },
+                      {
+                        id: 'guildes',
+                        label: `Quêtes & Trophées · ${progress.completedMissions.length}/${MISSIONS_CATALOG.length}`,
+                        icon: 'trophy',
+                      },
+                    ] as Array<{
+                      id: 'almanach' | 'chasse' | 'contrats' | 'guildes';
+                      label: string;
+                      icon: UiPixelIconName;
+                    }>
+                  ).map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setMissionsSubTab(tab.id)}
+                      className={`min-h-[44px] px-3.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] inline-flex items-center gap-2 jrpg-shadow whitespace-nowrap shrink-0 transition-colors ${
+                        missionsSubTab === tab.id
+                          ? 'bg-[#991b1b] text-[#fffbeb]'
+                          : 'bg-[#f8edd6] text-[#24160c] hover:bg-amber-200'
+                      }`}
+                    >
+                      <PixelUiIcon name={tab.icon} className="w-3.5 h-3.5" />
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </ParchmentScrollStrip>
               </div>
 
-              {/* 3 Dynamic Local Sector Contracts */}
-              {dynamicContracts.length > 0 && (
+              {/* SUB-TAB 1: ALMANACH DES SAISONS, FÊTES & ÉPHÉMÉRIDES (GLOBAL + LOCAL) */}
+              {missionsSubTab === 'almanach' && (
+                <AlmanacSeasonalPanel
+                  almanacData={almanacData}
+                  loadingAlmanac={loadingAlmanac}
+                  previewMonthDay={almanacPreviewDate}
+                  onChangePreviewDate={setAlmanacPreviewDate}
+                  regionalTheme={regionalTheme}
+                  localAtmosphereLabel={localAtmosphereLabel}
+                  evalContext={almanacEvalContext}
+                  claimedAlmanacQuests={claimedAlmanacQuests}
+                  muted={muted}
+                  onClaimAlmanacReward={handleClaimAlmanacReward}
+                  onOpenCosmeticWorkshop={(slot) => openWorkshopAtSlot(slot || 'familiar')}
+                  onFocusLocationOnMap={(lat, lng) => {
+                    teleportToLocation(lat, lng);
+                    setActiveTab('carte');
+                  }}
+                  onFilterCategoryOnMap={(cat) => {
+                    setCategoryFilter(cat);
+                    setActiveTab('carte');
+                  }}
+                />
+              )}
+
+              {/* SUB-TAB 2: CHASSE AU TRÉSOR PAR PISTE D'INDICES */}
+              {missionsSubTab === 'chasse' && (
+                <ClueTreasureHuntPanel
+                  hunt={currentSectorHunt}
+                  activeStepIdx={currentHuntStepIdx}
+                  isCompleted={isCurrentHuntCompleted}
+                  completedHuntsCount={Math.max(
+                    progress.completedHuntsCount || 0,
+                    completedHuntIds.size
+                  )}
+                  isTrackingOnMap={trackingHuntOnMap}
+                  playerLat={playerPos.lat}
+                  playerLng={playerPos.lng}
+                  simulationMode={simulationMode}
+                  muted={muted}
+                  onToggleTrackOnMap={(track) => {
+                    setTrackingHuntOnMap(track);
+                    if (track) setActiveTab('carte');
+                  }}
+                  onSimulateWalkTowardStep={(lat, lng, isSub) => {
+                    setSubterraneanMode(isSub);
+                    setTrackingHuntOnMap(true);
+                    setDashedTracesEnabled(true);
+                    setRouteRequest({ id: Date.now(), lat, lng });
+                    setActiveTab('carte');
+                  }}
+                  onClaimStepHere={handleAdvanceCurrentHuntStep}
+                  onOpenCosmeticWorkshop={(slot) => openWorkshopAtSlot(slot || 'familiar')}
+                />
+              )}
+
+              {/* SUB-TAB 4 (HEADER): 16-Bit Trophy Showcase Strip */}
+              {missionsSubTab === 'guildes' && (
+                <div className="relative grimoire-folio-gold p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <PixelCornerRivets className="bg-[#d97706]" />
+                  <div className="space-y-1.5 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-[#54361d]">
+                      <span className="font-bold text-rose-900 inline-flex items-center gap-1.5">
+                        <PixelUiIcon name="trophy" className="w-4 h-4" />
+                        <span>Médaillier d’Exploits 16-Bit</span>
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-mono tabular-nums font-bold text-[#24160c]">
+                        {unlockedTrophyIds.size} / {TROPHIES_CATALOG.length} ciselées
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>
+                        Titre porté :{' '}
+                        <strong className="text-[#24160c]">{explorerTitleInfo.title}</strong>
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#4a321d]">
+                      Débloquez les médailles de marcheur (Oiseau de nuit, Marcheur d’orage,
+                      Spéléologue, 10 km / 50 km, Maître des 7 roches, Bornes IGN) et épinglez votre
+                      titre sur votre profil et vos cartes postales.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-1.5 bg-[#28160d] border-2 border-[#6b4928] px-2.5 py-1.5">
+                      {evaluatedTrophies.slice(0, 6).map((item) => (
+                        <div
+                          key={item.trophy.id}
+                          title={`${item.trophy.name} (${item.current}/${item.target} ${item.trophy.unitLabel})`}
+                        >
+                          <TrophyBadgeCanvas
+                            trophyId={item.trophy.id}
+                            unlocked={item.unlocked}
+                            pixelScale={1}
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileInitialTab('trophees');
+                        setActiveTab('profil');
+                      }}
+                      className="min-h-[42px] px-4 py-2 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] inline-flex items-center gap-2 jrpg-shadow whitespace-nowrap"
+                    >
+                      <PixelUiIcon name="trophy" className="w-4 h-4" />
+                      <span>Ouvrir la Salle des Trophées</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB-TAB 3: 3 Dynamic Local Sector Contracts */}
+              {missionsSubTab === 'contrats' && dynamicContracts.length === 0 && (
+                <div className="grimoire-folio p-6 text-center text-xs font-semibold text-[#54361d]">
+                  Chargement des contrats topographiques et patrimoniaux du secteur…
+                </div>
+              )}
+              {missionsSubTab === 'contrats' && dynamicContracts.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-base sm:text-lg font-bold font-display text-[#24160c] flex items-center gap-2">
@@ -6843,8 +7923,9 @@ export default function App() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
-                {MISSIONS_CATALOG.map((mission, idx) => {
+              {missionsSubTab === 'guildes' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+                  {MISSIONS_CATALOG.map((mission, idx) => {
                   const unlocked = isMissionUnlocked(mission, progress);
                   const completed = progress.completedMissions.includes(mission.id);
                   const evalState = mission.evaluate(entries);
@@ -6934,36 +8015,50 @@ export default function App() {
                       )}
 
                       {(() => {
-                        const cosmeticReward = getCosmeticRewardForMission(mission.id);
-                        if (!cosmeticReward) return null;
+                        const cosmeticRewards = getCosmeticRewardsForMission(mission.id);
+                        if (cosmeticRewards.length === 0) return null;
                         return (
-                          <div className="pt-2 border-t border-[#c89d62] flex items-center justify-between gap-2 text-xs">
-                            <div className="min-w-0 flex items-center gap-1.5 text-[#3b2312]">
-                              <PixelUiIcon name="relic" className="w-3.5 h-3.5 shrink-0 text-amber-800" />
-                              <span className="truncate">
-                                Cosmétique : <strong>{cosmeticReward.name}</strong>
-                              </span>
-                            </div>
-                            {completed ? (
-                              <button
-                                type="button"
-                                onClick={() => setActiveTab('profil')}
-                                className="px-2.5 py-1 text-[11px] font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border border-[#2b1a0e] whitespace-nowrap shrink-0"
+                          <div className="pt-2 border-t border-[#c89d62] space-y-1.5 text-xs">
+                            {cosmeticRewards.map((cosmeticReward) => (
+                              <div
+                                key={`${mission.id}_${cosmeticReward.slot}_${cosmeticReward.id}`}
+                                className="flex items-center justify-between gap-2"
                               >
-                                Équiper au Profil
-                              </button>
-                            ) : (
-                              <span className="text-[11px] font-mono text-rose-900 font-semibold shrink-0">
-                                À débloquer
-                              </span>
-                            )}
+                                <div className="min-w-0 flex items-center gap-1.5 text-[#3b2312]">
+                                  <PixelUiIcon
+                                    name={cosmeticReward.slot === 'familiar' ? 'star' : 'relic'}
+                                    className="w-3.5 h-3.5 shrink-0 text-amber-800"
+                                  />
+                                  <span className="truncate">
+                                    {cosmeticReward.slot === 'familiar' ? 'Familier' : 'Cosmétique'} :{' '}
+                                    <strong>{cosmeticReward.name}</strong>
+                                  </span>
+                                </div>
+                                {completed ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openWorkshopAtSlot(cosmeticReward.slot)}
+                                    className="min-h-[34px] px-2.5 py-1 text-[11px] font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border border-[#2b1a0e] whitespace-nowrap shrink-0"
+                                  >
+                                    {cosmeticReward.slot === 'familiar'
+                                      ? 'Adopter au Profil'
+                                      : 'Équiper au Profil'}
+                                  </button>
+                                ) : (
+                                  <span className="text-[11px] font-mono text-rose-900 font-semibold shrink-0">
+                                    À débloquer
+                                  </span>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         );
                       })()}
                     </div>
                   );
                 })}
-              </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -7091,11 +8186,14 @@ export default function App() {
                                 Équiper sur la carte
                               </button>
                             ) : (
-                              <span className="text-[11px] font-mono font-bold text-rose-900">
-                                Scellé · Niv.{outfit.requiredLevel}{' '}
-                                {outfit.requiredCategory
-                                  ? CATEGORY_META[outfit.requiredCategory].shortLabel
-                                  : ''}
+                              <span className="text-[11px] font-mono font-bold text-rose-900 break-words">
+                                {outfit.lockRequirementLabel
+                                  ? `Scellé · ${outfit.lockRequirementLabel}`
+                                  : `Scellé · Niv.${outfit.requiredLevel}${
+                                      outfit.requiredCategory
+                                        ? ` ${CATEGORY_META[outfit.requiredCategory].shortLabel}`
+                                        : ''
+                                    }`}
                               </span>
                             )}
                           </div>
@@ -7222,6 +8320,7 @@ export default function App() {
                   user={user}
                   evaluatedTrophies={evaluatedTrophies}
                   initialSectionTab={profileInitialTab}
+                  initialWorkshopSlot={profileInitialWorkshopSlot}
                   onPinTrophy={handlePinTrophy}
                   onUpdateAppearance={handleUpdateAppearance}
                   onSaveCallsign={handleSaveCallsignDirect}
@@ -7233,6 +8332,15 @@ export default function App() {
                     setActiveTab('carte');
                   }}
                   onNavigateToMissions={() => setActiveTab('missions')}
+                  onNavigateToActivity={(activity) => {
+                    if (activity === 'enigmes') {
+                      setCarnetView('liste');
+                      setActiveTab('carnet');
+                      return;
+                    }
+                    setMissionsSubTab(activity);
+                    setActiveTab('missions');
+                  }}
                   onResetCharacter={handleResetCharacter}
                   onExportBackup={() =>
                     exportGrimoireArchiveJson(
@@ -7305,6 +8413,7 @@ export default function App() {
       {renderOverlayDrawers()}
       {renderPostcardModal()}
       {renderGeocacheModal()}
+      {renderRiddleModal()}
     </div>
   );
 }

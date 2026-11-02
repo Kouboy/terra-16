@@ -243,7 +243,9 @@ export type UiPixelIconName =
   | 'postcard'
   | 'chest'
   | 'capsule'
-  | 'trophy';
+  | 'trophy'
+  | 'screen-awake'
+  | 'haptic';
 
 export const PixelUiIcon: React.FC<{ name: UiPixelIconName; className?: string }> = ({
   name,
@@ -949,6 +951,35 @@ export const PixelUiIcon: React.FC<{ name: UiPixelIconName; className?: string }
           <rect x="7" y="10" width="2" height="2" fill="#fbbf24" />
           <rect x="5" y="12" width="6" height="2" fill="#92400e" />
           <rect x="4" y="14" width="8" height="1" fill="#451a03" />
+        </svg>
+      );
+    case 'screen-awake':
+      return (
+        <svg viewBox="0 0 16 16" shapeRendering="crispEdges" className={`pixelated shrink-0 ${className}`} aria-hidden="true">
+          <rect x="7" y="1" width="2" height="2" fill="#fde047" />
+          <rect x="7" y="13" width="2" height="2" fill="#fde047" />
+          <rect x="1" y="7" width="2" height="2" fill="#fde047" />
+          <rect x="13" y="7" width="2" height="2" fill="#fde047" />
+          <rect x="3" y="3" width="2" height="2" fill="#f59e0b" />
+          <rect x="11" y="3" width="2" height="2" fill="#f59e0b" />
+          <rect x="3" y="11" width="2" height="2" fill="#f59e0b" />
+          <rect x="11" y="11" width="2" height="2" fill="#f59e0b" />
+          <rect x="5" y="5" width="6" height="6" fill="#fbbf24" />
+          <rect x="6" y="6" width="4" height="4" fill="#fef9c3" />
+          <rect x="7" y="7" width="2" height="2" fill="#ffffff" />
+        </svg>
+      );
+    case 'haptic':
+      return (
+        <svg viewBox="0 0 16 16" shapeRendering="crispEdges" className={`pixelated shrink-0 ${className}`} aria-hidden="true">
+          <rect x="5" y="2" width="6" height="12" fill="#2b1d12" />
+          <rect x="6" y="3" width="4" height="8" fill="#38bdf8" />
+          <rect x="6" y="3" width="2" height="4" fill="#bae6fd" />
+          <rect x="7" y="12" width="2" height="1" fill="#fde047" />
+          <rect x="2" y="4" width="1" height="8" fill="#fbbf24" />
+          <rect x="0" y="6" width="1" height="4" fill="#fde047" />
+          <rect x="13" y="4" width="1" height="8" fill="#fbbf24" />
+          <rect x="15" y="6" width="1" height="4" fill="#fde047" />
         </svg>
       );
   }

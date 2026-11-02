@@ -709,12 +709,14 @@ export const GeocacheModal: React.FC<{
 
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b-2 border-[#78350f]/40 pb-3">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="font-pixel text-[10px] text-[#7c2d12] uppercase flex items-center gap-2">
               <PixelUiIcon name="capsule" className="w-4 h-4 shrink-0" />
-              {mode === 'bury' ? 'Enterrer une Capsule 16-bit' : 'Capsule d’Explorateur'}
+              <span className="break-words">
+                {mode === 'bury' ? 'Enterrer une Capsule 16-bit' : 'Capsule d’Explorateur'}
+              </span>
             </div>
-            <p className="text-xs text-[#5c3a21] mt-1 tabular-nums">
+            <p className="text-xs text-[#5c3a21] mt-1 tabular-nums break-words">
               {mode === 'bury'
                 ? `${currentRegionLabel || 'Secteur local'} · ${playerLat.toFixed(4)}°N, ${playerLng.toFixed(4)}°E · ${
                     subterraneanMode ? 'Strate souterraine' : 'Surface'
@@ -727,7 +729,7 @@ export const GeocacheModal: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="px-2.5 py-1 text-xs font-bold bg-[#ead5ac] hover:bg-[#dfc38d] text-[#2b1d12] border-2 border-[#140b05] whitespace-nowrap shrink-0 cursor-pointer"
+            className="min-h-[38px] px-2.5 py-1 text-xs font-bold bg-[#ead5ac] hover:bg-[#dfc38d] text-[#2b1d12] border-2 border-[#140b05] whitespace-nowrap shrink-0 cursor-pointer"
           >
             Fermer
           </button>
@@ -786,14 +788,14 @@ export const GeocacheModal: React.FC<{
             </div>
 
             {!currentUser && (
-              <div className="p-2.5 bg-[#fef3c7] border-2 border-[#b45309] flex items-center justify-between gap-2">
-                <span className="text-xs text-[#78350f]">
+              <div className="p-2.5 bg-[#fef3c7] border-2 border-[#b45309] flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-[#78350f] flex-1 min-w-[200px] break-words">
                   Connectez-vous pour publier votre capsule dans le monde partagé Firestore (sinon elle sera gardée sur cet appareil).
                 </span>
                 <button
                   type="button"
                   onClick={onRequestGoogleSignIn}
-                  className="px-2.5 py-1 text-xs font-bold rpg-gold-btn whitespace-nowrap shrink-0 cursor-pointer"
+                  className="min-h-[38px] px-2.5 py-1 text-xs font-bold rpg-gold-btn whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   Connexion Google
                 </button>
@@ -833,15 +835,15 @@ export const GeocacheModal: React.FC<{
 
             {/* Enclosed Souvenir Picker */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-bold text-[#2b1d12]">
                   Objet scellé dans la capsule
                 </span>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => setGiftSourceTab('relic')}
-                    className={`px-2.5 py-1 text-xs font-bold border border-[#140b05] whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`min-h-[36px] px-2.5 py-1 text-xs font-bold border border-[#140b05] whitespace-nowrap shrink-0 cursor-pointer ${
                       giftSourceTab === 'relic'
                         ? 'bg-[#b45309] text-[#fefce8]'
                         : 'bg-[#ead5ac] text-[#2b1d12]'
@@ -853,7 +855,7 @@ export const GeocacheModal: React.FC<{
                     type="button"
                     onClick={() => setGiftSourceTab('specimen')}
                     disabled={specimens.length === 0}
-                    className={`px-2.5 py-1 text-xs font-bold border border-[#140b05] whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 ${
+                    className={`min-h-[36px] px-2.5 py-1 text-xs font-bold border border-[#140b05] whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 ${
                       giftSourceTab === 'specimen'
                         ? 'bg-[#15803d] text-[#fefce8]'
                         : 'bg-[#ead5ac] text-[#2b1d12]'
@@ -962,13 +964,13 @@ export const GeocacheModal: React.FC<{
                 className="border-2 border-[#2b1d12] bg-[#ead5ac] shrink-0"
               />
               <div className="min-w-0 flex-1 space-y-1">
-                <h3 className="text-base font-bold text-[#1c1209]">{cache.title}</h3>
-                <div className="text-xs text-[#5c3a21] tabular-nums">
+                <h3 className="text-base font-bold text-[#1c1209] break-words">{cache.title}</h3>
+                <div className="text-xs text-[#5c3a21] tabular-nums break-words">
                   Cachée par <strong className="text-[#2b1d12]">{cache.authorCallsign}</strong> ·{' '}
                   {cache.isSubterranean ? 'Sous-sol' : 'Surface'} · {cache.lat.toFixed(4)}°N,{' '}
                   {cache.lng.toFixed(4)}°E
                 </div>
-                <p className="text-xs text-[#2b1d12] italic pt-1">« {cache.riddleHint} »</p>
+                <p className="text-xs text-[#2b1d12] italic pt-1 break-words">« {cache.riddleHint} »</p>
               </div>
             </div>
 
@@ -1018,7 +1020,7 @@ export const GeocacheModal: React.FC<{
 
             {/* Discoverers Logbook */}
             <div className="space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h4 className="font-pixel text-[9px] text-[#7c2d12] uppercase">
                   Registre des Découvreurs ({logs.length})
                 </h4>
@@ -1027,7 +1029,7 @@ export const GeocacheModal: React.FC<{
                     type="button"
                     disabled={busy}
                     onClick={handleDeleteOwnCache}
-                    className="px-2.5 py-1 text-[11px] font-bold bg-[#fee2e2] hover:bg-[#fecaca] text-[#7f1d1d] border border-[#7f1d1d] whitespace-nowrap shrink-0 cursor-pointer"
+                    className="min-h-[34px] px-2.5 py-1 text-[11px] font-bold bg-[#fee2e2] hover:bg-[#fecaca] text-[#7f1d1d] border border-[#7f1d1d] whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     Retirer ma capsule
                   </button>

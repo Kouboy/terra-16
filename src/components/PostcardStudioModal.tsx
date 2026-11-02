@@ -241,18 +241,18 @@ export const PostcardStudioModal: React.FC<{
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-4xl grimoire-folio-gold p-4 sm:p-6 space-y-4 my-auto">
+      <div className="relative w-full max-w-4xl max-h-[92dvh] overflow-y-auto overscroll-contain grimoire-folio-gold p-4 sm:p-6 space-y-4 my-auto">
         <PixelCornerRivets className="bg-[#d97706]" />
 
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b-2 border-[#c89d62] pb-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <PixelUiIcon name="postcard" className="w-5 h-5" />
-            <div className="min-w-0">
-              <h2 className="text-base sm:text-lg font-bold font-display text-[#24160c] truncate">
+        <div className="flex items-start justify-between gap-3 border-b-2 border-[#c89d62] pb-3">
+          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+            <PixelUiIcon name="postcard" className="w-5 h-5 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base sm:text-lg font-bold font-display text-[#24160c] leading-snug break-words">
                 Carnet de croquis & Carte postale 16-bit
               </h2>
-              <p className="text-xs text-[#54361d] truncate">
+              <p className="text-xs text-[#54361d] leading-snug break-words mt-0.5">
                 Vignette souvenir avec votre explorateur et le tampon de {localityName}
               </p>
             </div>

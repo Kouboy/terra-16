@@ -173,8 +173,11 @@ interface SectorPayload {
 
 class BoundedTtlMap<K, V extends { expires: number }> {
   private readonly store = new Map<K, V>();
+  private readonly maxEntries: number;
 
-  constructor(private readonly maxEntries: number) {}
+  constructor(maxEntries: number) {
+    this.maxEntries = maxEntries;
+  }
 
   get(key: K): V | undefined {
     const entry = this.store.get(key);
@@ -221,6 +224,36 @@ const geocodeCache = new BoundedTtlMap<
   string,
   { expires: number; results: Array<{ label: string; lat: number; lng: number }> }
 >(120);
+const almanacCache = new BoundedTtlMap<
+  string,
+  {
+    expires: number;
+    payload: {
+      dateIso: string;
+      month: number;
+      day: number;
+      locality: { commune: string; departement: string; region: string; population?: number };
+      globalEphemerides: Array<{
+        year: number;
+        text: string;
+        articleTitle?: string;
+        articleUrl?: string;
+      }>;
+      localAnniversaries: Array<{
+        id: string;
+        label: string;
+        description: string;
+        year: number | null;
+        dateLabel: string;
+        exactDayMatch: boolean;
+        distanceKm: number;
+        lat: number;
+        lng: number;
+        articleUrl?: string;
+      }>;
+    };
+  }
+>(140);
 const inFlightSectorRequests = new Map<string, Promise<SectorPayload>>();
 
 let cachedTileTemplate: { url: string; zoom: number; expires: number } | null = null;
@@ -5544,10 +5577,305 @@ async function startServer() {
     }
   });
 
+  app.get('/api/almanac', async (req: Request, res: Response) => {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      res.status(400).json({ error: 'Coordonnées invalides.' });
+      return;
+    }
+
+    const now = new Date();
+    const reqMonth = Number(req.query.month);
+    const reqDay = Number(req.query.day);
+    const month = Number.isInteger(reqMonth) && reqMonth >= 1 && reqMonth <= 12 ? reqMonth : now.getMonth() + 1;
+    const day = Number.isInteger(reqDay) && reqDay >= 1 && reqDay <= 31 ? reqDay : now.getDate();
+
+    const mm = String(month).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    const cacheKey = `${lat.toFixed(2)}_${lng.toFixed(2)}_${mm}_${dd}`;
+
+    const cached = almanacCache.get(cacheKey);
+    if (cached) {
+      res.setHeader('Cache-Control', 'private, max-age=600, stale-while-revalidate=1800');
+      res.json(cached.payload);
+      return;
+    }
+
+    // 1. Reverse-resolve local Commune, Département & Région (GeoAPI Gouv FR + Nominatim fallback)
+    const fetchLocality = async (): Promise<{
+      commune: string;
+      departement: string;
+      region: string;
+      population?: number;
+    }> => {
+      try {
+        const geoUrl = `https://geo.api.gouv.fr/communes?lat=${lat.toFixed(5)}&lon=${lng.toFixed(
+          5
+        )}&fields=nom,departement,region,population&format=json`;
+        const resp = await fetchWithTimeout(geoUrl, { headers: { 'User-Agent': USER_AGENT } }, 3500);
+        if (resp.ok) {
+          const arr = (await resp.json()) as Array<{
+            nom?: string;
+            population?: number;
+            departement?: { nom?: string };
+            region?: { nom?: string };
+          }>;
+          if (Array.isArray(arr) && arr.length > 0 && arr[0].nom) {
+            return {
+              commune: arr[0].nom,
+              departement: arr[0].departement?.nom || '',
+              region: arr[0].region?.nom || '',
+              population: arr[0].population,
+            };
+          }
+        }
+      } catch {
+        // Fallback to Nominatim for non-FR or network hiccup
+      }
+
+      try {
+        const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat.toFixed(
+          4
+        )}&lon=${lng.toFixed(4)}&zoom=12&accept-language=fr`;
+        const resp = await fetchWithTimeout(nomUrl, { headers: { 'User-Agent': USER_AGENT } }, 3800);
+        if (resp.ok) {
+          const data = (await resp.json()) as {
+            address?: {
+              city?: string;
+              town?: string;
+              village?: string;
+              municipality?: string;
+              county?: string;
+              state?: string;
+              country?: string;
+            };
+          };
+          const addr = data.address || {};
+          return {
+            commune: addr.city || addr.town || addr.village || addr.municipality || 'Contrée locale',
+            departement: addr.county || '',
+            region: addr.state || addr.country || '',
+          };
+        }
+      } catch {
+        // Ignore
+      }
+      return { commune: 'Contrée locale', departement: '', region: '' };
+    };
+
+    // 2. Global French Historical & Scientific Ephemerides for MM/DD via Wikimedia REST API
+    const fetchGlobalEphemerides = async () => {
+      try {
+        const url = `https://api.wikimedia.org/feed/v1/wikipedia/fr/onthisday/selected/${mm}/${dd}`;
+        const resp = await fetchWithTimeout(
+          url,
+          { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } },
+          4200
+        );
+        if (!resp.ok) return [];
+        const data = (await resp.json()) as {
+          selected?: Array<{
+            year?: number;
+            text?: string;
+            pages?: Array<{
+              titles?: { normalized?: string };
+              content_urls?: { desktop?: { page?: string } };
+            }>;
+          }>;
+        };
+        const rawList = Array.isArray(data.selected) ? data.selected : [];
+        const heritagePreferred = rawList.filter((it) =>
+          /découvert|explor|archéo|monument|cathédrale|château|pont|musée|science|astronomie|géolog|forêt|parc|traité|fondation|inaugur|expédition|invention|chemin de fer|unesco|nature/i.test(
+            it.text || ''
+          )
+        );
+        const ordered = [
+          ...heritagePreferred,
+          ...rawList.filter((it) => !heritagePreferred.includes(it)),
+        ];
+        return ordered
+          .filter((it) => typeof it.year === 'number' && typeof it.text === 'string' && it.text.length > 12)
+          .slice(0, 3)
+          .map((it) => {
+            const firstPage = it.pages?.[0];
+            return {
+              year: Number(it.year),
+              text: String(it.text).slice(0, 280),
+              articleTitle: firstPage?.titles?.normalized,
+              articleUrl: firstPage?.content_urls?.desktop?.page,
+            };
+          });
+      } catch {
+        return [];
+      }
+    };
+
+    // 3. Local Historical Anniversaries & Dated Events within 35 km via Wikidata Geo-SPARQL
+    const fetchLocalAnniversaries = async () => {
+      try {
+        const sparql = `
+SELECT DISTINCT ?item ?itemLabel ?itemDescription ?date ?coord ?article WHERE {
+  SERVICE wikibase:around {
+    ?item wdt:P625 ?coord .
+    bd:serviceParam wikibase:center "Point(${lng.toFixed(4)} ${lat.toFixed(4)})"^^geo:wktLiteral .
+    bd:serviceParam wikibase:radius "35" .
+  }
+  { ?item wdt:P585 ?date . }
+  UNION
+  { ?item wdt:P1619 ?date . }
+  UNION
+  { ?item wdt:P571 ?date . }
+  FILTER(DATATYPE(?date) = xsd:dateTime)
+  FILTER(MONTH(?date) = ${month} && (DAY(?date) != 1 || MONTH(?date) != 1))
+  OPTIONAL {
+    ?article schema:about ?item ;
+             schema:isPartOf <https://fr.wikipedia.org/> .
+  }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "fr,en". }
+}
+LIMIT 24`;
+        const wdUrl = `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(
+          sparql
+        )}`;
+        const resp = await fetchWithTimeout(
+          wdUrl,
+          {
+            headers: {
+              'User-Agent': USER_AGENT,
+              Accept: 'application/sparql-results+json',
+            },
+          },
+          4500
+        );
+        if (!resp.ok) return [];
+        const json = (await resp.json()) as {
+          results?: {
+            bindings?: Array<{
+              item?: { value?: string };
+              itemLabel?: { value?: string };
+              itemDescription?: { value?: string };
+              date?: { value?: string };
+              coord?: { value?: string };
+              article?: { value?: string };
+            }>;
+          };
+        };
+        const bindings = json.results?.bindings || [];
+        const parsed: Array<{
+          id: string;
+          label: string;
+          description: string;
+          year: number | null;
+          eventDay: number;
+          dateLabel: string;
+          exactDayMatch: boolean;
+          distanceKm: number;
+          lat: number;
+          lng: number;
+          articleUrl?: string;
+        }> = [];
+        const seenIds = new Set<string>();
+
+        const monthNamesFr = [
+          'janvier',
+          'février',
+          'mars',
+          'avril',
+          'mai',
+          'juin',
+          'juillet',
+          'août',
+          'septembre',
+          'octobre',
+          'novembre',
+          'décembre',
+        ];
+
+        for (const b of bindings) {
+          const uri = b.item?.value || '';
+          const qid = uri.split('/').pop() || '';
+          const label = (b.itemLabel?.value || '').trim();
+          if (!qid || !label || /^Q\d+$/i.test(label) || seenIds.has(qid)) continue;
+
+          const coordStr = b.coord?.value || '';
+          const mCoord = coordStr.match(/Point\(([-\d.]+)\s+([-\d.]+)\)/i);
+          if (!mCoord) continue;
+          const itemLng = Number(mCoord[1]);
+          const itemLat = Number(mCoord[2]);
+          if (!Number.isFinite(itemLat) || !Number.isFinite(itemLng)) continue;
+
+          const dateRaw = b.date?.value || '';
+          const mDate = dateRaw.match(/^(-?\d+)-(\d{2})-(\d{2})/);
+          if (!mDate) continue;
+          const yr = Number(mDate[1]);
+          const evDay = Number(mDate[3]);
+          const exactDayMatch = evDay === day;
+
+          seenIds.add(qid);
+          const distM = haversineMeters(lat, lng, itemLat, itemLng);
+          const mName = monthNamesFr[Math.max(0, Math.min(11, month - 1))];
+          parsed.push({
+            id: `wd_anniv_${qid}`,
+            label: label.slice(0, 120),
+            description: (b.itemDescription?.value || 'Mémoire historique locale').slice(0, 180),
+            year: Number.isFinite(yr) ? yr : null,
+            eventDay: evDay,
+            dateLabel: `${evDay === 1 ? '1er' : evDay} ${mName}${Number.isFinite(yr) ? ` ${yr}` : ''}`,
+            exactDayMatch,
+            distanceKm: Math.round((distM / 1000) * 10) / 10,
+            lat: itemLat,
+            lng: itemLng,
+            articleUrl: b.article?.value,
+          });
+        }
+
+        // Prioritize exact day anniversaries first, then closest day in this month + closest distance!
+        parsed.sort((a, b) => {
+          if (a.exactDayMatch !== b.exactDayMatch) return a.exactDayMatch ? -1 : 1;
+          const dayDiffA = Math.abs(a.eventDay - day);
+          const dayDiffB = Math.abs(b.eventDay - day);
+          if (dayDiffA !== dayDiffB) return dayDiffA - dayDiffB;
+          return a.distanceKm - b.distanceKm;
+        });
+
+        return parsed.slice(0, 4).map(({ eventDay: _ed, ...rest }) => rest);
+      } catch {
+        return [];
+      }
+    };
+
+    const [locRes, ephRes, localRes] = await Promise.allSettled([
+      fetchLocality(),
+      fetchGlobalEphemerides(),
+      fetchLocalAnniversaries(),
+    ]);
+
+    const payload = {
+      dateIso: now.toISOString(),
+      month,
+      day,
+      locality:
+        locRes.status === 'fulfilled'
+          ? locRes.value
+          : { commune: 'Contrée locale', departement: '', region: '' },
+      globalEphemerides: ephRes.status === 'fulfilled' ? ephRes.value : [],
+      localAnniversaries: localRes.status === 'fulfilled' ? localRes.value : [],
+    };
+
+    almanacCache.set(cacheKey, {
+      expires: Date.now() + 60 * 60 * 1000,
+      payload,
+    });
+
+    res.setHeader('Cache-Control', 'private, max-age=600, stale-while-revalidate=1800');
+    res.json(payload);
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);

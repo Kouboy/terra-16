@@ -9443,9 +9443,12 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             ? `${(poi.eraLabel || poi.subType).slice(0, 14)} · `
             : '';
           const distLabel = `${spectralHint}${Math.round(distMeters)} m`;
-          const tagW = distLabel.length * 8 + 16;
-          const tagX = Math.round(vx * SCALE - tagW / 2);
-          const tagY = Math.round((vy + 4) * SCALE);
+          ctx.font = 'bold 11px "JetBrains Mono", monospace';
+          const tagW = Math.ceil(ctx.measureText(distLabel).width) + 16;
+          const rawTagX = Math.round(vx * SCALE - tagW / 2);
+          const tagX = Math.max(4, Math.min(VW * SCALE - tagW - 4, rawTagX));
+          const rawTagY = Math.round((vy + 4) * SCALE);
+          const tagY = Math.max(4, Math.min(VH * SCALE - 22, rawTagY));
           const tagCollides =
             !isSelected && hasRectCollision(occupiedTagRects, tagX - 2, tagY - 2, tagX + tagW + 2, tagY + 20, 2);
           if (!tagCollides) {
@@ -9462,10 +9465,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             ctx.fillRect(tagX, tagY, 3, 18);
             ctx.fillRect(tagX + tagW - 3, tagY, 3, 18);
             ctx.fillStyle = '#140b05';
-            ctx.font = 'bold 11px "JetBrains Mono", monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(distLabel, Math.round(vx * SCALE), tagY + 9);
+            ctx.fillText(distLabel, tagX + Math.round(tagW / 2), tagY + 9);
           }
         }
       }
@@ -9567,9 +9569,12 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       // Compact parchment clue tag underneath
       if (!uiCollapsed) {
         const clueText = `Piste · ${rDist} m`;
-        const tagW = clueText.length * 7 + 16;
-        const tagX = Math.round(rvx * SCALE - tagW / 2);
-        const tagY = Math.round((rvy + 6) * SCALE);
+        ctx.font = 'bold 10px "JetBrains Mono", monospace';
+        const tagW = Math.ceil(ctx.measureText(clueText).width) + 16;
+        const rawTagX = Math.round(rvx * SCALE - tagW / 2);
+        const tagX = Math.max(4, Math.min(VW * SCALE - tagW - 4, rawTagX));
+        const rawTagY = Math.round((rvy + 6) * SCALE);
+        const tagY = Math.max(4, Math.min(VH * SCALE - 20, rawTagY));
         if (!hasRectCollision(occupiedTagRects, tagX - 2, tagY - 2, tagX + tagW + 2, tagY + 20, 1)) {
           occupiedTagRects.push({ x0: tagX - 2, y0: tagY - 2, x1: tagX + tagW + 2, y1: tagY + 20 });
           ctx.fillStyle = '#140b05';
@@ -9580,10 +9585,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           ctx.fillRect(tagX, tagY, 3, 16);
           ctx.fillRect(tagX + tagW - 3, tagY, 3, 16);
           ctx.fillStyle = '#1c120b';
-          ctx.font = 'bold 10px "JetBrains Mono", monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(clueText, Math.round(rvx * SCALE), tagY + 8);
+          ctx.fillText(clueText, tagX + Math.round(tagW / 2), tagY + 8);
         }
       }
     }
@@ -10378,12 +10382,14 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         {/* Top-Left Illuminated Cartouche: Compass, Scale Name, Width, Altimeter & Subsoil/Weather */}
         {!uiCollapsed && (
           <div
-            className={`pointer-events-none absolute left-2 sm:left-2.5 border-2 border-[#2b1d12] px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-mono tabular-nums jrpg-shadow flex items-center gap-1.5 sm:gap-2 max-w-[calc(100%-255px)] sm:max-w-[calc(100%-365px)] ${
+            className={`pointer-events-none absolute border-2 border-[#2b1d12] min-h-[40px] sm:min-h-0 px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-mono tabular-nums jrpg-shadow flex items-center gap-1 sm:gap-2 max-w-[calc(100%-218px)] sm:max-w-[calc(100%-365px)] ${
               subterraneanMode
                 ? 'bg-[#21160f]/95 text-amber-100 border-amber-600'
                 : 'bg-[#f7ebd2]/95 text-[#23170e]'
             } ${
-              immersiveFullscreen ? 'top-[max(0.5rem,env(safe-area-inset-top))]' : 'top-2 sm:top-2.5'
+              immersiveFullscreen
+                ? 'top-[max(0.5rem,env(safe-area-inset-top))] left-[max(0.5rem,env(safe-area-inset-left))]'
+                : 'top-2 sm:top-2.5 left-2 sm:left-2.5'
             }`}
           >
             <span
@@ -10391,11 +10397,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 subterraneanMode ? 'text-amber-300' : 'text-rose-800'
               }`}
             >
-              {subterraneanMode ? '▼ Sous-sol' : 'N▲'}
+              {subterraneanMode ? '▼' : 'N▲'}
             </span>
-            <span className="text-[#8c6d46] hidden xs:inline">|</span>
+            <span className="text-[#8c6d46] shrink-0" aria-hidden="true">·</span>
             <span
-              className={`font-sans font-bold truncate ${
+              className={`font-sans font-bold truncate min-w-0 ${
                 subterraneanMode ? 'text-amber-200' : 'text-amber-900'
               }`}
             >
@@ -10425,8 +10431,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 </span>
                 {livePlayerAlt !== null && (
                   <>
-                    <span className="text-[#8c6d46] shrink-0">|</span>
-                    <span className="font-bold text-emerald-900 shrink-0">
+                    <span className="text-[#8c6d46] hidden sm:inline shrink-0">|</span>
+                    <span className="font-bold text-emerald-900 hidden sm:inline shrink-0">
                       {Math.round(livePlayerAlt)} m
                     </span>
                   </>
@@ -10458,8 +10464,10 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
 
         {/* Top-Right Direct Zoom +/-, Surface/Sous-sol Toggle (mobile/fullscreen/folded), Fold/Unfold UI & Fullscreen */}
         <div
-          className={`absolute right-2 sm:right-2.5 flex items-center gap-1.5 z-20 ${
-            immersiveFullscreen ? 'top-[max(0.5rem,env(safe-area-inset-top))]' : 'top-2 sm:top-2.5'
+          className={`absolute flex items-center gap-1 sm:gap-1.5 z-20 ${
+            immersiveFullscreen
+              ? 'top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))]'
+              : 'top-2 sm:top-2.5 right-2 sm:right-2.5'
           }`}
         >
           {onToggleSubterraneanMode && !uiCollapsed && (
@@ -10474,13 +10482,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               aria-label={subterraneanMode ? 'Afficher la surface' : 'Afficher le sous-sol'}
               className={`${
                 !immersiveFullscreen ? 'lg:hidden ' : ''
-              }h-11 min-w-[44px] sm:h-8 sm:min-w-0 px-2.5 border-2 jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap shrink-0 transition-colors ${
+              }h-10 w-10 sm:h-8 sm:w-auto px-0 sm:px-2.5 border-2 jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap shrink-0 transition-colors ${
                 subterraneanMode
                   ? 'bg-[#1c130d] text-amber-300 border-amber-400 hover:bg-[#2e2016]'
                   : 'bg-[#f7ebd2]/95 text-[#23170e] border-[#2b1d12] hover:bg-amber-200'
               }`}
             >
-              <PixelUiIcon name={subterraneanMode ? 'map' : 'dungeon'} className="w-4 h-4" />
+              <PixelUiIcon name={subterraneanMode ? 'map' : 'dungeon'} className="w-4 h-4 shrink-0" />
               <span className="hidden md:inline">
                 {subterraneanMode ? 'Surface' : 'Sous-sol'}
               </span>
@@ -10497,11 +10505,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               onClick={() => zoomLevel > 1 && onChangeZoom((zoomLevel - 1) as ZoomLevel)}
               disabled={zoomLevel <= 1}
               aria-label="Dézoomer la carte"
-              className="w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center text-base sm:text-sm font-mono font-bold text-[#23170e] hover:bg-amber-300 active:bg-amber-400 disabled:opacity-40 transition-colors"
+              className="w-9 h-10 sm:w-8 sm:h-8 flex items-center justify-center text-base sm:text-sm font-mono font-bold text-[#23170e] hover:bg-amber-300 active:bg-amber-400 disabled:opacity-40 transition-colors"
             >
               −
             </button>
-            <span className="px-1.5 sm:px-2 py-1 text-[11px] sm:text-xs font-mono tabular-nums font-bold text-[#23170e] border-x-2 border-[#2b1d12] bg-[#ead5af]">
+            <span className="hidden sm:inline-block px-2 py-1 text-xs font-mono tabular-nums font-bold text-[#23170e] border-x-2 border-[#2b1d12] bg-[#ead5af]">
               {currentZoomMeta.scaleTag}
             </span>
             <button
@@ -10509,7 +10517,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               onClick={() => zoomLevel < 6 && onChangeZoom((zoomLevel + 1) as ZoomLevel)}
               disabled={zoomLevel >= 6}
               aria-label="Zoomer la carte"
-              className="w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center text-base sm:text-sm font-mono font-bold text-[#23170e] hover:bg-amber-300 active:bg-amber-400 disabled:opacity-40 transition-colors"
+              className="w-9 h-10 sm:w-8 sm:h-8 border-l-2 sm:border-l-0 border-[#2b1d12] flex items-center justify-center text-base sm:text-sm font-mono font-bold text-[#23170e] hover:bg-amber-300 active:bg-amber-400 disabled:opacity-40 transition-colors"
             >
               +
             </button>
@@ -10521,7 +10529,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               onClick={onToggleUiCollapsed}
               title={uiCollapsed ? 'Déplier l’UI' : 'Replier l’UI'}
               aria-label={uiCollapsed ? 'Déplier l’UI' : 'Replier l’UI'}
-              className={`h-11 min-w-[44px] sm:h-8 sm:min-w-0 px-2.5 border-2 border-[#2b1d12] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
+              className={`h-10 min-w-[40px] sm:h-8 sm:min-w-0 px-2 sm:px-2.5 border-2 border-[#2b1d12] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
                 uiCollapsed
                   ? 'bg-amber-300 text-[#24160c] hover:bg-amber-200'
                   : 'bg-[#f7ebd2]/95 text-[#23170e] hover:bg-amber-200'
@@ -10529,11 +10537,16 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             >
               <PixelUiIcon
                 name={uiCollapsed ? 'ui-unfold' : 'ui-fold'}
-                className="w-4 h-4"
+                className="w-4 h-4 shrink-0"
               />
-              <span className={uiCollapsed ? 'inline' : 'hidden xl:inline'}>
-                {uiCollapsed ? 'Déplier l’UI' : 'Replier l’UI'}
-              </span>
+              {uiCollapsed ? (
+                <>
+                  <span className="sm:hidden">UI</span>
+                  <span className="hidden sm:inline">Déplier l’UI</span>
+                </>
+              ) : (
+                <span className="hidden xl:inline">Replier l’UI</span>
+              )}
             </button>
           )}
 
@@ -10551,7 +10564,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   ? 'Quitter le plein écran'
                   : 'Activer le mode plein écran'
               }
-              className={`h-11 min-w-[44px] sm:h-8 sm:min-w-0 px-2.5 border-2 border-[#2b1d12] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
+              className={`h-10 w-10 sm:h-8 sm:w-auto px-0 sm:px-2.5 border-2 border-[#2b1d12] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
                 immersiveFullscreen
                   ? 'bg-[#991b1b] text-[#fffbeb] hover:bg-[#b91c1c]'
                   : 'bg-[#28160d] text-amber-300 hover:bg-[#3f2416]'
@@ -10559,7 +10572,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             >
               <PixelUiIcon
                 name={immersiveFullscreen ? 'fullscreen-exit' : 'fullscreen-enter'}
-                className="w-4 h-4"
+                className="w-4 h-4 shrink-0"
               />
               <span className="hidden md:inline">
                 {immersiveFullscreen ? 'Réduire' : 'Plein écran'}
@@ -10573,9 +10586,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           <button
             type="button"
             onClick={() => setPanMeters({ east: 0, north: 0 })}
-            className="absolute top-14 sm:top-12 right-2 sm:right-2.5 min-h-[40px] sm:min-h-0 bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1d12] px-2.5 py-1.5 text-xs font-bold jrpg-shadow inline-flex items-center gap-1.5 z-10 transition-colors whitespace-nowrap"
+            className="absolute top-[3.25rem] sm:top-12 right-2 sm:right-2.5 min-h-[40px] sm:min-h-0 bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1d12] px-2.5 py-1.5 text-xs font-bold jrpg-shadow inline-flex items-center gap-1.5 z-10 transition-colors whitespace-nowrap"
           >
-            <PixelUiIcon name="gps" className="w-3.5 h-3.5" />
+            <PixelUiIcon name="gps" className="w-3.5 h-3.5 shrink-0" />
             <span>Recentrer</span>
           </button>
         )}
@@ -10647,7 +10660,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         {stratumBanner && (
           <div
             aria-live="polite"
-            className={`pointer-events-none absolute top-14 sm:top-12 left-1/2 -translate-x-1/2 px-3 py-1 border-2 text-xs font-bold jrpg-shadow whitespace-nowrap z-20 ${
+            className={`pointer-events-none absolute top-[3.25rem] sm:top-12 left-1/2 -translate-x-1/2 max-w-[calc(100%-1rem)] truncate px-3 py-1 border-2 text-xs font-bold jrpg-shadow z-20 ${
               stratumBanner.sub
                 ? 'bg-[#1c120b]/95 text-amber-300 border-amber-400'
                 : 'bg-[#fbf2dc]/95 text-[#23170e] border-[#2b1d12]'
@@ -10662,7 +10675,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           <button
             type="button"
             onClick={onToggleSubterraneanMode}
-            className={`absolute left-1/2 -translate-x-1/2 min-h-[44px] px-3.5 py-2 bg-[#1c120b]/95 hover:bg-[#2d1d12] text-amber-300 border-2 border-amber-400 jrpg-shadow inline-flex items-center gap-2 text-xs font-bold whitespace-nowrap shrink-0 z-20 transition-colors ${
+            className={`absolute left-1/2 -translate-x-1/2 max-w-[calc(100%-1rem)] min-h-[44px] px-3 py-2 bg-[#1c120b]/95 hover:bg-[#2d1d12] text-amber-300 border-2 border-amber-400 jrpg-shadow inline-flex items-center gap-2 text-xs font-bold z-20 transition-colors ${
               uiCollapsed
                 ? 'bottom-3'
                 : immersiveFullscreen
@@ -10670,8 +10683,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 : 'max-lg:bottom-16 lg:bottom-3.5'
             }`}
           >
-            <PixelUiIcon name={subterraneanMode ? 'map' : 'dungeon'} className="w-4 h-4" />
-            <span>
+            <PixelUiIcon name={subterraneanMode ? 'map' : 'dungeon'} className="w-4 h-4 shrink-0" />
+            <span className="truncate">
               {subterraneanMode
                 ? `▲ Remonter en Surface (${nearestPortal.dist} m)`
                 : `▼ Descendre : ${nearestPortal.name.slice(0, 26)} (${nearestPortal.dist} m)`}
@@ -10684,38 +10697,45 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           <div
             role="dialog"
             aria-label={`Dialogue avec ${activeNpcDialogue.npc.name}`}
-            className={`absolute left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[min(92%,650px)] bg-[#1c120b]/97 text-[#fef3c7] border-2 border-[#f59e0b] p-3 sm:p-4 jrpg-shadow z-30 flex items-start gap-3 sm:gap-4 ${
+            className={`absolute left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[min(92%,650px)] bg-[#1c120b]/97 text-[#fef3c7] border-2 border-[#f59e0b] p-3 sm:p-4 jrpg-shadow z-30 flex flex-col sm:flex-row sm:items-start gap-2.5 sm:gap-4 overflow-y-auto overscroll-contain ${
               uiCollapsed
-                ? 'bottom-3'
+                ? 'bottom-2.5 max-h-[calc(100%-3.75rem)]'
                 : immersiveFullscreen
-                ? 'bottom-[calc(4.6rem+env(safe-area-inset-bottom))]'
-                : 'max-lg:bottom-16 lg:bottom-3.5'
+                ? 'bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-h-[calc(100%-7.5rem-env(safe-area-inset-bottom))]'
+                : 'max-lg:bottom-[3.85rem] max-lg:max-h-[calc(100%-6.85rem)] lg:bottom-3.5 lg:max-h-[calc(100%-4.5rem)]'
             }`}
           >
             <NpcPortraitCanvas
               npc={activeNpcDialogue.npc}
               animTick={animTick}
-              className="w-12 h-12 sm:w-16 sm:h-16"
+              className="hidden sm:block w-16 h-16 shrink-0"
             />
-            <div className="flex-1 min-w-0 space-y-2">
-              <div className="flex items-baseline justify-between gap-2 border-b border-amber-500/30 pb-1.5">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0">
-                  <span className="font-display font-bold text-sm sm:text-base text-amber-300 truncate">
-                    {activeNpcDialogue.npc.name}
-                  </span>
-                  <span className="text-xs text-amber-200/80 font-medium truncate">
-                    {activeNpcDialogue.npc.roleLabel}
-                    <span className="mx-1.5 text-amber-500/60" aria-hidden="true">
-                      ·
-                    </span>
-                    <span className="text-emerald-300 font-semibold">Consigné au Carnet ✓</span>
-                  </span>
+            <div className="flex-1 min-w-0 w-full space-y-2">
+              <div className="flex items-start justify-between gap-2 border-b border-amber-500/30 pb-1.5">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <NpcPortraitCanvas
+                    npc={activeNpcDialogue.npc}
+                    animTick={animTick}
+                    className="sm:hidden w-11 h-11 shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display font-bold text-sm sm:text-base text-amber-300 leading-tight break-words">
+                      {activeNpcDialogue.npc.name}
+                    </div>
+                    <div className="text-[11px] sm:text-xs text-amber-200/85 font-medium leading-snug break-words mt-0.5">
+                      <span>{activeNpcDialogue.npc.roleLabel}</span>
+                      <span className="mx-1.5 text-amber-500/60" aria-hidden="true">
+                        ·
+                      </span>
+                      <span className="text-emerald-300 font-semibold">Consigné ✓</span>
+                    </div>
+                  </div>
                 </div>
                 <div
-                  className="inline-flex items-center gap-1.5 shrink-0"
+                  className="inline-flex items-center gap-1.5 shrink-0 pt-0.5"
                   aria-label={`Réplique ${activeNpcDialogue.lineIndex + 1} sur ${activeNpcDialogue.npc.dialogues.length}`}
                 >
-                  <span className="hidden xs:inline-flex items-center gap-1" aria-hidden="true">
+                  <span className="hidden sm:inline-flex items-center gap-1" aria-hidden="true">
                     {activeNpcDialogue.npc.dialogues.map((_, beatIdx) => (
                       <span
                         key={beatIdx}
@@ -10735,7 +10755,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 </div>
               </div>
 
-              <p className="text-xs sm:text-sm text-[#fffbeb] leading-relaxed select-text">
+              <p className="text-xs sm:text-sm text-[#fffbeb] leading-relaxed select-text break-words [overflow-wrap:anywhere]">
                 {activeNpcDialogue.npc.dialogues[activeNpcDialogue.lineIndex] ||
                   activeNpcDialogue.npc.dialogues[0]}
               </p>
@@ -10743,13 +10763,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               {/* Informant Rumor / Local Lead Callout */}
               {activeDialogueRumor && onAcceptRumor && (
                 <div className="pt-2 border-t border-amber-500/35 space-y-1.5">
-                  <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="inline-flex items-center gap-1.5 font-bold text-amber-300">
-                      <PixelUiIcon name="rumor" className="w-3.5 h-3.5" />
-                      <span>
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
+                    <span className="inline-flex items-center gap-1.5 font-bold text-amber-300 min-w-0">
+                      <PixelUiIcon name="rumor" className="w-3.5 h-3.5 shrink-0" />
+                      <span className="break-words">
                         {activeDialogueRumor.targetType === 'portal'
                           ? 'Confidence · Accès souterrain proche'
-                          : 'Rumeur locale · Curiosité encore voilée'}
+                          : 'Rumeur locale · Curiosité voilée'}
                       </span>
                     </span>
                     {activeDialogueRumorExisting && (
@@ -10761,7 +10781,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                     )}
                   </div>
                   <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-                    <p className="text-xs italic text-amber-100/90 leading-snug select-text flex-1">
+                    <p className="text-xs italic text-amber-100/90 leading-snug select-text flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
                       {activeDialogueRumor.rumorText}
                     </p>
                     {!activeDialogueRumorExisting ? (
@@ -10771,9 +10791,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                           playRumorPinSfx(muted);
                           onAcceptRumor(activeDialogueRumor);
                         }}
-                        className="min-h-[36px] px-3 py-1.5 bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border border-amber-400 text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                        className="min-h-[38px] px-3 py-1.5 bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border border-amber-400 text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                       >
-                        <PixelUiIcon name="rumor" className="w-3.5 h-3.5" />
+                        <PixelUiIcon name="rumor" className="w-3.5 h-3.5 shrink-0" />
                         <span>Noter sur la carte ▸</span>
                       </button>
                     ) : !activeDialogueRumorExisting.verified && simulationMode ? (
@@ -10793,9 +10813,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                               activeDialogueRumor.lng
                             );
                         }}
-                        className="min-h-[36px] px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 text-[#fffbeb] border border-amber-300 text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                        className="min-h-[38px] px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 text-[#fffbeb] border border-amber-300 text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                       >
-                        <PixelUiIcon name="boot" className="w-3.5 h-3.5" />
+                        <PixelUiIcon name="boot" className="w-3.5 h-3.5 shrink-0" />
                         <span>Marcher vers la piste ▸</span>
                       </button>
                     ) : null}
@@ -10804,26 +10824,26 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               )}
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <span className="text-[11px] text-amber-200/70 truncate hidden sm:inline">
+                <span className="text-[11px] text-amber-200/70 truncate hidden sm:inline max-w-[45%]">
                   {activeNpcDialogue.npc.habitatLabel} · Touche E pour continuer
                 </span>
-                <div className="flex items-center gap-2 ml-auto">
+                <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 w-full sm:w-auto sm:ml-auto">
                   {onOpenNpcPostcard && (
                     <button
                       type="button"
                       onClick={() => onOpenNpcPostcard(activeNpcDialogue.npc)}
                       title="Créer une carte postale souvenir 16-bit de cette rencontre"
-                      className="min-h-[40px] sm:min-h-[36px] px-3 py-1.5 bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-amber-400 text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                      className="min-h-[40px] sm:min-h-[36px] px-2.5 sm:px-3 py-1.5 bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-amber-400 text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                     >
-                      <PixelUiIcon name="postcard" className="w-3.5 h-3.5" />
-                      <span className="hidden xs:inline">Carte postale</span>
+                      <PixelUiIcon name="postcard" className="w-3.5 h-3.5 shrink-0" />
+                      <span className="hidden sm:inline">Carte postale</span>
                     </button>
                   )}
                   {activeNpcDialogue.npc.dialogues.length > 1 && (
                     <button
                       type="button"
                       onClick={() => interactWithNpc(activeNpcDialogue.npc)}
-                      className="min-h-[40px] sm:min-h-[36px] px-3.5 py-1.5 bg-amber-300 hover:bg-amber-200 text-[#1c120b] border-2 border-[#140b05] text-xs font-bold whitespace-nowrap shrink-0 transition-colors"
+                      className="min-h-[40px] sm:min-h-[36px] px-3 sm:px-3.5 py-1.5 bg-amber-300 hover:bg-amber-200 text-[#1c120b] border-2 border-[#140b05] text-xs font-bold whitespace-nowrap shrink-0 transition-colors"
                     >
                       {activeNpcDialogue.lineIndex + 1 < activeNpcDialogue.npc.dialogues.length
                         ? activeNpcDialogue.npc.isHuman

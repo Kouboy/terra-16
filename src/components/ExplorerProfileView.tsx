@@ -6,7 +6,8 @@ import {
   computeExplorerHonorificTitle,
   CosmeticItemDef,
   EXPLORER_GENDERS,
-  getCosmeticRewardForMission,
+  FAMILIAR_CATALOG,
+  getCosmeticRewardsForMission,
   getCosmeticUnlockStatus,
   HEADGEAR_CATALOG,
   isCosmeticUnlocked,
@@ -25,6 +26,7 @@ import {
   ExplorationCategory,
   ExplorerAppearance,
   ExplorerAvatarPreset,
+  ExplorerFamiliarId,
   ExplorerGender,
   ExplorerHeadgearId,
   ExplorerOutfitId,
@@ -53,7 +55,7 @@ import { ParchmentScrollStrip } from './ParchmentScrollStrip';
 import { PixelCornerRivets, PixelGuildIcon, PixelStratumIcon, PixelUiIcon } from './PixelIcons';
 
 export type ProfileSectionTab = 'atelier' | 'trophees' | 'historique' | 'hauts_faits';
-type WorkshopSlotTab = 'visage' | 'headgear' | 'outfit' | 'tool' | 'pack';
+export type WorkshopSlotTab = 'visage' | 'familiar' | 'headgear' | 'outfit' | 'tool' | 'pack';
 type TrophyFilterMode = 'all' | 'unlocked' | 'locked';
 
 interface ExplorerProfileViewProps {
@@ -68,6 +70,7 @@ interface ExplorerProfileViewProps {
   user: User | null;
   evaluatedTrophies: EvaluatedTrophy[];
   initialSectionTab?: ProfileSectionTab;
+  initialWorkshopSlot?: WorkshopSlotTab;
   onPinTrophy: (trophyId: TrophyId | '') => void;
   onUpdateAppearance: (patch: Partial<ExplorerAppearance>) => void;
   onSaveCallsign: (newName: string) => void;
@@ -75,6 +78,7 @@ interface ExplorerProfileViewProps {
   onOpenJournalEntry: (poiId: string) => void;
   onLocatePoiOnMap: (entry: UnlockedEntry) => void;
   onNavigateToMissions: () => void;
+  onNavigateToActivity?: (activity: 'almanach' | 'chasse' | 'enigmes' | 'guildes') => void;
   onResetCharacter: () => Promise<void>;
   onExportBackup: () => Promise<void>;
 }
@@ -114,6 +118,7 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
   user,
   evaluatedTrophies,
   initialSectionTab = 'atelier',
+  initialWorkshopSlot = 'familiar',
   onPinTrophy,
   onUpdateAppearance,
   onSaveCallsign,
@@ -121,12 +126,13 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
   onOpenJournalEntry,
   onLocatePoiOnMap,
   onNavigateToMissions,
+  onNavigateToActivity,
   onResetCharacter,
   onExportBackup,
 }) => {
   const [sectionTab, setSectionTab] = useState<ProfileSectionTab>(initialSectionTab);
   const [trophyFilter, setTrophyFilter] = useState<TrophyFilterMode>('all');
-  const [workshopTab, setWorkshopTab] = useState<WorkshopSlotTab>('headgear');
+  const [workshopTab, setWorkshopTab] = useState<WorkshopSlotTab>(initialWorkshopSlot);
   const [previewDir, setPreviewDir] = useState<'down' | 'right' | 'up' | 'left'>('down');
   const [previewWalking, setPreviewWalking] = useState<boolean>(true);
   const [nameDraft, setNameDraft] = useState<string>(progress.displayName);
@@ -142,6 +148,12 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
   useEffect(() => {
     setSectionTab(initialSectionTab);
   }, [initialSectionTab]);
+
+  useEffect(() => {
+    setWorkshopTab(initialWorkshopSlot);
+    if (initialWorkshopSlot === 'pack') setPreviewDir('up');
+    else setPreviewDir('down');
+  }, [initialWorkshopSlot]);
 
   useEffect(() => {
     setNameDraft(progress.displayName);
@@ -259,6 +271,20 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
     OUTFIT_COSMETICS_CATALOG[0];
   const equippedTool = TOOL_CATALOG.find((t) => t.id === appearance.toolId) || TOOL_CATALOG[0];
   const equippedPack = PACK_CATALOG.find((p) => p.id === appearance.packId) || PACK_CATALOG[0];
+  const equippedFamiliar =
+    FAMILIAR_CATALOG.find((f) => f.id === (appearance.familiarId || 'aucun')) ||
+    FAMILIAR_CATALOG[0];
+
+  const specialActivityRewards = useMemo(
+    () =>
+      ALL_COSMETIC_ITEMS.filter(
+        (item) =>
+          Boolean(item.minSolvedRiddles) ||
+          Boolean(item.minCompletedHunts) ||
+          Boolean(item.minClaimedAlmanac)
+      ),
+    []
+  );
 
   const handleSubmitCallsign = (e: React.FormEvent) => {
     e.preventDefault();
@@ -271,7 +297,10 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
 
   const handleEquipCosmetic = (item: CosmeticItemDef) => {
     playStampSfx(muted);
-    if (item.slot === 'headgear') {
+    if (item.slot === 'familiar') {
+      onUpdateAppearance({ familiarId: item.id as ExplorerFamiliarId });
+      setPreviewDir('down');
+    } else if (item.slot === 'headgear') {
       onUpdateAppearance({ headgearId: item.id as ExplorerHeadgearId });
     } else if (item.slot === 'outfit') {
       onUpdateAppearance({ outfitId: item.id as ExplorerOutfitId });
@@ -286,6 +315,7 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
   const renderCosmeticCard = (item: CosmeticItemDef) => {
     const status = getCosmeticUnlockStatus(item, progress, entries);
     const isEquipped =
+      (item.slot === 'familiar' && (appearance.familiarId || 'aucun') === item.id) ||
       (item.slot === 'headgear' && appearance.headgearId === item.id) ||
       (item.slot === 'outfit' && appearance.outfitId === item.id) ||
       (item.slot === 'tool' && appearance.toolId === item.id) ||
@@ -293,11 +323,26 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
 
     const previewAppearance: ExplorerAppearance = {
       ...appearance,
+      ...(item.slot === 'familiar' ? { familiarId: item.id as ExplorerFamiliarId } : {}),
       ...(item.slot === 'headgear' ? { headgearId: item.id as ExplorerHeadgearId } : {}),
       ...(item.slot === 'outfit' ? { outfitId: item.id as ExplorerOutfitId } : {}),
       ...(item.slot === 'tool' ? { toolId: item.id as ExplorerToolId } : {}),
       ...(item.slot === 'pack' ? { packId: item.id as ExplorerPackId } : {}),
     };
+
+    const equippedBadgeLabel =
+      item.slot === 'familiar'
+        ? item.id === 'aucun'
+          ? 'Marche solitaire active ✓'
+          : 'Accompagne vos pas sur la carte ✓'
+        : 'Équipé sur la carte 16-bit ✓';
+
+    const equipBtnLabel =
+      item.slot === 'familiar'
+        ? item.id === 'aucun'
+          ? 'Marcher seul'
+          : 'Adopter à mes côtés'
+        : 'Équiper';
 
     return (
       <div
@@ -318,10 +363,10 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
           <ExplorerSpriteCanvas
             appearance={previewAppearance}
             facingDir={item.slot === 'pack' ? 'up' : 'down'}
-            isWalking={isEquipped}
-            animated={isEquipped}
+            isWalking={isEquipped || item.slot === 'familiar'}
+            animated={isEquipped || item.slot === 'familiar'}
             pixelScale={2}
-            className="w-14 h-[60px]"
+            className="w-[68px] h-[60px]"
           />
         </div>
 
@@ -334,14 +379,14 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
           </div>
 
           {isEquipped ? (
-            <div className="text-xs font-bold text-[#991b1b]">Équipé sur la carte 16-bit ✓</div>
+            <div className="text-xs font-bold text-[#991b1b]">{equippedBadgeLabel}</div>
           ) : status.unlocked ? (
             <button
               type="button"
               onClick={() => handleEquipCosmetic(item)}
               className="min-h-[40px] sm:min-h-[36px] px-3.5 py-1.5 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow whitespace-nowrap"
             >
-              Équiper
+              {equipBtnLabel}
             </button>
           ) : (
             <div className="space-y-1.5 pt-0.5 min-w-0">
@@ -349,7 +394,7 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                 className="flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-rose-900 min-w-0"
                 title={status.requirementLabel}
               >
-                <span className="font-sans font-bold truncate min-w-0">
+                <span className="font-sans font-bold break-words min-w-0">
                   Scellé · {status.requirementLabel}
                 </span>
                 <span className="font-bold shrink-0">
@@ -367,16 +412,45 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                   }}
                 />
               </div>
-              {status.missionId && (
+              {status.sourceKind === 'almanach' && onNavigateToActivity ? (
                 <button
                   type="button"
-                  onClick={onNavigateToMissions}
+                  onClick={() => onNavigateToActivity('almanach')}
+                  className="min-h-[36px] text-xs font-bold text-rose-900 hover:text-rose-700 underline underline-offset-4 inline-flex items-center gap-1 whitespace-nowrap"
+                >
+                  <PixelUiIcon name="star" className="w-3.5 h-3.5" />
+                  <span>Ouvrir l’Almanach</span>
+                </button>
+              ) : status.sourceKind === 'chasse' && onNavigateToActivity ? (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToActivity('chasse')}
+                  className="min-h-[36px] text-xs font-bold text-rose-900 hover:text-rose-700 underline underline-offset-4 inline-flex items-center gap-1 whitespace-nowrap"
+                >
+                  <PixelUiIcon name="chest" className="w-3.5 h-3.5" />
+                  <span>Pister une Chasse au Trésor</span>
+                </button>
+              ) : status.sourceKind === 'enigme' && onNavigateToActivity ? (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToActivity('enigmes')}
+                  className="min-h-[36px] text-xs font-bold text-rose-900 hover:text-rose-700 underline underline-offset-4 inline-flex items-center gap-1 whitespace-nowrap"
+                >
+                  <PixelUiIcon name="book" className="w-3.5 h-3.5" />
+                  <span>Résoudre une énigme au Carnet</span>
+                </button>
+              ) : status.missionId ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onNavigateToActivity ? onNavigateToActivity('guildes') : onNavigateToMissions()
+                  }
                   className="min-h-[36px] text-xs font-bold text-rose-900 hover:text-rose-700 underline underline-offset-4 inline-flex items-center gap-1 whitespace-nowrap"
                 >
                   <PixelUiIcon name="scroll" className="w-3.5 h-3.5" />
                   <span>Voir la quête</span>
                 </button>
-              )}
+              ) : null}
             </div>
           )}
         </div>
@@ -422,7 +496,7 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                 pixelScale={4}
                 stageBackdrop
                 timeMode={timeMode}
-                className="w-[184px] h-[168px] max-w-full"
+                className="w-[208px] h-[168px] max-w-full"
               />
             </div>
 
@@ -491,8 +565,27 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
             </div>
           </div>
 
-          {/* 4-Slot Equipped Summary (Click any slot to open it in the Workshop!) */}
+          {/* 5-Slot Equipped Summary (Familiar + 4 Cosmetics — Click any slot to open it in the Workshop!) */}
           <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#6b4928] text-xs">
+            <button
+              type="button"
+              title={equippedFamiliar.name}
+              onClick={() => {
+                setSectionTab('atelier');
+                setWorkshopTab('familiar');
+                setPreviewDir('down');
+              }}
+              className="col-span-2 min-h-[44px] min-w-0 overflow-hidden px-3 py-1.5 bg-[#382012] hover:bg-[#4d2c19] border border-[#d97706] text-left flex items-center justify-between gap-2 transition-colors"
+            >
+              <div className="min-w-0">
+                <div className="text-[10px] font-mono text-amber-300 flex items-center gap-1">
+                  <PixelUiIcon name="paw" className="w-3 h-3 shrink-0" />
+                  <span>Familier compagnon</span>
+                </div>
+                <div className="font-bold text-[#fffbeb] truncate">{equippedFamiliar.name}</div>
+              </div>
+              <span className="text-[11px] font-bold text-amber-300 shrink-0">Changer ▸</span>
+            </button>
             {(
               [
                 { slot: 'headgear', label: 'Coiffe', name: equippedHeadgear.name },
@@ -784,9 +877,9 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                 : 'bg-[#ecd8b1] text-[#24160c] hover:bg-[#fffbeb]'
             }`}
           >
-            <PixelUiIcon name="scroll" className="w-4 h-4" />
+            <PixelUiIcon name="paw" className="w-4 h-4" />
             <span>
-              Récompenses de Quêtes ({progress.completedMissions.length}/{MISSIONS_CATALOG.length})
+              Récompenses & Familiers ({unlockedCosmeticsCount}/{ALL_COSMETIC_ITEMS.length})
             </span>
           </button>
         </ParchmentScrollStrip>
@@ -860,12 +953,12 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                 </div>
               )}
               <div className="min-w-0 space-y-0.5">
-                <div className="text-xs text-amber-300 font-semibold">
+                <div className="text-xs text-amber-300 font-semibold break-words">
                   {pinnedTrophy
                     ? `Médaille épinglée · ${pinnedTrophy.name}`
                     : 'Aucune médaille épinglée · Titre de Guilde par défaut'}
                 </div>
-                <div className="text-sm sm:text-base font-bold font-display text-[#fffbeb] truncate">
+                <div className="text-sm sm:text-base font-bold font-display text-[#fffbeb] leading-snug break-words">
                   {progress.displayName} — {honorificTitle}
                 </div>
               </div>
@@ -878,7 +971,7 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                   playStampSfx(muted);
                   onPinTrophy('');
                 }}
-                className="min-h-[40px] px-3.5 py-1.5 text-xs font-bold bg-[#382012] hover:bg-[#54301d] text-amber-200 border border-[#d97706] whitespace-nowrap shrink-0 self-start sm:self-center"
+                className="min-h-[40px] max-w-full px-3 py-1.5 text-xs font-bold bg-[#382012] hover:bg-[#54301d] text-amber-200 border border-[#d97706] text-left leading-snug break-words self-start sm:self-center"
               >
                 Revenir au titre de Guilde ({guildHonorificTitle})
               </button>
@@ -1027,17 +1120,22 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
 
           <div className="space-y-2 border-b-2 border-[#c89d62] pb-4">
             <h2 className="text-lg sm:text-xl font-bold font-display text-[#24160c]">
-              Atelier du Cartographe — Visage & Équipements Cosmétiques
+              Atelier du Cartographe — Familiers, Visage & Équipements Cosmétiques
             </h2>
             <p className="text-xs text-[#54361d] max-w-3xl">
-              Chaque changement de visage, de couvre-chef, de manteau, de relique ou de paquetage
-              dorsal est reproduit en direct sur votre personnage animé sur la carte 16-bit.
-              Accomplissez les quêtes du Grimoire pour débloquer de nouvelles pièces.
+              Chaque familier adopté, couvre-chef, manteau, relique ou paquetage dorsal accompagne
+              en direct votre explorateur sur la carte 16-bit. Résolvez des énigmes contextuelles,
+              des chasses aux trésors, des quêtes de l’Almanach et du Grimoire pour tout débloquer.
             </p>
 
             <ParchmentScrollStrip fadeColorFrom="vellum" innerClassName="gap-2 pt-2">
               {(
                 [
+                  {
+                    id: 'familiar',
+                    label: `Familiers (${FAMILIAR_CATALOG.length - 1})`,
+                    icon: 'paw',
+                  },
                   { id: 'visage', label: 'Visage & Allure', icon: 'user-profile' },
                   { id: 'headgear', label: `Couvre-chefs (${HEADGEAR_CATALOG.length})`, icon: 'hat' },
                   {
@@ -1069,6 +1167,25 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
               ))}
             </ParchmentScrollStrip>
           </div>
+
+          {workshopTab === 'familiar' && (
+            <div className="space-y-3">
+              <div className="p-3 bg-[#ecd8b1] border border-[#8c653b] text-xs text-[#3b2312] flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  Votre familier trottine ou volette fidèlement à vos côtés sur la carte 16-bit
+                  (Surface &amp; Sous-sol) ainsi que sur vos cartes postales souvenirs.
+                </span>
+                <span className="font-mono font-bold text-rose-900 shrink-0">
+                  Énigmes : {progress.solvedRiddlesCount || 0} · Chasses :{' '}
+                  {progress.completedHuntsCount || 0} · Almanach :{' '}
+                  {progress.claimedAlmanacCount || 0}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                {FAMILIAR_CATALOG.map((item) => renderCosmeticCard(item))}
+              </div>
+            </div>
+          )}
 
           {workshopTab === 'visage' && (
             <div className="space-y-5">
@@ -1448,80 +1565,152 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
       )}
 
       {/* ====================================================================
-          TAB 3: ACCOMPLISHMENTS & MISSION COSMETIC REWARDS
+          TAB 3: ACCOMPLISHMENTS, FAMILIARS & SPECIAL REWARDS
           ==================================================================== */}
       {sectionTab === 'hauts_faits' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {MISSIONS_CATALOG.map((mission, idx) => {
-            const completed = progress.completedMissions.includes(mission.id);
-            const accessible = isMissionUnlocked(mission, progress);
-            const ev = mission.evaluate(entries);
-            const reward = getCosmeticRewardForMission(mission.id);
-            const rewardUnlocked = reward ? isCosmeticUnlocked(reward, progress, entries) : false;
-            const rewardEquipped =
-              reward &&
-              ((reward.slot === 'headgear' && appearance.headgearId === reward.id) ||
-                (reward.slot === 'outfit' && appearance.outfitId === reward.id) ||
-                (reward.slot === 'tool' && appearance.toolId === reward.id) ||
-                (reward.slot === 'pack' && appearance.packId === reward.id));
-
-            return (
-              <div
-                key={mission.id}
-                className={`relative min-w-0 overflow-hidden p-4 sm:p-5 space-y-3 ${
-                  completed
-                    ? 'bg-[#ecfdf5] border-2 border-emerald-800 jrpg-shadow'
-                    : accessible
-                    ? 'grimoire-folio'
-                    : 'grimoire-well opacity-80'
-                }`}
-              >
-                <PixelCornerRivets className={completed ? 'bg-emerald-600' : 'bg-[#f59e0b]'} />
-
-                <div className="flex items-center justify-between gap-2 text-xs text-[#54361d]">
-                  <span className="font-mono tabular-nums font-bold text-rose-800">
-                    {String(idx + 1).padStart(2, '0')}. {mission.arcName}
-                  </span>
-                  <span className="font-mono tabular-nums font-bold text-emerald-800">
-                    +{mission.xpBonus} XP
-                  </span>
+        <div className="space-y-5">
+          {/* Special Rewards from Riddles, Treasure Hunts & Almanac Quests */}
+          <div className="relative grimoire-folio-gold p-4 sm:p-6 space-y-4">
+            <PixelCornerRivets className="bg-[#d97706]" />
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3 border-b-2 border-[#c89d62] pb-3.5">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-mono font-bold text-rose-900">
+                  <PixelUiIcon name="paw" className="w-4 h-4" />
+                  <span> Énigmes : {progress.solvedRiddlesCount || 0}</span>
+                  <span>·</span>
+                  <span>Chasses : {progress.completedHuntsCount || 0}</span>
+                  <span>·</span>
+                  <span>Almanach : {progress.claimedAlmanacCount || 0}</span>
                 </div>
-
-                <h3 className="text-base sm:text-lg font-bold font-display text-[#24160c]">
-                  {mission.title}
-                </h3>
-
-                <p className="text-xs text-[#4a321d] leading-relaxed">{mission.description}</p>
-
-                {reward && (
-                  <div className="p-2.5 bg-[#f8edd6] border border-[#8c653b] flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-[11px] text-[#6b4928] font-semibold">
-                        Récompense cosmétique
-                      </div>
-                      <div className="text-xs font-bold text-[#24160c] truncate">{reward.name}</div>
-                    </div>
-
-                    {rewardEquipped ? (
-                      <span className="text-xs font-bold text-[#991b1b] shrink-0">Équipé ✓</span>
-                    ) : rewardUnlocked ? (
-                      <button
-                        type="button"
-                        onClick={() => handleEquipCosmetic(reward)}
-                        className="min-h-[36px] px-3 py-1 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap shrink-0"
-                      >
-                        Équiper
-                      </button>
-                    ) : (
-                      <span className="text-xs font-mono tabular-nums font-bold text-[#6b4928] shrink-0">
-                        {ev.current}/{ev.target}
-                      </span>
-                    )}
-                  </div>
-                )}
+                <h2 className="text-lg sm:text-xl font-bold font-display text-[#24160c]">
+                  Familiers &amp; Trésors d’Énigmes, Chasses et Almanach
+                </h2>
+                <p className="text-xs text-[#4a321d] max-w-3xl">
+                  Débloquez des compagnons animés 16-bit et des reliques exclusives en perçant les
+                  énigmes du Sceau d’Or, les pistes aux trésors et les fêtes de l’Almanach.
+                </p>
               </div>
-            );
-          })}
+              {onNavigateToActivity && (
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToActivity('almanach')}
+                    className="min-h-[40px] px-3 py-1.5 text-xs font-bold bg-[#ecd8b1] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <PixelUiIcon name="star" className="w-3.5 h-3.5" />
+                    <span>Almanach</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToActivity('chasse')}
+                    className="min-h-[40px] px-3 py-1.5 text-xs font-bold bg-[#ecd8b1] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <PixelUiIcon name="chest" className="w-3.5 h-3.5" />
+                    <span>Chasses</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToActivity('enigmes')}
+                    className="min-h-[40px] px-3 py-1.5 text-xs font-bold bg-[#ecd8b1] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <PixelUiIcon name="book" className="w-3.5 h-3.5" />
+                    <span>Énigmes</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+              {specialActivityRewards.map((item) => renderCosmeticCard(item))}
+            </div>
+          </div>
+
+          {/* Guild Missions & Their Cosmetic / Familiar Rewards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {MISSIONS_CATALOG.map((mission, idx) => {
+              const completed = progress.completedMissions.includes(mission.id);
+              const accessible = isMissionUnlocked(mission, progress);
+              const ev = mission.evaluate(entries);
+              const rewards = getCosmeticRewardsForMission(mission.id);
+
+              return (
+                <div
+                  key={mission.id}
+                  className={`relative min-w-0 overflow-hidden p-4 sm:p-5 space-y-3 ${
+                    completed
+                      ? 'bg-[#ecfdf5] border-2 border-emerald-800 jrpg-shadow'
+                      : accessible
+                      ? 'grimoire-folio'
+                      : 'grimoire-well opacity-80'
+                  }`}
+                >
+                  <PixelCornerRivets className={completed ? 'bg-emerald-600' : 'bg-[#f59e0b]'} />
+
+                  <div className="flex items-center justify-between gap-2 text-xs text-[#54361d]">
+                    <span className="font-mono tabular-nums font-bold text-rose-800">
+                      {String(idx + 1).padStart(2, '0')}. {mission.arcName}
+                    </span>
+                    <span className="font-mono tabular-nums font-bold text-emerald-800">
+                      +{mission.xpBonus} XP
+                    </span>
+                  </div>
+
+                  <h3 className="text-base sm:text-lg font-bold font-display text-[#24160c]">
+                    {mission.title}
+                  </h3>
+
+                  <p className="text-xs text-[#4a321d] leading-relaxed">{mission.description}</p>
+
+                  {rewards.map((reward) => {
+                    const rewardUnlocked = isCosmeticUnlocked(reward, progress, entries);
+                    const rewardEquipped =
+                      (reward.slot === 'familiar' &&
+                        (appearance.familiarId || 'aucun') === reward.id) ||
+                      (reward.slot === 'headgear' && appearance.headgearId === reward.id) ||
+                      (reward.slot === 'outfit' && appearance.outfitId === reward.id) ||
+                      (reward.slot === 'tool' && appearance.toolId === reward.id) ||
+                      (reward.slot === 'pack' && appearance.packId === reward.id);
+
+                    return (
+                      <div
+                        key={`${mission.id}_${reward.id}`}
+                        className="p-2.5 bg-[#f8edd6] border border-[#8c653b] flex items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[11px] text-[#6b4928] font-semibold">
+                            {reward.slot === 'familiar'
+                              ? 'Familier compagnon'
+                              : 'Récompense cosmétique'}
+                          </div>
+                          <div className="text-xs font-bold text-[#24160c] truncate">
+                            {reward.name}
+                          </div>
+                        </div>
+
+                        {rewardEquipped ? (
+                          <span className="text-xs font-bold text-[#991b1b] shrink-0">
+                            {reward.slot === 'familiar' ? 'Adopté ✓' : 'Équipé ✓'}
+                          </span>
+                        ) : rewardUnlocked ? (
+                          <button
+                            type="button"
+                            onClick={() => handleEquipCosmetic(reward)}
+                            className="min-h-[36px] px-3 py-1 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap shrink-0"
+                          >
+                            {reward.slot === 'familiar' ? 'Adopter' : 'Équiper'}
+                          </button>
+                        ) : (
+                          <span className="text-xs font-mono tabular-nums font-bold text-[#6b4928] shrink-0">
+                            {ev.current}/{ev.target}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

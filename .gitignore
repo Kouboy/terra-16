@@ -1,6 +1,7 @@
 node_modules/
 build/
 dist/
+dev-dist/
 coverage/
 .DS_Store
 *.log
@@ -9,4 +10,5 @@ coverage/
 firebase-applet-config.json
 firebase_applet_config.xml
 !firebase-applet-config.example.json
+
 

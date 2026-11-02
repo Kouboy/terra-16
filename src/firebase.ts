@@ -1,9 +1,10 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
   signOut as firebaseSignOut,
+  type Auth,
   type User,
 } from 'firebase/auth';
 import {
@@ -21,6 +22,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  type Firestore,
   type Unsubscribe,
 } from 'firebase/firestore';
 import type {
@@ -31,6 +33,7 @@ import type {
   ExplorerAppearance,
   ExplorerAvatarPreset,
   ExplorerCairn,
+  ExplorerFamiliarId,
   ExplorerGender,
   ExplorerGeocacheRecord,
   ExplorerHeadgearId,
@@ -91,11 +94,19 @@ const firebaseConfig: FirebaseAppletConfig = {
     import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY || localFirebaseConfig.recaptchaSiteKey,
 };
 
-const app = initializeApp(firebaseConfig);
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
-export const auth = getAuth(app);
+export const isFirebaseConfigured = Boolean(
+  firebaseConfig.apiKey && firebaseConfig.projectId
+);
+
+const app: FirebaseApp | null = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
+export const db: Firestore = (
+  app
+    ? firebaseConfig.firestoreDatabaseId
+      ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+      : getFirestore(app)
+    : null
+) as Firestore;
+export const auth: Auth | null = app ? getAuth(app) : null;
 
 export enum OperationType {
   CREATE = 'create',
@@ -131,13 +142,13 @@ export function handleFirestoreError(
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
       providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
+        auth?.currentUser?.providerData?.map((provider) => ({
           providerId: provider.providerId,
           email: provider.email,
         })) || [],
@@ -178,6 +189,13 @@ export function formatFirebaseAuthErrorFr(error: unknown): string {
   ) {
     return 'Mode Sauvegarde Locale actif : l’API Google Cloud « Token Service API » (securetoken.googleapis.com) est désactivée ou en cours d’activation sur le projet Firebase. Vos découvertes restent intégralement sauvegardées sur cet appareil.';
   }
+  if (raw.includes('unauthorized-domain')) {
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'ce domaine';
+    return `Ajoutez « ${host} » dans Firebase Console > Authentication > Settings > Authorized domains pour activer la connexion Google sur cette URL.`;
+  }
+  if (raw.includes('FIREBASE_NOT_CONFIGURED')) {
+    return 'Mode Sauvegarde Locale actif : configuration Firebase absente sur cette instance.';
+  }
   if (raw.includes('network-request-failed') || raw.includes('the client is offline')) {
     return 'Réseau indisponible : votre Grimoire continue de sauvegarder toutes vos découvertes localement.';
   }
@@ -195,6 +213,9 @@ const inflightAuthChecks = new Map<string, Promise<AuthSessionPreflightResult>>(
 export async function validateExplorerAuthSession(
   candidateUser?: User | null
 ): Promise<AuthSessionPreflightResult> {
+  if (!auth || !isFirebaseConfigured) {
+    return { validUser: null, cloudReachable: false, warningMessage: '' };
+  }
   if (candidateUser === undefined) {
     try {
       await auth.authStateReady();
@@ -242,6 +263,9 @@ export async function validateExplorerAuthSession(
 }
 
 async function assertCloudSessionHealthy(): Promise<void> {
+  if (!auth || !db || !isFirebaseConfigured) {
+    throw new Error('CLOUD_OFFLINE');
+  }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new Error('CLOUD_OFFLINE');
   }
@@ -261,6 +285,7 @@ async function assertCloudSessionHealthy(): Promise<void> {
 }
 
 async function testConnection() {
+  if (!isFirebaseConfigured || !db) return;
   try {
     const preflight = await validateExplorerAuthSession();
     if (!preflight.cloudReachable) return;
@@ -291,6 +316,9 @@ const VALID_HEADGEAR: ExplorerHeadgearId[] = [
   'capuche_sylvestre',
   'couronne_menhir',
   'lunettes_astro',
+  'monocle_erudit',
+  'tricorne_reliquaire',
+  'couronne_saisons',
 ];
 const VALID_OUTFITS: ExplorerOutfitId[] = [
   'arpenteur',
@@ -299,6 +327,8 @@ const VALID_OUTFITS: ExplorerOutfitId[] = [
   'sylvestre',
   'ombres',
   'barde',
+  'almanach_solaire',
+  'chasseur_reliques',
 ];
 const VALID_TOOLS: ExplorerToolId[] = [
   'lanterne_laiton',
@@ -306,12 +336,28 @@ const VALID_TOOLS: ExplorerToolId[] = [
   'marteau_geologue',
   'plume_enluminee',
   'fiole_spectrale',
+  'loupe_sceau_or',
+  'clef_coffres_anciens',
+  'sablier_ephemeride',
 ];
 const VALID_PACKS: ExplorerPackId[] = [
   'besace_cuir',
   'rouleau_cartes',
   'hotte_cristaux',
   'ailerons_automate',
+  'coffret_piste',
+  'grimoire_almanach',
+  'astrolabe_dorsal',
+];
+const VALID_FAMILIARS: ExplorerFamiliarId[] = [
+  'aucun',
+  'chouette_erudite',
+  'goupil_saisons',
+  'scarabee_boussole',
+  'salamandre_cristal',
+  'corbeau_cartographe',
+  'feu_follet_astral',
+  'hermine_royale',
 ];
 const VALID_CAIRN_TAGS: CairnTag[] = [
   'architecture',
@@ -360,6 +406,12 @@ function sanitizePack(raw?: string): ExplorerPackId {
   return VALID_PACKS.includes(raw as ExplorerPackId) ? (raw as ExplorerPackId) : 'besace_cuir';
 }
 
+function sanitizeFamiliar(raw?: string): ExplorerFamiliarId {
+  return VALID_FAMILIARS.includes(raw as ExplorerFamiliarId)
+    ? (raw as ExplorerFamiliarId)
+    : 'aucun';
+}
+
 function sanitizePinnedTrophyId(raw?: string | null): TrophyId | '' {
   if (!raw) return '';
   return VALID_TROPHY_IDS.includes(raw as TrophyId) ? (raw as TrophyId) : '';
@@ -384,6 +436,9 @@ function sanitizeStringArray(arr: string[], maxItems: number): string[] {
 }
 
 export async function signInExplorerWithGoogle(): Promise<User> {
+  if (!auth || !isFirebaseConfigured) {
+    throw new Error(formatFirebaseAuthErrorFr(new Error('FIREBASE_NOT_CONFIGURED')));
+  }
   const provider = new GoogleAuthProvider();
   const cred = await signInWithPopup(auth, provider);
   try {
@@ -396,6 +451,7 @@ export async function signInExplorerWithGoogle(): Promise<User> {
 }
 
 export async function signOutExplorer(): Promise<void> {
+  if (!auth) return;
   await firebaseSignOut(auth);
 }
 
@@ -440,12 +496,28 @@ export async function ensureExplorerProfileInCloud(
         outfitId: sanitizeOutfit(localProgress.outfitId),
         toolId: sanitizeTool(localProgress.toolId),
         packId: sanitizePack(localProgress.packId),
+        familiarId: sanitizeFamiliar(localProgress.familiarId),
         pinnedTrophyId: sanitizePinnedTrophyId(localProgress.pinnedTrophyId),
         walkedMeters: clampNum(Math.round(localProgress.walkedMeters || 0), 0, 100000000),
         nightFeatsCount: clampNum(Math.round(localProgress.nightFeatsCount || 0), 0, 100000),
         stormFeatsCount: clampNum(Math.round(localProgress.stormFeatsCount || 0), 0, 100000),
         completedContractsCount: clampNum(
           Math.round(localProgress.completedContractsCount || 0),
+          0,
+          100000
+        ),
+        solvedRiddlesCount: clampNum(
+          Math.round(localProgress.solvedRiddlesCount || 0),
+          0,
+          100000
+        ),
+        completedHuntsCount: clampNum(
+          Math.round(localProgress.completedHuntsCount || 0),
+          0,
+          100000
+        ),
+        claimedAlmanacCount: clampNum(
+          Math.round(localProgress.claimedAlmanacCount || 0),
           0,
           100000
         ),
@@ -480,13 +552,28 @@ export async function ensureExplorerProfileInCloud(
       Number(cloud.completedContractsCount || 0),
       Math.round(localProgress.completedContractsCount || 0)
     );
+    const mergedRiddles = Math.max(
+      Number(cloud.solvedRiddlesCount || 0),
+      Math.round(localProgress.solvedRiddlesCount || 0)
+    );
+    const mergedHunts = Math.max(
+      Number(cloud.completedHuntsCount || 0),
+      Math.round(localProgress.completedHuntsCount || 0)
+    );
+    const mergedAlmanac = Math.max(
+      Number(cloud.claimedAlmanacCount || 0),
+      Math.round(localProgress.claimedAlmanacCount || 0)
+    );
     if (
       mergedTotalXp > Number(cloud.totalXp || 0) ||
       mergedDiscoveriesCount > Number(cloud.discoveriesCount || 0) ||
       mergedWalkedMeters > Number(cloud.walkedMeters || 0) ||
       mergedNightFeats > Number(cloud.nightFeatsCount || 0) ||
       mergedStormFeats > Number(cloud.stormFeatsCount || 0) ||
-      mergedContracts > Number(cloud.completedContractsCount || 0)
+      mergedContracts > Number(cloud.completedContractsCount || 0) ||
+      mergedRiddles > Number(cloud.solvedRiddlesCount || 0) ||
+      mergedHunts > Number(cloud.completedHuntsCount || 0) ||
+      mergedAlmanac > Number(cloud.claimedAlmanacCount || 0)
     ) {
       const mergedMissions = Array.from(
         new Set([
@@ -533,6 +620,9 @@ export async function ensureExplorerProfileInCloud(
           outfitId: sanitizeOutfit(String(cloud.outfitId || localProgress.outfitId || 'arpenteur')),
           toolId: sanitizeTool(String(cloud.toolId || localProgress.toolId || 'lanterne_laiton')),
           packId: sanitizePack(String(cloud.packId || localProgress.packId || 'besace_cuir')),
+          familiarId: sanitizeFamiliar(
+            String(cloud.familiarId || localProgress.familiarId || 'aucun')
+          ),
           pinnedTrophyId: sanitizePinnedTrophyId(
             String(cloud.pinnedTrophyId ?? localProgress.pinnedTrophyId ?? '')
           ),
@@ -540,6 +630,9 @@ export async function ensureExplorerProfileInCloud(
           nightFeatsCount: clampNum(mergedNightFeats, 0, 100000),
           stormFeatsCount: clampNum(mergedStormFeats, 0, 100000),
           completedContractsCount: clampNum(mergedContracts, 0, 100000),
+          solvedRiddlesCount: clampNum(mergedRiddles, 0, 100000),
+          completedHuntsCount: clampNum(mergedHunts, 0, 100000),
+          claimedAlmanacCount: clampNum(mergedAlmanac, 0, 100000),
           discoveriesCount: clampNum(mergedDiscoveriesCount, 0, 100000),
           completedMissions: sanitizeStringArray(mergedMissions, 50),
           updatedAt: serverTimestamp(),
@@ -574,12 +667,28 @@ export async function syncProgressToCloud(
       outfitId: sanitizeOutfit(progress.outfitId),
       toolId: sanitizeTool(progress.toolId),
       packId: sanitizePack(progress.packId),
+      familiarId: sanitizeFamiliar(progress.familiarId),
       pinnedTrophyId: sanitizePinnedTrophyId(progress.pinnedTrophyId),
       walkedMeters: clampNum(Math.round(progress.walkedMeters || 0), 0, 100000000),
       nightFeatsCount: clampNum(Math.round(progress.nightFeatsCount || 0), 0, 100000),
       stormFeatsCount: clampNum(Math.round(progress.stormFeatsCount || 0), 0, 100000),
       completedContractsCount: clampNum(
         Math.round(progress.completedContractsCount || 0),
+        0,
+        100000
+      ),
+      solvedRiddlesCount: clampNum(
+        Math.round(progress.solvedRiddlesCount || 0),
+        0,
+        100000
+      ),
+      completedHuntsCount: clampNum(
+        Math.round(progress.completedHuntsCount || 0),
+        0,
+        100000
+      ),
+      claimedAlmanacCount: clampNum(
+        Math.round(progress.claimedAlmanacCount || 0),
         0,
         100000
       ),
@@ -613,6 +722,7 @@ export async function updateExplorerIdentityInCloud(
   if (appearance?.outfitId) patch.outfitId = sanitizeOutfit(appearance.outfitId);
   if (appearance?.toolId) patch.toolId = sanitizeTool(appearance.toolId);
   if (appearance?.packId) patch.packId = sanitizePack(appearance.packId);
+  if (appearance?.familiarId) patch.familiarId = sanitizeFamiliar(appearance.familiarId);
   if (pinnedTrophyId !== undefined) {
     patch.pinnedTrophyId = sanitizePinnedTrophyId(pinnedTrophyId);
   }
@@ -965,6 +1075,7 @@ export function subscribeToCloudExplorer(
   onSpecimens?: (specimens: CollectedSpecimen[]) => void,
   onArchivistChests?: (chests: OpenedArchivistChestRecord[]) => void
 ): Unsubscribe {
+  if (!isFirebaseConfigured || !db) return () => {};
   const uid = sanitizeFirestoreId(uidRaw);
   const profilePath = `explorers/${uid}`;
   const discoveriesPath = `explorers/${uid}/discoveries`;
@@ -991,11 +1102,15 @@ export function subscribeToCloudExplorer(
         outfitId: sanitizeOutfit(String(d.outfitId || 'arpenteur')),
         toolId: sanitizeTool(String(d.toolId || 'lanterne_laiton')),
         packId: sanitizePack(String(d.packId || 'besace_cuir')),
+        familiarId: sanitizeFamiliar(String(d.familiarId || 'aucun')),
         pinnedTrophyId: sanitizePinnedTrophyId(String(d.pinnedTrophyId || '')),
         walkedMeters: Number(d.walkedMeters || 0),
         nightFeatsCount: Number(d.nightFeatsCount || 0),
         stormFeatsCount: Number(d.stormFeatsCount || 0),
         completedContractsCount: Number(d.completedContractsCount || 0),
+        solvedRiddlesCount: Number(d.solvedRiddlesCount || 0),
+        completedHuntsCount: Number(d.completedHuntsCount || 0),
+        claimedAlmanacCount: Number(d.claimedAlmanacCount || 0),
         discoveriesCount: Number(d.discoveriesCount || 0),
         completedMissions: Array.isArray(d.completedMissions)
           ? (d.completedMissions as string[])
@@ -1182,6 +1297,10 @@ export function subscribeToPoiCairns(
   poiIdRaw: string,
   onCairns: (cairns: ExplorerCairn[]) => void
 ): Unsubscribe {
+  if (!isFirebaseConfigured || !db) {
+    onCairns([]);
+    return () => {};
+  }
   const poiId = sanitizeFirestoreId(poiIdRaw);
   const q = query(
     collection(db, 'cairns'),
@@ -1323,6 +1442,10 @@ export function subscribeToNearbyGeocaches(
   sectorKeys: string[],
   onCaches: (caches: ExplorerGeocacheRecord[]) => void
 ): Unsubscribe {
+  if (!isFirebaseConfigured || !db) {
+    onCaches([]);
+    return () => {};
+  }
   const cleanSectors = Array.from(
     new Set(
       sectorKeys
@@ -1533,6 +1656,10 @@ export function subscribeToGeocacheLogs(
   cacheIdRaw: string,
   onLogs: (logs: GeocacheLogRecord[]) => void
 ): Unsubscribe {
+  if (!isFirebaseConfigured || !db) {
+    onLogs([]);
+    return () => {};
+  }
   const cacheId = sanitizeFirestoreId(cacheIdRaw);
   const logsPath = `geocaches/${cacheId}/logs`;
   const q = query(
@@ -1810,11 +1937,15 @@ export async function resetExplorerCharacterInCloud(
     outfitId: sanitizeOutfit(initialProgress.outfitId),
     toolId: sanitizeTool(initialProgress.toolId),
     packId: sanitizePack(initialProgress.packId),
+    familiarId: sanitizeFamiliar(initialProgress.familiarId),
     pinnedTrophyId: '',
     walkedMeters: 0,
     nightFeatsCount: 0,
     stormFeatsCount: 0,
     completedContractsCount: 0,
+    solvedRiddlesCount: 0,
+    completedHuntsCount: 0,
+    claimedAlmanacCount: 0,
     discoveriesCount: 0,
     completedMissions: [] as string[],
     updatedAt: serverTimestamp(),
