@@ -1,5 +1,4 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { onAuthStateChanged, type User } from 'firebase/auth';
 import { AnimatePresence, motion } from 'motion/react';
 import { ExplorerSpriteCanvas } from './components/ExplorerAvatarCanvas';
 import {
@@ -33,11 +32,12 @@ import {
   resolveExplorerAppearance,
 } from './explorerAvatar';
 import {
-  auth,
   createDiscoveryInCloud,
   ensureExplorerProfileInCloud,
   formatFirebaseAuthErrorFr,
+  isSupabaseConfigured,
   isTransientCloudOfflineError,
+  onSupabaseAuthStateChange,
   recordOpenedArchivistChestInCloud,
   resetExplorerCharacterInCloud,
   signInExplorerWithGoogle,
@@ -54,7 +54,8 @@ import {
   upsertPantheonEntryInCloud,
   upsertSpecimenInCloud,
   validateExplorerAuthSession,
-} from './firebase';
+  type ExplorerAuthUser as User,
+} from './supabase';
 import {
   CachedSectorRecord,
   computeLocalSectorExplorationPct,
@@ -1230,7 +1231,7 @@ export default function App() {
   }, [hapticsEnabled]);
 
   useEffect(() => {
-    if (!auth) {
+    if (!isSupabaseConfigured) {
       setUser(null);
       setCloudOnline(false);
       setAuthReady(true);
@@ -1238,11 +1239,11 @@ export default function App() {
     }
 
     let active = true;
-    const authInstance = auth;
-    const unsubAuth = onAuthStateChanged(authInstance, async (currentUser) => {
+    const unsubAuth = onSupabaseAuthStateChange(async (currentUser) => {
       if (!currentUser) {
         if (!active) return;
         setUser(null);
+        setCloudOnline(false);
         setAuthReady(true);
         return;
       }
@@ -1257,7 +1258,7 @@ export default function App() {
     });
 
     const handleOnline = async () => {
-      const check = await validateExplorerAuthSession(authInstance.currentUser);
+      const check = await validateExplorerAuthSession(user);
       if (!active) return;
       setCloudOnline(check.cloudReachable);
       setUser(check.validUser);
@@ -9401,6 +9402,7 @@ export default function App() {
                     }}
                     onDeleteSector={handleDeleteBesaceSector}
                     onRestoreArchive={handleRestoreGrimoireArchive}
+                    onResetCharacter={handleResetCharacter}
                   />
                 </Suspense>
               ) : entries.length === 0 ? (

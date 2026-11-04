@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { User } from 'firebase/auth';
+import type { ExplorerAuthUser as User } from '../supabase';
 import {
   AVATAR_PRESETS,
   EXPLORER_GENDERS,
@@ -1030,8 +1030,8 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
                 <PixelUiIcon name="star" className="w-4 h-4 shrink-0" />
                 <span>
                   {signingInGoogle
-                    ? 'Ouverture du portail Google…'
-                    : 'Connexion Google (Sauvegarde Cloud & Défis)'}
+                    ? 'Connexion Cloud Supabase…'
+                    : 'Connexion Cloud Supabase (Sauvegarde & Défis)'}
                 </span>
               </button>
             ) : (

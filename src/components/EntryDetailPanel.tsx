@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import type { User } from 'firebase/auth';
 import { motion } from 'motion/react';
 import { computeArchiveSealCode, downloadCollectibleCardPng } from '../collectibleCard';
 import {
   deletePoiCairnInCloud,
   subscribeToPoiCairns,
   upsertPoiCairnInCloud,
-} from '../firebase';
+  type ExplorerAuthUser as User,
+} from '../supabase';
 import { addPhotoForPoi, deletePhotoById, getPhotosForPoi, StoredFieldPhoto } from '../photoStore';
 import { playStampSfx } from '../sound';
 import {

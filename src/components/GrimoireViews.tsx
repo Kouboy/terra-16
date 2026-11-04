@@ -462,6 +462,7 @@ export const BesaceAndBackupView: React.FC<{
     specimens: CollectedSpecimen[];
     importedPhotosCount: number;
   }) => void;
+  onResetCharacter?: () => Promise<void> | void;
 }> = ({
   progress,
   entries,
@@ -475,10 +476,14 @@ export const BesaceAndBackupView: React.FC<{
   onTeleportToSector,
   onDeleteSector,
   onRestoreArchive,
+  onResetCharacter,
 }) => {
   const [statusMsg, setStatusMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [resetConfirmed, setResetConfirmed] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const handleSaveSector = async () => {
     setBusy(true);
@@ -645,7 +650,134 @@ export const BesaceAndBackupView: React.FC<{
             {errorMsg}
           </div>
         )}
+
+        {/* Prominent Reset Action in Besace */}
+        {onResetCharacter && (
+          <div className="pt-3 border-t-2 border-[#c89d62]/60 space-y-2">
+            <div className="text-xs font-bold text-rose-950 flex items-center gap-1.5">
+              <PixelUiIcon name="warning" className="w-4 h-4 shrink-0 text-rose-700" />
+              <span>Zone Danger · Remise à zéro</span>
+            </div>
+            <p className="text-[11px] text-[#54361d] leading-snug">
+              Repartez d’une feuille vierge (Niveau 1, brouillard réinitialisé, carnet vide).
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setResetConfirmed(false);
+                setResetModalOpen(true);
+              }}
+              className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold bg-[#f8edd6] hover:bg-rose-100 text-rose-950 border-2 border-rose-900 jrpg-shadow transition-colors"
+            >
+              <PixelUiIcon name="trash" className="w-4 h-4 shrink-0 text-rose-800" />
+              <span>Réinitialiser la progression (Niveau 1)</span>
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Confirmation Modal */}
+      {resetModalOpen && onResetCharacter && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75"
+          onClick={() => {
+            if (!resetting) setResetModalOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="besace-reset-title"
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-lg grimoire-folio-crimson p-5 sm:p-6 space-y-4 text-[#24160c] max-h-[90dvh] overflow-y-auto"
+          >
+            <PixelCornerRivets className="bg-[#b91c1c]" />
+
+            <div className="flex items-start justify-between gap-3 border-b-2 border-[#c89d62] pb-3">
+              <div className="space-y-1 min-w-0">
+                <div className="text-xs font-bold text-rose-900 inline-flex items-center gap-1.5">
+                  <PixelUiIcon name="warning" className="w-4 h-4 shrink-0" />
+                  <span>Action irréversible</span>
+                </div>
+                <h3
+                  id="besace-reset-title"
+                  className="text-lg sm:text-xl font-bold font-display text-[#24160c]"
+                >
+                  Confirmer la réinitialisation complète de « {progress.displayName} » ?
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                disabled={resetting}
+                onClick={() => setResetModalOpen(false)}
+                aria-label="Fermer"
+                className="w-9 h-9 flex items-center justify-center bg-[#28160d] text-amber-300 hover:bg-[#991b1b] hover:text-[#fffbeb] border border-[#d97706] shrink-0 disabled:opacity-50"
+              >
+                <PixelUiIcon name="close" className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-[#f8edd6] border border-[#8c653b] space-y-2 text-xs text-[#3b2312]">
+              <div className="font-bold text-[#24160c]">
+                Tous ces éléments seront remis à l’état initial :
+              </div>
+              <ul className="space-y-1 font-mono tabular-nums text-[11px] sm:text-xs">
+                <li>· Niveau {progress.totalXp} XP → Niveau 1 (0 XP)</li>
+                <li>· {entries.length} découverte(s) du Carnet et clichés photo → 0</li>
+                <li>· {progress.completedMissions.length} quête(s) et cosmétiques débloqués</li>
+                <li>· {fogSet.size} parcelle(s) de brouillard levée(s)</li>
+              </ul>
+            </div>
+
+            <label className="min-h-[44px] p-3 bg-[#fffdf7] border-2 border-[#6b4928] flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={resetConfirmed}
+                disabled={resetting}
+                onChange={(e) => setResetConfirmed(e.target.checked)}
+                className="w-5 h-5 accent-[#991b1b] shrink-0 cursor-pointer"
+              />
+              <span className="text-xs font-bold text-[#24160c] leading-snug">
+                Je confirme vouloir remettre mon personnage et toute ma progression à zéro.
+              </span>
+            </label>
+
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                disabled={resetting}
+                onClick={() => setResetModalOpen(false)}
+                className="min-h-[44px] px-4 py-2 text-xs font-bold bg-[#ecd8b1] hover:bg-[#fffbeb] text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap shrink-0 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+
+              <button
+                type="button"
+                disabled={!resetConfirmed || resetting}
+                onClick={async () => {
+                  setResetting(true);
+                  try {
+                    playStampSfx(muted);
+                    await onResetCharacter();
+                    setResetModalOpen(false);
+                    setStatusMsg('Progression réinitialisée au Niveau 1.');
+                  } catch {
+                    setErrorMsg('Échec de la réinitialisation.');
+                  } finally {
+                    setResetting(false);
+                  }
+                }}
+                className="min-h-[44px] px-4 py-2 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
+              >
+                <PixelUiIcon name="trash" className="w-3.5 h-3.5 shrink-0" />
+                <span>{resetting ? 'Réinitialisation…' : 'Confirmer la réinitialisation'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

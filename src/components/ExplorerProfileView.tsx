@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { User } from 'firebase/auth';
+import type { ExplorerAuthUser as User } from '../supabase';
 import {
   ALL_COSMETIC_ITEMS,
   AVATAR_PRESETS,
@@ -691,13 +691,28 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={onAuthAction}
-                className="min-h-[42px] px-3.5 py-2 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow whitespace-nowrap shrink-0 self-start"
-              >
-                {user ? 'Déconnexion Cloud' : 'Synchroniser (Google)'}
-              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
+                <button
+                  type="button"
+                  onClick={onAuthAction}
+                  className="min-h-[42px] px-3.5 py-2 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow whitespace-nowrap shrink-0"
+                >
+                  {user ? 'Déconnexion Cloud' : 'Synchroniser (Cloud)'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetConfirmedCheck(false);
+                    setResetError('');
+                    setResetModalOpen(true);
+                  }}
+                  title="Remettre le personnage et la progression à zéro (Niveau 1)"
+                  className="min-h-[42px] px-3 py-2 text-xs font-bold bg-[#f8edd6] hover:bg-rose-100 text-rose-950 border-2 border-rose-900 jrpg-shadow whitespace-nowrap shrink-0 inline-flex items-center gap-1.5"
+                >
+                  <PixelUiIcon name="trash" className="w-3.5 h-3.5 shrink-0 text-rose-800" />
+                  <span>Réinitialiser la partie</span>
+                </button>
+              </div>
             </div>
 
             {/* Editable Explorer Callsign Form */}

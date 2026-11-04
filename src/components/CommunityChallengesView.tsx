@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { User } from 'firebase/auth';
 import {
   buildChallengeLeaderboard,
   buildPeriodGeneralLeaderboard,
@@ -14,10 +13,11 @@ import {
   makeClaimedTierId,
 } from '../communityChallenges';
 import {
-  isFirebaseConfigured,
+  isSupabaseConfigured as isFirebaseConfigured,
   subscribeToChallengeLeaderboard,
   subscribeToPeriodChallengeLeaderboard,
-} from '../firebase';
+  type ExplorerAuthUser as User,
+} from '../supabase';
 import { playJournalOpenSfx, playMissionFanfare } from '../sound';
 import { TrophyBadgeCanvas } from '../trophies';
 import {

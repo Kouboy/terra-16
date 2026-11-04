@@ -1,4 +1,3 @@
-import type { User } from 'firebase/auth';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   buildGeocacheDocId,
@@ -8,7 +7,8 @@ import {
   signGeocacheLogbookInCloud,
   subscribeToGeocacheLogs,
   upsertExplorerGeocacheInCloud,
-} from '../firebase';
+  type ExplorerAuthUser as User,
+} from '../supabase';
 import { playCapsuleBurySfx, playDetectorPingSfx, playJournalOpenSfx } from '../sound';
 import { SPECIMENS_CATALOG, SpecimenPlateCanvas } from '../specimens';
 import {

@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { User } from 'firebase/auth';
 import { LocalFestivalItem } from '../almanacAndQuests';
 import {
   computeRealMoonPhase,
   getUpcomingOrActiveMeteorShower,
   MoonPhaseInfo,
 } from '../astronomyAndSeasons';
-import { subscribeToPantheonLeaderboard } from '../firebase';
+import {
+  subscribeToPantheonLeaderboard,
+  type ExplorerAuthUser as User,
+} from '../supabase';
 import {
   buildPantheonLeaderboard,
   EvaluatedLiveWorldEvent,
