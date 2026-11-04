@@ -46,12 +46,14 @@ const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
 function getStoredUrl(): string {
   if (typeof window === 'undefined') return '';
-  return (window.localStorage.getItem('terra16_supabase_url') || '').trim();
+  const val = (window.localStorage.getItem('terra16_supabase_url') || '').trim();
+  return val.startsWith('http') ? val : '';
 }
 
 function getStoredKey(): string {
   if (typeof window === 'undefined') return '';
-  return (window.localStorage.getItem('terra16_supabase_anon_key') || '').trim();
+  const val = (window.localStorage.getItem('terra16_supabase_anon_key') || '').trim();
+  return val.length > 20 ? val : '';
 }
 
 export const SUPABASE_URL = envUrl || getStoredUrl() || DEFAULT_SUPABASE_URL;
