@@ -36,6 +36,10 @@ import type {
   PantheonMetrics,
 } from './pantheonAndLiveEvents';
 
+// Default project credentials identified from Supabase dashboard
+const DEFAULT_SUPABASE_URL = 'https://iiuavileukbczktzqdbs.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_LvefQjGqsWeE9sLtspBhLQ_cWKgzZu-';
+
 // Environment variables or fallback local storage overrides (helpful for mobile testing)
 const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
 const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
@@ -50,8 +54,8 @@ function getStoredKey(): string {
   return (window.localStorage.getItem('terra16_supabase_anon_key') || '').trim();
 }
 
-export const SUPABASE_URL = envUrl || getStoredUrl();
-export const SUPABASE_ANON_KEY = envKey || getStoredKey();
+export const SUPABASE_URL = envUrl || getStoredUrl() || DEFAULT_SUPABASE_URL;
+export const SUPABASE_ANON_KEY = envKey || getStoredKey() || DEFAULT_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(
   SUPABASE_URL &&
