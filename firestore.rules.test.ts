@@ -119,6 +119,54 @@ const VALID_GEOCACHE_LOG = {
   updatedAt: REQUEST_TIME,
 };
 
+const VALID_CHALLENGE_ENTRY = {
+  challengeId: 'ch_daily_20261103_ondes',
+  cadence: 'quotidien',
+  periodKey: '2026-11',
+  explorerId: 'user_1',
+  explorerCallsign: 'Explorateur Nico',
+  explorerGender: 'masculin',
+  explorerAvatarPreset: 'cartographe',
+  explorerSkinTone: 'hale',
+  explorerHeadgearId: 'couronne_chroniqueur',
+  explorerOutfitId: 'conteuse_legende',
+  explorerFamiliarId: 'cerf_brumes',
+  explorerPinnedTrophyId: 'tisserand_recits',
+  contributionCount: 3,
+  points: 90,
+  regionLabel: 'Vallée de la Bièvre',
+  visibility: 'public',
+  createdAt: REQUEST_TIME,
+  updatedAt: REQUEST_TIME,
+};
+
+const VALID_PANTHEON_ENTRY = {
+  explorerId: 'user_1',
+  explorerCallsign: 'Explorateur Nico',
+  regionLabel: 'Vallée de la Loire',
+  explorerGender: 'masculin',
+  explorerAvatarPreset: 'cartographe',
+  explorerSkinTone: 'hale',
+  explorerHeadgearId: 'couronne_chroniqueur',
+  explorerOutfitId: 'conteuse_legende',
+  explorerFamiliarId: 'cerf_brumes',
+  explorerPinnedTrophyId: 'temoin_phenomenes',
+  pantheonScore: 1850,
+  totalXp: 820,
+  diversityScore: 510,
+  rarityScore: 520,
+  discoveriesCount: 14,
+  categoriesCount: 4,
+  strataCount: 3,
+  sourcesCount: 6,
+  secretArchivesCount: 1,
+  officialHeritageCount: 3,
+  liveEventsCount: 2,
+  visibility: 'public',
+  createdAt: REQUEST_TIME,
+  updatedAt: REQUEST_TIME,
+};
+
 const ID_REGEX = /^[a-zA-Z0-9_\-]+$/;
 
 function isValidId(id: unknown): boolean {
@@ -134,10 +182,36 @@ function isBoundedStringArray(arr: unknown, maxLen: number): boolean {
 const VALID_GENDERS = ['feminin', 'masculin', 'neutre'];
 const VALID_AVATARS = ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste'];
 const VALID_SKINS = ['clair', 'hale', 'ambre', 'ebene', 'porcelaine'];
-const VALID_HEADGEAR = ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro'];
-const VALID_OUTFITS = ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde'];
-const VALID_TOOLS = ['lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee', 'fiole_spectrale'];
-const VALID_PACKS = ['besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate'];
+const VALID_HEADGEAR = [
+  'tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre',
+  'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire',
+  'couronne_saisons', 'couronne_chroniqueur', 'bandeau_guilde_unie',
+];
+const VALID_OUTFITS = [
+  'arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde',
+  'almanach_solaire', 'chasseur_reliques', 'conteuse_legende',
+];
+const VALID_TOOLS = [
+  'lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee',
+  'fiole_spectrale', 'loupe_sceau_or', 'clef_coffres_anciens', 'sablier_ephemeride',
+  'plume_trois_actes',
+];
+const VALID_PACKS = [
+  'besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate',
+  'coffret_piste', 'grimoire_almanach', 'astrolabe_dorsal',
+];
+const VALID_FAMILIARS = [
+  'aucun', 'chouette_erudite', 'goupil_saisons', 'scarabee_boussole',
+  'salamandre_cristal', 'corbeau_cartographe', 'feu_follet_astral', 'hermine_royale',
+  'cerf_brumes', 'loutre_riviere',
+];
+const VALID_PINNED_TROPHIES = [
+  '', 'oiseau_de_nuit', 'marcheur_orage', 'speleologue', 'arpenteur_10km',
+  'grand_randonneur_50km', 'maitre_7_roches', 'chasseur_geodesique',
+  'gardien_petit_patrimoine', 'ouvreur_reliques', 'leveur_brumes',
+  'naturaliste_complet', 'champion_contrats', 'tisserand_recits',
+  'maitre_chroniques', 'heraut_communaute', 'temoin_phenomenes', 'champion_pantheon',
+];
 
 function isValidExplorerProfile(data: Record<string, unknown>, auth: AuthContext | null): boolean {
   if (!auth) return false;
@@ -156,7 +230,18 @@ function isValidExplorerProfile(data: Record<string, unknown>, auth: AuthContext
     'outfitId',
     'toolId',
     'packId',
+    'familiarId',
+    'pinnedTrophyId',
     'walkedMeters',
+    'nightFeatsCount',
+    'stormFeatsCount',
+    'completedContractsCount',
+    'solvedRiddlesCount',
+    'completedHuntsCount',
+    'claimedAlmanacCount',
+    'completedNarrativesCount',
+    'claimedCommunityChallengesCount',
+    'claimedLiveEventsCount',
   ];
   const dataKeys = Object.keys(data);
   if (!requiredKeys.every((k) => dataKeys.includes(k)) || !dataKeys.every((k) => allowedKeys.includes(k))) return false;
@@ -177,7 +262,12 @@ function isValidExplorerProfile(data: Record<string, unknown>, auth: AuthContext
     (!('outfitId' in data) || (typeof data.outfitId === 'string' && data.outfitId.length >= 1 && data.outfitId.length <= 32 && VALID_OUTFITS.includes(data.outfitId))) &&
     (!('toolId' in data) || (typeof data.toolId === 'string' && data.toolId.length >= 1 && data.toolId.length <= 32 && VALID_TOOLS.includes(data.toolId))) &&
     (!('packId' in data) || (typeof data.packId === 'string' && data.packId.length >= 1 && data.packId.length <= 32 && VALID_PACKS.includes(data.packId))) &&
+    (!('familiarId' in data) || (typeof data.familiarId === 'string' && data.familiarId.length >= 1 && data.familiarId.length <= 32 && VALID_FAMILIARS.includes(data.familiarId))) &&
+    (!('pinnedTrophyId' in data) || (typeof data.pinnedTrophyId === 'string' && data.pinnedTrophyId.length <= 40 && VALID_PINNED_TROPHIES.includes(data.pinnedTrophyId))) &&
     (!('walkedMeters' in data) || (typeof data.walkedMeters === 'number' && data.walkedMeters >= 0 && data.walkedMeters <= 100000000)) &&
+    (!('completedNarrativesCount' in data) || (typeof data.completedNarrativesCount === 'number' && data.completedNarrativesCount >= 0 && data.completedNarrativesCount <= 100000)) &&
+    (!('claimedCommunityChallengesCount' in data) || (typeof data.claimedCommunityChallengesCount === 'number' && data.claimedCommunityChallengesCount >= 0 && data.claimedCommunityChallengesCount <= 100000)) &&
+    (!('claimedLiveEventsCount' in data) || (typeof data.claimedLiveEventsCount === 'number' && data.claimedLiveEventsCount >= 0 && data.claimedLiveEventsCount <= 100000)) &&
     typeof data.discoveriesCount === 'number' && data.discoveriesCount >= 0 && data.discoveriesCount <= 100000 &&
     isBoundedStringArray(data.completedMissions, 50) &&
     data.createdAt === REQUEST_TIME &&
@@ -368,6 +458,97 @@ function isValidGeocacheLogEntry(data: Record<string, unknown>, auth: AuthContex
   );
 }
 
+function isValidCommunityChallengeEntry(data: Record<string, unknown>, auth: AuthContext | null): boolean {
+  if (!auth) return false;
+  const requiredKeys = [
+    'challengeId', 'cadence', 'periodKey', 'explorerId', 'explorerCallsign',
+    'contributionCount', 'points', 'regionLabel', 'visibility', 'createdAt', 'updatedAt',
+  ];
+  const allowedKeys = [
+    ...requiredKeys,
+    'explorerGender',
+    'explorerAvatarPreset',
+    'explorerSkinTone',
+    'explorerHeadgearId',
+    'explorerOutfitId',
+    'explorerFamiliarId',
+    'explorerPinnedTrophyId',
+  ];
+  const dataKeys = Object.keys(data);
+  if (!requiredKeys.every((k) => dataKeys.includes(k)) || !dataKeys.every((k) => allowedKeys.includes(k))) return false;
+  return (
+    isValidId(data.challengeId) && (data.challengeId as string).length <= 80 &&
+    typeof data.cadence === 'string' && ['quotidien', 'hebdomadaire', 'mensuel'].includes(data.cadence) &&
+    typeof data.periodKey === 'string' && /^[0-9]{4}-[0-9]{2}$/.test(data.periodKey) &&
+    isValidId(data.explorerId) &&
+    data.explorerId === auth.uid &&
+    typeof data.explorerCallsign === 'string' && data.explorerCallsign.length >= 1 && data.explorerCallsign.length <= 60 &&
+    (!('explorerGender' in data) || (typeof data.explorerGender === 'string' && VALID_GENDERS.includes(data.explorerGender))) &&
+    (!('explorerAvatarPreset' in data) || (typeof data.explorerAvatarPreset === 'string' && VALID_AVATARS.includes(data.explorerAvatarPreset))) &&
+    (!('explorerSkinTone' in data) || (typeof data.explorerSkinTone === 'string' && VALID_SKINS.includes(data.explorerSkinTone))) &&
+    (!('explorerHeadgearId' in data) || (typeof data.explorerHeadgearId === 'string' && VALID_HEADGEAR.includes(data.explorerHeadgearId))) &&
+    (!('explorerOutfitId' in data) || (typeof data.explorerOutfitId === 'string' && VALID_OUTFITS.includes(data.explorerOutfitId))) &&
+    (!('explorerFamiliarId' in data) || (typeof data.explorerFamiliarId === 'string' && VALID_FAMILIARS.includes(data.explorerFamiliarId))) &&
+    (!('explorerPinnedTrophyId' in data) || (typeof data.explorerPinnedTrophyId === 'string' && VALID_PINNED_TROPHIES.includes(data.explorerPinnedTrophyId))) &&
+    typeof data.contributionCount === 'number' && data.contributionCount >= 1 && data.contributionCount <= 10000 &&
+    typeof data.points === 'number' && data.points >= 1 && data.points <= 1000000 &&
+    typeof data.regionLabel === 'string' && data.regionLabel.length >= 1 && data.regionLabel.length <= 100 &&
+    data.visibility === 'public' &&
+    data.createdAt === REQUEST_TIME &&
+    data.updatedAt === REQUEST_TIME
+  );
+}
+
+function isValidPantheonLeaderboardEntry(data: Record<string, unknown>, auth: AuthContext | null): boolean {
+  if (!auth) return false;
+  const requiredKeys = [
+    'explorerId', 'explorerCallsign', 'regionLabel',
+    'pantheonScore', 'totalXp', 'diversityScore', 'rarityScore',
+    'discoveriesCount', 'categoriesCount', 'strataCount', 'sourcesCount',
+    'secretArchivesCount', 'officialHeritageCount', 'liveEventsCount',
+    'visibility', 'createdAt', 'updatedAt',
+  ];
+  const allowedKeys = [
+    ...requiredKeys,
+    'explorerGender',
+    'explorerAvatarPreset',
+    'explorerSkinTone',
+    'explorerHeadgearId',
+    'explorerOutfitId',
+    'explorerFamiliarId',
+    'explorerPinnedTrophyId',
+  ];
+  const dataKeys = Object.keys(data);
+  if (!requiredKeys.every((k) => dataKeys.includes(k)) || !dataKeys.every((k) => allowedKeys.includes(k))) return false;
+  return (
+    isValidId(data.explorerId) &&
+    data.explorerId === auth.uid &&
+    typeof data.explorerCallsign === 'string' && data.explorerCallsign.length >= 1 && data.explorerCallsign.length <= 60 &&
+    typeof data.regionLabel === 'string' && data.regionLabel.length >= 1 && data.regionLabel.length <= 100 &&
+    (!('explorerGender' in data) || (typeof data.explorerGender === 'string' && VALID_GENDERS.includes(data.explorerGender))) &&
+    (!('explorerAvatarPreset' in data) || (typeof data.explorerAvatarPreset === 'string' && VALID_AVATARS.includes(data.explorerAvatarPreset))) &&
+    (!('explorerSkinTone' in data) || (typeof data.explorerSkinTone === 'string' && VALID_SKINS.includes(data.explorerSkinTone))) &&
+    (!('explorerHeadgearId' in data) || (typeof data.explorerHeadgearId === 'string' && VALID_HEADGEAR.includes(data.explorerHeadgearId))) &&
+    (!('explorerOutfitId' in data) || (typeof data.explorerOutfitId === 'string' && VALID_OUTFITS.includes(data.explorerOutfitId))) &&
+    (!('explorerFamiliarId' in data) || (typeof data.explorerFamiliarId === 'string' && VALID_FAMILIARS.includes(data.explorerFamiliarId))) &&
+    (!('explorerPinnedTrophyId' in data) || (typeof data.explorerPinnedTrophyId === 'string' && VALID_PINNED_TROPHIES.includes(data.explorerPinnedTrophyId))) &&
+    typeof data.pantheonScore === 'number' && data.pantheonScore >= 0 && data.pantheonScore <= 50000000 &&
+    typeof data.totalXp === 'number' && data.totalXp >= 0 && data.totalXp <= 10000000 &&
+    typeof data.diversityScore === 'number' && data.diversityScore >= 0 && data.diversityScore <= 1000000 &&
+    typeof data.rarityScore === 'number' && data.rarityScore >= 0 && data.rarityScore <= 5000000 &&
+    typeof data.discoveriesCount === 'number' && data.discoveriesCount >= 0 && data.discoveriesCount <= 100000 &&
+    typeof data.categoriesCount === 'number' && data.categoriesCount >= 0 && data.categoriesCount <= 5 &&
+    typeof data.strataCount === 'number' && data.strataCount >= 0 && data.strataCount <= 7 &&
+    typeof data.sourcesCount === 'number' && data.sourcesCount >= 0 && data.sourcesCount <= 50 &&
+    typeof data.secretArchivesCount === 'number' && data.secretArchivesCount >= 0 && data.secretArchivesCount <= 10000 &&
+    typeof data.officialHeritageCount === 'number' && data.officialHeritageCount >= 0 && data.officialHeritageCount <= 100000 &&
+    typeof data.liveEventsCount === 'number' && data.liveEventsCount >= 0 && data.liveEventsCount <= 100000 &&
+    data.visibility === 'public' &&
+    data.createdAt === REQUEST_TIME &&
+    data.updatedAt === REQUEST_TIME
+  );
+}
+
 function assertDenied(allowed: boolean, name: string) {
   if (allowed) {
     throw new Error(`SECURITY FAILURE: Payload [${name}] was ALLOWED instead of PERMISSION_DENIED!`);
@@ -392,28 +573,39 @@ export function runSecuritySuite() {
   if (!isValidGeocacheLogEntry(VALID_GEOCACHE_LOG, verifiedOwner)) {
     throw new Error('Baseline VALID_GEOCACHE_LOG should be accepted for verifiedOwner');
   }
+  if (!isValidCommunityChallengeEntry(VALID_CHALLENGE_ENTRY, verifiedOwner)) {
+    throw new Error('Baseline VALID_CHALLENGE_ENTRY should be accepted for verifiedOwner');
+  }
+  if (!isValidPantheonLeaderboardEntry(VALID_PANTHEON_ENTRY, verifiedOwner)) {
+    throw new Error('Baseline VALID_PANTHEON_ENTRY should be accepted for verifiedOwner');
+  }
 
   // 1. Unauthenticated Write
   assertDenied(Boolean(null) && isValidExplorerProfile(VALID_PROFILE, null), '1a. Unauthenticated Profile Write');
   assertDenied(Boolean(null) && isValidExplorerGeocache(VALID_GEOCACHE, null), '1b. Unauthenticated Geocache Write');
+  assertDenied(Boolean(null) && isValidPantheonLeaderboardEntry(VALID_PANTHEON_ENTRY, null), '1c. Unauthenticated Pantheon Write');
 
   // 2. Unverified Email Spoof
   assertDenied(unverifiedOwner.emailVerified && isValidExplorerProfile(VALID_PROFILE, unverifiedOwner), '2a. Unverified Email Spoof');
   assertDenied(unverifiedOwner.emailVerified && isValidExplorerGeocache(VALID_GEOCACHE, unverifiedOwner), '2b. Unverified Geocache Spoof');
+  assertDenied(unverifiedOwner.emailVerified && isValidPantheonLeaderboardEntry(VALID_PANTHEON_ENTRY, unverifiedOwner), '2c. Unverified Pantheon Spoof');
 
-  // 3. Identity Spoofing (Cross-User Profile, Cairn, Geocache, Log)
+  // 3. Identity Spoofing (Cross-User Profile, Cairn, Geocache, Log, Pantheon)
   assertDenied(attacker.uid === 'user_1' && isValidExplorerProfile(VALID_PROFILE, attacker), '3a. Identity Spoofing Profile');
   assertDenied(isValidExplorerCairn(VALID_CAIRN, attacker), '3b. Identity Spoofing Cairn');
   assertDenied(isValidExplorerGeocache(VALID_GEOCACHE, attacker), '3c. Identity Spoofing Geocache');
   assertDenied(isValidGeocacheLogEntry(VALID_GEOCACHE_LOG, attacker), '3d. Identity Spoofing Geocache Log');
+  assertDenied(isValidPantheonLeaderboardEntry(VALID_PANTHEON_ENTRY, attacker), '3e. Identity Spoofing Pantheon Entry');
 
   // 4. Shadow Ghost Field Injection
   assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, isAdmin: true }, verifiedOwner), '4a. Shadow Ghost Field Profile');
   assertDenied(isValidExplorerGeocache({ ...VALID_GEOCACHE, isFeatured: true }, verifiedOwner), '4b. Shadow Ghost Field Geocache');
+  assertDenied(isValidPantheonLeaderboardEntry({ ...VALID_PANTHEON_ENTRY, rankOverride: 1 }, verifiedOwner), '4c. Shadow Ghost Field Pantheon');
 
   // 5. ID Resource Poisoning
   assertDenied(isValidId('bad$id/poison') && isValidJournalDiscovery(VALID_DISCOVERY, verifiedOwner), '5a. ID Resource Poisoning');
   assertDenied(isValidId('bad$chest/id') && isValidOpenedArchivistChest(VALID_ARCHIVIST_CHEST, verifiedOwner), '5b. Chest ID Poisoning');
+  assertDenied(isValidId('bad$pantheon/id') && isValidPantheonLeaderboardEntry(VALID_PANTHEON_ENTRY, verifiedOwner), '5c. Pantheon ID Poisoning');
 
   // 6. Orphaned Subcollection / Ununlocked Geocache Anchor / Missing Parent Geocache
   const parentExists = false;
@@ -436,6 +628,10 @@ export function runSecuritySuite() {
     parentGeocacheExists && isValidGeocacheLogEntry(VALID_GEOCACHE_LOG, verifiedOwner),
     '6d. Orphaned Geocache Log Without Parent'
   );
+  assertDenied(
+    parentExists && isValidPantheonLeaderboardEntry(VALID_PANTHEON_ENTRY, verifiedOwner),
+    '6e. Orphaned Pantheon Entry Without Master Profile'
+  );
 
   // 7. Unbounded Array (> 50 missions)
   const hugeMissions = Array.from({ length: 55 }, (_, i) => `m_${i}`);
@@ -446,11 +642,13 @@ export function runSecuritySuite() {
   assertDenied(isValidExplorerCairn({ ...VALID_CAIRN, message: 'x'.repeat(300) }, verifiedOwner), '8b. String Oversize Cairn');
   assertDenied(isValidExplorerGeocache({ ...VALID_GEOCACHE, riddleHint: 'x'.repeat(350) }, verifiedOwner), '8c. String Oversize Geocache Riddle');
   assertDenied(isValidGeocacheLogEntry({ ...VALID_GEOCACHE_LOG, note: 'x'.repeat(260) }, verifiedOwner), '8d. String Oversize Geocache Log');
+  assertDenied(isValidPantheonLeaderboardEntry({ ...VALID_PANTHEON_ENTRY, regionLabel: 'x'.repeat(120) }, verifiedOwner), '8e. String Oversize Pantheon Region');
 
   // 9. Client Timestamp Forgery
   assertDenied(isValidExplorerProfile({ ...VALID_PROFILE, updatedAt: '2099-01-01T00:00:00Z' }, verifiedOwner), '9a. Client Timestamp Forgery');
   assertDenied(isValidOpenedArchivistChest({ ...VALID_ARCHIVIST_CHEST, openedAt: '2099-01-01T00:00:00Z' }, verifiedOwner), '9b. Chest Timestamp Forgery');
   assertDenied(isValidGeocacheLogEntry({ ...VALID_GEOCACHE_LOG, foundAt: '2099-01-01T00:00:00Z' }, verifiedOwner), '9c. Log Timestamp Forgery');
+  assertDenied(isValidPantheonLeaderboardEntry({ ...VALID_PANTHEON_ENTRY, createdAt: '2099-01-01T00:00:00Z' }, verifiedOwner), '9d. Pantheon Timestamp Forgery');
 
   // 10. Immutable Field Mutation
   const allowedGeocacheUpdateKeys = [
@@ -466,12 +664,14 @@ export function runSecuritySuite() {
   assertDenied(isValidOpenedArchivistChest({ ...VALID_ARCHIVIST_CHEST, archetype: 'dungeon_boss' }, verifiedOwner), '11b. Value Poisoning Chest Archetype');
   assertDenied(isValidExplorerGeocache({ ...VALID_GEOCACHE, placementMode: 'teleported_hack' }, verifiedOwner), '11c. Value Poisoning PlacementMode');
   assertDenied(isValidExplorerGeocache({ ...VALID_GEOCACHE, giftDomain: 'diamonds' }, verifiedOwner), '11d. Value Poisoning GiftDomain');
+  assertDenied(isValidPantheonLeaderboardEntry({ ...VALID_PANTHEON_ENTRY, explorerPinnedTrophyId: 'hacked_trophy' }, verifiedOwner), '11e. Value Poisoning Pantheon Pinned Trophy');
 
   // 12. Cross-Tenant List Scraping & Unauthorized Deletion
   const targetUserId = 'user_1';
   assertDenied(attacker.uid === targetUserId, '12a. Cross-Tenant ArchivistChest List Scraping');
   assertDenied(attacker.uid === VALID_GEOCACHE.authorId, '12b. Unauthorized Geocache Deletion');
   assertDenied(attacker.uid === VALID_GEOCACHE_LOG.finderId, '12c. Unauthorized Geocache Log Deletion');
+  assertDenied(attacker.uid === VALID_PANTHEON_ENTRY.explorerId, '12d. Unauthorized Pantheon Entry Deletion');
 
   // 13. Action 3 Character Reset Gate
   const isFullZeroReset = (incoming: typeof VALID_PROFILE) =>
@@ -501,6 +701,41 @@ export function runSecuritySuite() {
     isValidGeocacheLogEntry({ ...VALID_GEOCACHE_LOG, finderHeadgearId: 'laser_visor' }, verifiedOwner),
     '14b. Geocache Log Finder Headgear Poisoning'
   );
+
+  // 15. CommunityChallengeEntry Adversarial Hardening
+  assertDenied(
+    isValidCommunityChallengeEntry(VALID_CHALLENGE_ENTRY, attacker),
+    '15a. Challenge Entry Cross-User Identity Spoofing'
+  );
+  assertDenied(
+    isValidCommunityChallengeEntry({ ...VALID_CHALLENGE_ENTRY, rankOverride: 1 }, verifiedOwner),
+    '15b. Challenge Entry Shadow Ghost Field'
+  );
+  assertDenied(
+    isValidCommunityChallengeEntry({ ...VALID_CHALLENGE_ENTRY, regionLabel: 'x'.repeat(120) }, verifiedOwner),
+    '15c. Challenge Entry Oversize Region String'
+  );
+  assertDenied(
+    isValidCommunityChallengeEntry({ ...VALID_CHALLENGE_ENTRY, explorerFamiliarId: 'dragon_overload' }, verifiedOwner),
+    '15d. Challenge Entry Familiar Enum Poisoning'
+  );
+  const decrementedScoreEntry = { ...VALID_CHALLENGE_ENTRY, points: 20 };
+  const scoreMonotonic =
+    decrementedScoreEntry.points >= VALID_CHALLENGE_ENTRY.points &&
+    decrementedScoreEntry.contributionCount >= VALID_CHALLENGE_ENTRY.contributionCount;
+  assertDenied(scoreMonotonic, '15e. Challenge Entry Score Decrement Attack');
+
+  // 16. PantheonLeaderboardEntry Score Decrement & Bounds Hardening
+  assertDenied(
+    isValidPantheonLeaderboardEntry({ ...VALID_PANTHEON_ENTRY, categoriesCount: 99 }, verifiedOwner),
+    '16a. Pantheon Categories Bound Overflow'
+  );
+  const decrementedPantheon = { ...VALID_PANTHEON_ENTRY, pantheonScore: 900 };
+  const pantheonMonotonic =
+    decrementedPantheon.pantheonScore >= VALID_PANTHEON_ENTRY.pantheonScore &&
+    decrementedPantheon.totalXp >= VALID_PANTHEON_ENTRY.totalXp &&
+    decrementedPantheon.discoveriesCount >= VALID_PANTHEON_ENTRY.discoveriesCount;
+  assertDenied(pantheonMonotonic, '16b. Pantheon Score Decrement Attack');
 }
 
 runSecuritySuite();

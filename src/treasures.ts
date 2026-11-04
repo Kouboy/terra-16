@@ -615,19 +615,27 @@ export function drawArchivistChestSprite16Bit(
     isOpened: boolean;
     isHovered: boolean;
     animTick: number;
+    /** Optional 0..1 progress right after unlocking the chest for JRPG lid + rising relic choreography */
+    openingProgress01?: number;
+    relicId?: string;
   }
 ) {
-  const { cx, cy, scale, isOpened, isHovered, animTick } = opts;
+  const { cx, cy, scale, isOpened, isHovered, animTick, openingProgress01, relicId } = opts;
   const px = (dx: number, dy: number, w: number, h: number, color: string) => {
     ctx.fillStyle = color;
     ctx.fillRect(Math.round((cx + dx) * scale), Math.round((cy + dy) * scale), w * scale, h * scale);
   };
 
+  const isAnimatingOpen =
+    typeof openingProgress01 === 'number' && openingProgress01 > 0 && openingProgress01 < 1;
+
   // Ground shadow
   px(-8, 1, 16, 3, 'rgba(20, 11, 5, 0.42)');
 
-  // Hover or unopened golden glint halo
-  if (isHovered || (!isOpened && animTick % 6 < 3)) {
+  // Hover or unopened golden glint halo (expanded burst while opening!)
+  if (isAnimatingOpen) {
+    px(-11, -15, 22, 18, 'rgba(253, 224, 71, 0.36)');
+  } else if (isHovered || (!isOpened && animTick % 6 < 3)) {
     px(-9, -12, 18, 14, isOpened ? 'rgba(52, 211, 153, 0.22)' : 'rgba(253, 224, 71, 0.28)');
   }
 
@@ -635,7 +643,7 @@ export function drawArchivistChestSprite16Bit(
   px(-7, -10, 14, 12, '#140b05');
   px(-8, -9, 16, 10, '#140b05');
 
-  if (!isOpened) {
+  if (!isOpened && !isAnimatingOpen) {
     // Closed arched oak & brass Archivist Chest
     px(-7, -9, 14, 4, '#b45309'); // domed lid
     px(-6, -9, 12, 1, '#f59e0b'); // top specular
@@ -656,15 +664,55 @@ export function drawArchivistChestSprite16Bit(
       px(-1, -13, 2, 2, '#ffffff');
       px(-2, -12, 4, 1, '#fde047');
     }
+  } else if (isAnimatingOpen && openingProgress01 < 0.22) {
+    // Frame 1 of opening: clasp pops & golden seam light cracks open!
+    px(-7, -10, 14, 4, '#b45309');
+    px(-6, -10, 12, 1, '#fde047');
+    px(-7, -6, 14, 2, '#fef08a'); // bright golden crack of light!
+    px(-7, -4, 14, 5, '#78350f');
+    px(-5, -10, 2, 4, '#fbbf24');
+    px(3, -10, 2, 4, '#fbbf24');
+    px(-2, -8, 4, 3, '#ffffff');
   } else {
-    // Opened chest showing crimson velvet interior & relic glow
-    px(-7, -11, 14, 3, '#92400e');
-    px(-6, -11, 12, 1, '#fbbf24');
+    // Frame 2+ / Opened chest showing crimson velvet interior & relic glow
+    const lidLift = isAnimatingOpen && openingProgress01 < 0.45 ? -1 : 0;
+    px(-8, -12 + lidLift, 16, 4, '#140b05');
+    px(-7, -11 + lidLift, 14, 3, '#92400e');
+    px(-6, -11 + lidLift, 12, 1, '#fbbf24');
     px(-6, -8, 12, 3, '#991b1b'); // crimson velvet lining
-    px(-3, -8, 6, 2, '#fef08a'); // relic gleam
+    px(-3, -8, 6, 2, isAnimatingOpen ? '#ffffff' : '#fef08a'); // relic gleam
     px(-7, -5, 14, 6, '#78350f');
     px(-5, -5, 2, 6, '#d97706');
     px(3, -5, 2, 6, '#d97706');
+
+    // Rising 16-bit Relic & Golden Sunbeams Choreography!
+    if (isAnimatingOpen && openingProgress01 >= 0.18) {
+      const tRise = Math.min(1, (openingProgress01 - 0.18) / 0.62);
+      const easeOut = 1 - Math.pow(1 - tRise, 3);
+      const relicY = Math.round(-11 - easeOut * 13);
+      const relicDef = relicId ? getRelicById(relicId) : null;
+      const rPrimary = relicDef?.palette.primary || '#f59e0b';
+      const rHighlight = relicDef?.palette.highlight || '#fef08a';
+      const rAccent = relicDef?.palette.accent || '#38bdf8';
+
+      // Vertical golden light shafts rising out of the chest
+      px(-4, relicY + 3, 1, Math.max(2, -7 - relicY), 'rgba(254, 240, 138, 0.55)');
+      px(0, relicY + 2, 1, Math.max(2, -7 - relicY), 'rgba(255, 255, 255, 0.72)');
+      px(3, relicY + 3, 1, Math.max(2, -7 - relicY), 'rgba(254, 240, 138, 0.55)');
+
+      // Floating 16-bit Relic Medallion with dark sepia outline
+      px(-5, relicY - 5, 10, 10, '#140b05');
+      px(-4, relicY - 4, 8, 8, rPrimary);
+      px(-3, relicY - 3, 6, 6, rHighlight);
+      px(-1, relicY - 2, 2, 4, rAccent);
+      px(-2, relicY - 1, 4, 2, '#ffffff');
+
+      // Orbiting 16-bit pixel sparkles
+      const spPhase = Math.floor(openingProgress01 * 12) % 2 === 0;
+      px(spPhase ? -9 : -8, relicY - 4, 2, 2, '#fde047');
+      px(spPhase ? 7 : 6, relicY - 2, 2, 2, '#ffffff');
+      px(-1, relicY - 9, 2, 2, '#fef08a');
+    }
   }
 }
 

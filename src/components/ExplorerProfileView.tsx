@@ -78,7 +78,9 @@ interface ExplorerProfileViewProps {
   onOpenJournalEntry: (poiId: string) => void;
   onLocatePoiOnMap: (entry: UnlockedEntry) => void;
   onNavigateToMissions: () => void;
-  onNavigateToActivity?: (activity: 'almanach' | 'chasse' | 'enigmes' | 'guildes') => void;
+  onNavigateToActivity?: (
+    activity: 'almanach' | 'chasse' | 'enigmes' | 'guildes' | 'narratives' | 'defis'
+  ) => void;
   onResetCharacter: () => Promise<void>;
   onExportBackup: () => Promise<void>;
 }
@@ -412,7 +414,25 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                   }}
                 />
               </div>
-              {status.sourceKind === 'almanach' && onNavigateToActivity ? (
+              {status.sourceKind === 'narrative' && onNavigateToActivity ? (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToActivity('narratives')}
+                  className="min-h-[36px] text-xs font-bold text-rose-900 hover:text-rose-700 underline underline-offset-4 inline-flex items-center gap-1 whitespace-nowrap"
+                >
+                  <PixelUiIcon name="quill" className="w-3.5 h-3.5" />
+                  <span>Ouvrir les Quêtes Narratives</span>
+                </button>
+              ) : status.sourceKind === 'communaute' && onNavigateToActivity ? (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToActivity('defis')}
+                  className="min-h-[36px] text-xs font-bold text-rose-900 hover:text-rose-700 underline underline-offset-4 inline-flex items-center gap-1 whitespace-nowrap"
+                >
+                  <PixelUiIcon name="trophy" className="w-3.5 h-3.5" />
+                  <span>Ouvrir les Défis Communautaires</span>
+                </button>
+              ) : status.sourceKind === 'almanach' && onNavigateToActivity ? (
                 <button
                   type="button"
                   onClick={() => onNavigateToActivity('almanach')}
@@ -1175,8 +1195,10 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                   Votre familier trottine ou volette fidèlement à vos côtés sur la carte 16-bit
                   (Surface &amp; Sous-sol) ainsi que sur vos cartes postales souvenirs.
                 </span>
-                <span className="font-mono font-bold text-rose-900 shrink-0">
-                  Énigmes : {progress.solvedRiddlesCount || 0} · Chasses :{' '}
+                <span className="font-mono font-bold text-rose-900 shrink-0 tabular-nums">
+                  Récits : {progress.completedNarrativesCount || 0} · Défis :{' '}
+                  {progress.claimedCommunityChallengesCount || 0} · Énigmes :{' '}
+                  {progress.solvedRiddlesCount || 0} · Chasses :{' '}
                   {progress.completedHuntsCount || 0} · Almanach :{' '}
                   {progress.claimedAlmanacCount || 0}
                 </span>

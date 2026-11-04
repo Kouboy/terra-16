@@ -1,6 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FamiliarAuraId } from '../alchemyAndPassport';
+import {
+  computeRealMoonPhase,
+  drawPixelMoon16Bit,
+  resolveCalendarSeasonVisuals,
+} from '../astronomyAndSeasons';
+import {
+  AutoTileGridIds,
+  classifyHeritageMicroSprite,
+  drawAutoTiledBiomeTransitions16Bit,
+  drawHeritageMicroSprite16Bit,
+  drawLieuDitBanner16Bit,
+  drawOrientationTableSprite16Bit,
+  drawTrailBlazeOnTile16Bit,
+  encodeTrailNetwork,
+  TRAIL_NONE,
+} from '../cartography16Bit';
 import { drawExplorerSprite16Bit } from '../explorerAvatar';
 import { fogCoordsFromLatLng, fogKeyFromCoords } from '../fogAndOffline';
+import { computeStrictRoadWalkPath, PlannedRoadLoop } from '../roadLoopPlanner';
 import {
   buildNpcRumorOffer,
   drawNpcSprite16Bit,
@@ -11,7 +29,13 @@ import {
   spawnWorldNpcs,
   WorldNpc,
 } from '../npcs';
-import { playNpcVoiceSfx, playPortalSfx, playRumorPinSfx } from '../sound';
+import {
+  playLieuDitBannerSfx,
+  playNpcVoiceSfx,
+  playPortalSfx,
+  playRumorPinSfx,
+  playStartledBirdsSfx,
+} from '../sound';
 import {
   RegionalStyleId,
   RegionalTheme,
@@ -40,7 +64,11 @@ import {
   ExplorerOutfitId,
   haversineMeters,
   HistoricalStratum,
+  inferOfficialStateLabel,
   LandmarkStyle,
+  LieuDitBanner,
+  LieuDitKind,
+  OrientationTableNode,
   PoiItem,
   resolveEffectiveTimeOfDay,
   RumorLead,
@@ -119,6 +147,19 @@ interface PixelMapCanvasProps {
   foundGeocacheIds?: Set<string>;
   currentUserId?: string | null;
   onInspectGeocache?: (cache: ExplorerGeocacheRecord) => void;
+  activeCalendarMonth?: number;
+  calendarDate?: Date;
+  activeLoop?: PlannedRoadLoop | null;
+  familiarAura?: FamiliarAuraId;
+  lieuxDits?: LieuDitBanner[];
+  trailsVisible?: boolean;
+  lieuxDitsVisible?: boolean;
+  orientationTables?: OrientationTableNode[];
+  inspectedTableIds?: Set<string>;
+  onOpenOrientationTable?: (table: OrientationTableNode) => void;
+  revealedSecretPoiIds?: ReadonlySet<string>;
+  clueCarrierPoiIds?: ReadonlySet<string>;
+  unrevealedSecretCoords?: Array<{ id: string; lat: number; lng: number }>;
 }
 
 // Tile IDs in the World Topological Ground Grid
@@ -144,6 +185,21 @@ const T_SAND = 17;
 const T_SCRUB = 18;
 const T_WETLAND = 19;
 const T_SCREE = 20;
+
+const AUTO_TILE_IDS: AutoTileGridIds = {
+  T_MEADOW,
+  T_FARMLAND,
+  T_PARK,
+  T_FOREST,
+  T_WATER,
+  T_PATH,
+  T_STREET,
+  T_MAIN_ROAD,
+  T_SAND,
+  T_SCRUB,
+  T_WETLAND,
+  T_SCREE,
+};
 
 // Settlement morphological tissue codes (scale-invariant via physical-meter integral windows)
 const SETTLE_RURAL = 0;
@@ -1662,7 +1718,8 @@ function draw16BitTreeCanopy(
   sy: number,
   variant: number,
   sway: number,
-  floraMode: RegionalTheme['floraMode'] = 'temperate'
+  floraMode: RegionalTheme['floraMode'] = 'temperate',
+  calMonthOverride?: number
 ) {
   // Soft dappled ground shadow
   ctx.fillStyle = 'rgba(14, 28, 15, 0.38)';
@@ -1745,10 +1802,13 @@ function draw16BitTreeCanopy(
   ctx.fillRect(sx + 6, sy + 9, 1, 4);
 
   if (species === 4) {
-    const calMonth = new Date().getMonth();
+    const calMonth =
+      typeof calMonthOverride === 'number' ? calMonthOverride : new Date().getMonth();
     const isAutumnLarch =
-      floraMode === 'alpine' && variant % 4 === 1 && (calMonth >= 8 && calMonth <= 10);
-    const isSnowTipped = floraMode === 'alpine' && (calMonth === 11 || calMonth <= 2 || variant % 6 === 0);
+      floraMode === 'alpine' && variant % 3 === 1 && calMonth >= 8 && calMonth <= 10;
+    const isSnowTipped =
+      (floraMode === 'alpine' && (calMonth === 11 || calMonth <= 2 || variant % 6 === 0)) ||
+      ((calMonth === 11 || calMonth <= 1) && variant % 3 === 0);
 
     // 16-bit Layered Mountain Pine / Vosges Silver Fir / Alpine Larch
     ctx.fillStyle = isAutumnLarch ? '#78350f' : '#0e3622';
@@ -1771,36 +1831,42 @@ function draw16BitTreeCanopy(
     ctx.fillRect(sx + 4, sy + 3, 3, 1);
     if (isSnowTipped) {
       ctx.fillRect(sx + 5, sy - 2, 3, 1);
+      ctx.fillRect(sx + 3, sy + 3, 5, 1);
     }
     return;
   }
 
   if (species === 3) {
-    // 16-bit French Poplar / Park Cypress
-    ctx.fillStyle = '#144524';
+    // 16-bit French Poplar / Park Cypress (turns golden-amber in autumn!)
+    const calMonth =
+      typeof calMonthOverride === 'number' ? calMonthOverride : new Date().getMonth();
+    const popAutumn = calMonth >= 8 && calMonth <= 10 && variant % 2 === 0;
+    ctx.fillStyle = popAutumn ? '#78350f' : '#144524';
     ctx.fillRect(sx + 3, sy - 6, 10, 16);
     ctx.fillRect(sx + 4, sy - 8, 8, 18);
-    ctx.fillStyle = '#257335';
+    ctx.fillStyle = popAutumn ? '#b45309' : '#257335';
     ctx.fillRect(sx + 4, sy - 7, 7, 15);
-    ctx.fillStyle = '#4cb548';
+    ctx.fillStyle = popAutumn ? '#f59e0b' : '#4cb548';
     ctx.fillRect(sx + 4, sy - 6 + sway, 5, 11);
-    ctx.fillStyle = '#a3e635';
+    ctx.fillStyle = popAutumn ? '#fde047' : '#a3e635';
     ctx.fillRect(sx + 5, sy - 7 + sway, 3, 5);
     return;
   }
 
-  // Majestic Multi-Sphere SNES Broadleaf Oak (5 shaded foliage tones + real calendar-month seasonal accents!)
-  const calMonth = new Date().getMonth(); // 0=Jan..11=Dec
+  // Majestic Multi-Sphere SNES Broadleaf Oak (5 shaded foliage tones + calendar-month seasonal accents!)
+  const calMonth =
+    typeof calMonthOverride === 'number' ? calMonthOverride : new Date().getMonth(); // 0=Jan..11=Dec
   const isSpring = calMonth >= 2 && calMonth <= 4;
   const isAutumn = calMonth >= 8 && calMonth <= 10;
   const isWinter = calMonth === 11 || calMonth <= 1;
 
-  const autumnTint = isAutumn ? variant % 5 <= 1 : variant % 19 === 0;
-  const cOutline = '#0f2e17';
-  const cDeep = autumnTint ? '#7c2d12' : '#184d25';
-  const cMid = autumnTint ? '#c2410c' : '#2a7a36';
-  const cBright = autumnTint ? '#f59e0b' : '#4fb346';
-  const cSun = autumnTint ? '#fde047' : '#9be858';
+  const autumnTint = isAutumn ? variant % 3 !== 0 : variant % 19 === 0;
+  const crimsonAutumn = isAutumn && variant % 5 === 0;
+  const cOutline = crimsonAutumn ? '#3b0a0a' : '#0f2e17';
+  const cDeep = crimsonAutumn ? '#7f1d1d' : autumnTint ? '#7c2d12' : '#184d25';
+  const cMid = crimsonAutumn ? '#b91c1c' : autumnTint ? '#c2410c' : '#2a7a36';
+  const cBright = crimsonAutumn ? '#ef4444' : autumnTint ? '#f59e0b' : '#4fb346';
+  const cSun = crimsonAutumn ? '#fca5a5' : autumnTint ? '#fde047' : '#9be858';
 
   ctx.fillStyle = cOutline;
   ctx.fillRect(sx - 2, sy - 1, 20, 10);
@@ -1826,16 +1892,18 @@ function draw16BitTreeCanopy(
   ctx.fillRect(sx + 1 + sway, sy - 2, 4, 2);
   ctx.fillRect(sx + 9, sy, 3, 1);
 
-  if (isSpring && !autumnTint && variant % 4 === 0) {
+  if (isSpring && !autumnTint && variant % 3 === 0) {
     ctx.fillStyle = '#fbcfe8';
     ctx.fillRect(sx + 2 + sway, sy - 4, 2, 2);
     ctx.fillRect(sx + 9 + sway, sy - 3, 2, 2);
     ctx.fillStyle = '#fff1f2';
     ctx.fillRect(sx + 6 + sway, sy - 6, 2, 1);
-  } else if (isWinter && variant % 3 === 0) {
+  } else if (isWinter && variant % 2 === 0) {
     ctx.fillStyle = '#e0f2fe';
     ctx.fillRect(sx + 4 + sway, sy - 6, 5, 1);
     ctx.fillRect(sx + 1 + sway, sy - 2, 3, 1);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx + 5 + sway, sy - 6, 2, 1);
   }
 }
 
@@ -3852,6 +3920,19 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
   foundGeocacheIds,
   currentUserId = null,
   onInspectGeocache,
+  activeCalendarMonth,
+  calendarDate,
+  activeLoop = null,
+  familiarAura = 'aucune',
+  lieuxDits = [],
+  trailsVisible = true,
+  lieuxDitsVisible = true,
+  orientationTables = [],
+  inspectedTableIds,
+  onOpenOrientationTable,
+  revealedSecretPoiIds,
+  clueCarrierPoiIds,
+  unrevealedSecretCoords = [],
 }) => {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -3886,6 +3967,35 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     surface: 'stone',
     nearWater: false,
   });
+  const footstepsRef = useRef<
+    Array<{
+      lat: number;
+      lng: number;
+      surface: SurfaceType;
+      isWet: boolean;
+      isSnowy: boolean;
+      createdAt: number;
+    }>
+  >([]);
+  const lastFootprintPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  const reactiveFaunaRef = useRef<
+    Array<{
+      id: number;
+      kind: 'bird' | 'frog' | 'bat';
+      lat: number;
+      lng: number;
+      vx: number;
+      vy: number;
+      color: string;
+      spawnedAt: number;
+    }>
+  >([]);
+  const lastFaunaPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  const faunaSeqRef = useRef<number>(1);
+  const prevOpenedChestsRef = useRef<Set<string> | null>(null);
+  const chestOpenAnimsRef = useRef<Map<string, number>>(new Map());
+  const [hasActiveChestAnim, setHasActiveChestAnim] = useState(false);
+
   const handledRouteReqRef = useRef<number>(0);
   const zoomRef = useRef<ZoomLevel>(zoomLevel);
   zoomRef.current = zoomLevel;
@@ -3896,13 +4006,66 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
   const [hoveredSpecimenId, setHoveredSpecimenId] = useState<string | null>(null);
   const [hoveredChestId, setHoveredChestId] = useState<string | null>(null);
   const [hoveredGeocacheId, setHoveredGeocacheId] = useState<string | null>(null);
+  const [hoveredTableId, setHoveredTableId] = useState<string | null>(null);
   const [activeNpcDialogue, setActiveNpcDialogue] = useState<{
     npc: WorldNpc;
     lineIndex: number;
   } | null>(null);
   const [stratumBanner, setStratumBanner] = useState<{ label: string; sub: boolean } | null>(null);
+  const visitedLieuDitsRef = useRef<{ seeded: boolean; ids: Set<string> }>({
+    seeded: false,
+    ids: new Set(),
+  });
+  const lieuDitBannerTimerRef = useRef<number | null>(null);
+  const [lieuDitArrival, setLieuDitArrival] = useState<{
+    name: string;
+    kind: LieuDitKind;
+    altitudeMeters?: number;
+  } | null>(null);
   const [panMeters, setPanMeters] = useState<{ east: number; north: number }>({ east: 0, north: 0 });
   const [isDraggingMap, setIsDraggingMap] = useState(false);
+
+  // Discreet 16-bit Vellum Arrival Banner when walking into a new French Lieu-dit / Hameau / Sommet
+  useEffect(() => {
+    if (subterraneanMode || !lieuxDitsVisible || lieuxDits.length === 0) return;
+    if (!visitedLieuDitsRef.current.seeded) {
+      visitedLieuDitsRef.current.seeded = true;
+      for (const ld of lieuxDits) {
+        if (haversineMeters(playerLat, playerLng, ld.lat, ld.lng) <= 115) {
+          visitedLieuDitsRef.current.ids.add(ld.id);
+        }
+      }
+      return;
+    }
+
+    let closestNew: LieuDitBanner | null = null;
+    let bestD = 92;
+    for (const ld of lieuxDits) {
+      if (ld.kind === 'hydronyme') continue;
+      if (visitedLieuDitsRef.current.ids.has(ld.id)) continue;
+      const d = haversineMeters(playerLat, playerLng, ld.lat, ld.lng);
+      if (d < bestD) {
+        bestD = d;
+        closestNew = ld;
+      }
+    }
+
+    if (closestNew) {
+      visitedLieuDitsRef.current.ids.add(closestNew.id);
+      playLieuDitBannerSfx(muted);
+      setLieuDitArrival({
+        name: closestNew.name,
+        kind: closestNew.kind,
+        altitudeMeters: closestNew.altitudeMeters,
+      });
+      if (lieuDitBannerTimerRef.current !== null) {
+        window.clearTimeout(lieuDitBannerTimerRef.current);
+      }
+      lieuDitBannerTimerRef.current = window.setTimeout(() => {
+        setLieuDitArrival(null);
+      }, 3900);
+    }
+  }, [playerLat, playerLng, lieuxDits, subterraneanMode, lieuxDitsVisible, muted]);
 
   // Smooth 60fps Visual Position & Camera Glide State (eliminates step teleportation while keeping crisp pixels!)
   const visualStateRef = useRef<{
@@ -3912,6 +4075,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     panNorth: number;
     strideAccum: number;
     teleportFade: number;
+    irisProgress: number;
   }>({
     lat: playerLat,
     lng: playerLng,
@@ -3919,6 +4083,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     panNorth: 0,
     strideAccum: 0,
     teleportFade: 0,
+    irisProgress: 0,
   });
   const [visualCam, setVisualCam] = useState<{
     lat: number;
@@ -3928,6 +4093,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     isGliding: boolean;
     strideTick: number;
     teleportFade: number;
+    irisProgress: number;
   }>({
     lat: playerLat,
     lng: playerLng,
@@ -3936,6 +4102,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     isGliding: false,
     strideTick: 0,
     teleportFade: 0,
+    irisProgress: 0,
   });
 
   // Dynamic Square-Pixel 16-Bit SNES/GBA Resolution (adapts seamlessly to portrait smartphones & 16:9 fullscreen!)
@@ -4022,7 +4189,12 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       ? 0
       : Math.hypot(panMeters.east - state.panEast, panMeters.north - state.panNorth);
 
-    if (initialDistM <= 0.14 && panDiff0 <= 0.22 && state.teleportFade <= 0.01) {
+    if (
+      initialDistM <= 0.14 &&
+      panDiff0 <= 0.22 &&
+      state.teleportFade <= 0.01 &&
+      state.irisProgress <= 0.01
+    ) {
       state.lat = playerLat;
       state.lng = playerLng;
       if (!isDraggingMap) {
@@ -4035,7 +4207,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         prev.panEast === state.panEast &&
         prev.panNorth === state.panNorth &&
         !prev.isGliding &&
-        prev.teleportFade === 0
+        prev.teleportFade === 0 &&
+        prev.irisProgress === 0
           ? prev
           : {
               lat: state.lat,
@@ -4045,6 +4218,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               isGliding: false,
               strideTick: Math.floor(state.strideAccum) % 360,
               teleportFade: 0,
+              irisProgress: 0,
             }
       );
       return;
@@ -4096,9 +4270,16 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       if (state.teleportFade > 0) {
         state.teleportFade = Math.max(0, state.teleportFade - dtSec * 3.9);
       }
+      if (state.irisProgress > 0) {
+        state.irisProgress = Math.max(0, state.irisProgress - dtSec * 2.15);
+      }
 
       const postDistM = haversineMeters(state.lat, state.lng, playerLat, playerLng);
-      const stillMoving = postDistM > 0.14 || remPanM > 0.22 || state.teleportFade > 0.01;
+      const stillMoving =
+        postDistM > 0.14 ||
+        remPanM > 0.22 ||
+        state.teleportFade > 0.01 ||
+        state.irisProgress > 0.01;
 
       if (!stillMoving) {
         state.lat = playerLat;
@@ -4108,6 +4289,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           state.panNorth = panMeters.north;
         }
         state.teleportFade = 0;
+        state.irisProgress = 0;
       }
 
       setVisualCam({
@@ -4118,6 +4300,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         isGliding: postDistM > 0.14,
         strideTick: Math.floor(state.strideAccum) % 360,
         teleportFade: state.teleportFade,
+        irisProgress: state.irisProgress,
       });
 
       if (stillMoving) {
@@ -4131,11 +4314,12 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     };
   }, [playerLat, playerLng, panMeters, isDraggingMap, metersPerVirtualPx, subterraneanMode]);
 
-  // Adaptive 16-bit animation loop: 95ms during movement/precipitation, 250ms when idle to save battery!
+  // Adaptive 16-bit animation loop: 95ms during movement/precipitation/chest-open, 250ms when idle!
   const needsFastTick =
     isWalking ||
     visualCam.isGliding ||
     isDraggingMap ||
+    hasActiveChestAnim ||
     weather?.condition === 'rain' ||
     weather?.condition === 'storm' ||
     weather?.condition === 'snow';
@@ -4181,7 +4365,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     if (prevSubModeRef.current !== subterraneanMode) {
       prevSubModeRef.current = subterraneanMode;
       playPortalSfx(muted, subterraneanMode);
-      visualStateRef.current.teleportFade = 0.88;
+      visualStateRef.current.teleportFade = 0.45;
+      visualStateRef.current.irisProgress = 1;
       setStratumBanner({
         label: subterraneanMode
           ? '▼ Strate souterraine · Cavités & Galeries'
@@ -4197,6 +4382,38 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       }, 1750);
     }
   }, [subterraneanMode, muted]);
+
+  // Track newly opened Archivist Chests for 16-bit JRPG lid-open & rising-relic choreography!
+  useEffect(() => {
+    const currentSet = openedChestIds || new Set<string>();
+    const prevSet = prevOpenedChestsRef.current;
+    if (prevSet === null) {
+      prevOpenedChestsRef.current = new Set(currentSet);
+      return;
+    }
+    let triggered = false;
+    const now = performance.now();
+    for (const id of currentSet) {
+      if (!prevSet.has(id)) {
+        chestOpenAnimsRef.current.set(id, now);
+        triggered = true;
+      }
+    }
+    prevOpenedChestsRef.current = new Set(currentSet);
+    if (triggered) {
+      setHasActiveChestAnim(true);
+      const timer = window.setTimeout(() => {
+        const ts = performance.now();
+        for (const [cid, start] of chestOpenAnimsRef.current.entries()) {
+          if (ts - start > 1700) chestOpenAnimsRef.current.delete(cid);
+        }
+        if (chestOpenAnimsRef.current.size === 0) {
+          setHasActiveChestAnim(false);
+        }
+      }, 1750);
+      return () => window.clearTimeout(timer);
+    }
+  }, [openedChestIds]);
 
   useEffect(() => {
     return () => {
@@ -4306,6 +4523,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     const bldgClassGrid = new Uint8Array(GRID_SIZE * GRID_SIZE);
     const bldgLevelsGrid = new Uint8Array(GRID_SIZE * GRID_SIZE);
     const settlementGrid = new Uint8Array(GRID_SIZE * GRID_SIZE);
+    const trailGrid = new Uint8Array(GRID_SIZE * GRID_SIZE);
 
     if (activeTerrain.length > 0) {
       // ======================================================================
@@ -4731,6 +4949,15 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             zoomLevel,
             denseUrbanMask
           );
+
+          const tCode = encodeTrailNetwork(feat.trailNetwork);
+          if (tCode !== TRAIL_NONE) {
+            for (const c of dryChain) {
+              if (trailGrid[c.idx] === TRAIL_NONE || tCode < trailGrid[c.idx]) {
+                trailGrid[c.idx] = tCode;
+              }
+            }
+          }
         }
       }
 
@@ -4787,6 +5014,14 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             zoomLevel,
             denseUrbanMask
           );
+          const bTrailCode = encodeTrailNetwork(feat.trailNetwork);
+          if (bTrailCode !== TRAIL_NONE) {
+            for (const c of dryBridgeChain) {
+              if (trailGrid[c.idx] === TRAIL_NONE || bTrailCode < trailGrid[c.idx]) {
+                trailGrid[c.idx] = bTrailCode;
+              }
+            }
+          }
         }
 
         if (touchesWater) {
@@ -5751,6 +5986,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       bldgClassGrid,
       bldgLevelsGrid,
       settlementGrid,
+      trailGrid,
       elevGrid,
       terraceGrid,
       hasRealElevation: elevGrid !== null,
@@ -5790,6 +6026,15 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     ): Array<{ lat: number; lng: number }> => {
       const sLat = startLatOverride ?? playerLat;
       const sLng = startLngOverride ?? playerLng;
+
+      // Priority 1 on surface: snap strictly onto real OpenStreetMap road, street, footpath, plaza & bridge polylines!
+      if (!subterraneanMode && terrain.length > 0) {
+        const strictRoadPts = computeStrictRoadWalkPath(terrain, sLat, sLng, destLat, destLng);
+        if (strictRoadPts && strictRoadPts.length > 0) {
+          return strictRoadPts;
+        }
+      }
+
       const {
         grid,
         dungeonGrid,
@@ -5931,7 +6176,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           const nearEndpoints =
             Math.hypot(nx - sx, ny - sy) <= 1.8 || Math.hypot(nx - tx, ny - ty) <= 1.8;
 
-          let weight = 1.85;
+          let weight = 3.6;
           if (subterraneanMode) {
             const dt = dungeonGrid[nIdx];
             if (
@@ -6017,7 +6262,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       const tailSnapMeters = Math.max(4, Math.round(tileMeters * 0.65));
 
       const waypoints: Array<{ lat: number; lng: number }> = [];
-      let lastKept = { lat: playerLat, lng: playerLng };
+      let lastKept = { lat: sLat, lng: sLng };
       for (let i = 0; i < rawCells.length; i++) {
         const pt = gridToLatLng(rawCells[i].gx, rawCells[i].gy);
         const stepDist = haversineMeters(lastKept.lat, lastKept.lng, pt.lat, pt.lng);
@@ -6040,7 +6285,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       }
       return waypoints;
     },
-    [worldMapData, playerLat, playerLng, tileMeters, subterraneanMode]
+    [worldMapData, terrain, playerLat, playerLng, tileMeters, subterraneanMode]
   );
 
   // Handle programmatic walk route requests (single POI OR multi-stop chained expedition loop!)
@@ -6411,7 +6656,125 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       lastSurfaceRef.current = { surface, nearWater };
       onPlayerSurfaceChange(surface, nearWater);
     }
-  }, [playerLat, playerLng, worldMapData, tileMeters, subterraneanMode, onPlayerSurfaceChange]);
+
+    // Record ephemeral 16-bit footprints / puddle ripples / snow tracks & trigger reactive micro-fauna!
+    const nowMs = performance.now();
+    const lastFp = lastFootprintPosRef.current;
+    const stepDist = lastFp ? haversineMeters(lastFp.lat, lastFp.lng, playerLat, playerLng) : 999;
+    if (lastFp && stepDist >= 3.8 && stepDist <= 90) {
+      const wCondNow = weather?.condition || 'clear';
+      const isSnowStep = !subterraneanMode && wCondNow === 'snow';
+      const isWetStep = nearWater || (!subterraneanMode && (wCondNow === 'rain' || wCondNow === 'storm'));
+      footstepsRef.current.push({
+        lat: playerLat,
+        lng: playerLng,
+        surface,
+        isWet: isWetStep,
+        isSnowy: isSnowStep,
+        createdAt: nowMs,
+      });
+      if (footstepsRef.current.length > 9) {
+        footstepsRef.current.splice(0, footstepsRef.current.length - 9);
+      }
+    }
+    if (!lastFp || stepDist >= 3.8) {
+      lastFootprintPosRef.current = { lat: playerLat, lng: playerLng };
+    }
+
+    const lastFauna = lastFaunaPosRef.current;
+    const faunaMoveDist = lastFauna
+      ? haversineMeters(lastFauna.lat, lastFauna.lng, playerLat, playerLng)
+      : 0;
+    if (!lastFauna) {
+      lastFaunaPosRef.current = { lat: playerLat, lng: playerLng };
+    } else if (faunaMoveDist >= 11 && faunaMoveDist <= 120 && gx >= 2 && gx < gridSize - 2 && gy >= 2 && gy < gridSize - 2) {
+      lastFaunaPosRef.current = { lat: playerLat, lng: playerLng };
+      reactiveFaunaRef.current = reactiveFaunaRef.current.filter((f) => nowMs - f.spawnedAt < 2200);
+
+      if (reactiveFaunaRef.current.length < 6) {
+        if (subterraneanMode || currentEffectiveTime === 'night' || currentEffectiveTime === 'dusk') {
+          // Check proximity to a subterranean portal or cavern for fluttering bats
+          const nearPortal = portalAnchors.find(
+            (pa) => haversineMeters(playerLat, playerLng, pa.lat, pa.lng) <= 38
+          );
+          if (nearPortal || (subterraneanMode && (gx + gy) % 5 === 0)) {
+            const anchorLat = nearPortal ? nearPortal.lat : playerLat;
+            const anchorLng = nearPortal ? nearPortal.lng : playerLng;
+            for (let b = 0; b < 2; b++) {
+              reactiveFaunaRef.current.push({
+                id: faunaSeqRef.current++,
+                kind: 'bat',
+                lat: anchorLat,
+                lng: anchorLng,
+                vx: b === 0 ? -1.4 : 1.5,
+                vy: -1.6 - b * 0.4,
+                color: '#312e81',
+                spawnedAt: nowMs + b * 90,
+              });
+            }
+          }
+        } else {
+          // Daytime / Dawn: check adjacent woodland trees (startled songbirds) or water bank (hopping frog)
+          let forestTile: { tx: number; ty: number } | null = null;
+          let waterTile: { tx: number; ty: number } | null = null;
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              const nt = grid[(gy + dy) * gridSize + (gx + dx)];
+              if (!forestTile && (nt === T_FOREST || nt === T_PARK)) {
+                forestTile = { tx: gx + dx, ty: gy + dy };
+              }
+              if (!waterTile && (nt === T_WATER || nt === T_WETLAND)) {
+                waterTile = { tx: gx + dx, ty: gy + dy };
+              }
+            }
+          }
+
+          if (forestTile && ((gx * 7 + gy * 13) & 3) === 0) {
+            const fLat = -((forestTile.ty + 0.5 + originWy) * tileMeters) / 110540;
+            const fLng = ((forestTile.tx + 0.5 + originWx) * tileMeters) / (111320 * cRef);
+            const dirSign = ((gx + gy) & 1) === 0 ? 1 : -1;
+            for (let k = 0; k < 3; k++) {
+              reactiveFaunaRef.current.push({
+                id: faunaSeqRef.current++,
+                kind: 'bird',
+                lat: fLat,
+                lng: fLng,
+                vx: dirSign * (1.25 + k * 0.35),
+                vy: -1.55 - k * 0.25,
+                color: k === 0 ? '#38bdf8' : k === 1 ? '#fde047' : '#f8fafc',
+                spawnedAt: nowMs + k * 80,
+              });
+            }
+            playStartledBirdsSfx(muted);
+          } else if (waterTile && ((gx * 5 + gy * 11) & 3) === 0) {
+            const wLat = -((waterTile.ty + 0.5 + originWy) * tileMeters) / 110540;
+            const wLng = ((waterTile.tx + 0.5 + originWx) * tileMeters) / (111320 * cRef);
+            reactiveFaunaRef.current.push({
+              id: faunaSeqRef.current++,
+              kind: 'frog',
+              lat: wLat,
+              lng: wLng,
+              vx: 0,
+              vy: 0,
+              color: '#4ade80',
+              spawnedAt: nowMs,
+            });
+          }
+        }
+      }
+    }
+  }, [
+    playerLat,
+    playerLng,
+    worldMapData,
+    tileMeters,
+    subterraneanMode,
+    onPlayerSurfaceChange,
+    weather,
+    currentEffectiveTime,
+    portalAnchors,
+    muted,
+  ]);
 
   const effectivePlayerLat = visualCam.lat;
   const effectivePlayerLng = visualCam.lng;
@@ -6523,6 +6886,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       bldgClassGrid,
       bldgLevelsGrid,
       settlementGrid,
+      trailGrid,
       elevGrid,
       terraceGrid,
       hasRealElevation,
@@ -6658,6 +7022,15 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       return D_ROCK;
     };
 
+    const getTrailAt = (wx: number, wy: number): number => {
+      const gx = wx - originWx;
+      const gy = wy - originWy;
+      if (gx >= 0 && gx < gridSize && gy >= 0 && gy < gridSize) {
+        return trailGrid[gy * gridSize + gx];
+      }
+      return TRAIL_NONE;
+    };
+
     const envTick = Math.floor(animTick / 4);
     const sway = envTick % 6 < 3 ? 0 : 1;
 
@@ -6691,12 +7064,16 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     const layerStartWy = Math.floor(layerOriginPxY / TILE) - 2;
     const layerEndWy = Math.ceil((layerOriginPxY + layerH) / TILE) + 3;
 
+    const resolvedCalMonth =
+      typeof activeCalendarMonth === 'number'
+        ? ((activeCalendarMonth % 12) + 12) % 12
+        : (calendarDate || new Date()).getMonth();
     const lithoKey = bedrock?.lithology ? bedrock.lithology.slice(0, 18) : 'std';
     const staticCacheKey = `${layerW}_${layerH}_${anchorWx}_${anchorWy}_${
       subterraneanMode ? 'sub' : 'surf'
     }_${regionalTheme.id}_${subLithoProfile.id}_${lithoKey}_${reliefEnabled ? 1 : 0}_${
       subtleBuildings ? 1 : 0
-    }_${envTick}`;
+    }_${trailsVisible ? 1 : 0}_m${resolvedCalMonth}_${envTick}`;
 
     if (
       worldLayer.width !== layerW ||
@@ -7999,6 +8376,30 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     }
 
     // ========================================================================
+    // PASS 1A: AUTO-TILED 8-NEIGHBOR BIOME, BOCAGE HEDGEROW & ROAD TRANSITIONS
+    // ========================================================================
+    for (let wy = layerStartWy; wy <= layerEndWy; wy++) {
+      for (let wx = layerStartWx; wx <= layerEndWx; wx++) {
+        const t = getTileAt(wx, wy);
+        if (t === T_WATER && getBridgeModeAt(wx, wy) !== B_NONE) continue;
+        const sx = wx * TILE - layerOriginPxX;
+        const sy = wy * TILE - layerOriginPxY;
+        drawAutoTiledBiomeTransitions16Bit(
+          pctx,
+          wx,
+          wy,
+          sx,
+          sy,
+          t,
+          tileHash(wx, wy),
+          envTick,
+          getTileAt,
+          AUTO_TILE_IDS
+        );
+      }
+    }
+
+    // ========================================================================
     // PASS 1B: 16-BIT 3/4-VIEW STEPPED CLIFFS, BELVEDERES & PLATEAU CRESTS
     // ========================================================================
     if (reliefEnabled && hasRealElevation && hasTerraces) {
@@ -8283,6 +8684,24 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     }
 
     // ========================================================================
+    // PASS 1D: BALISAGE OFFICIEL DES SENTIERS GR / GRP / PR & POTEAUX BOIS
+    // ========================================================================
+    if (trailsVisible) {
+      for (let wy = layerStartWy; wy <= layerEndWy; wy++) {
+        for (let wx = layerStartWx; wx <= layerEndWx; wx++) {
+          const trailCode = getTrailAt(wx, wy);
+          if (trailCode === TRAIL_NONE) continue;
+          const curTile = getTileAt(wx, wy);
+          if (curTile === T_BUILDING || isLandmarkCellAt(wx, wy)) continue;
+          if (curTile === T_WATER && getBridgeModeAt(wx, wy) === B_NONE) continue;
+          const sx = wx * TILE - layerOriginPxX;
+          const sy = wy * TILE - layerOriginPxY;
+          drawTrailBlazeOnTile16Bit(pctx, wx, wy, sx, sy, trailCode, getTrailAt);
+        }
+      }
+    }
+
+    // ========================================================================
     // PASS 2: Y-SORTED 16-BIT LANDMARK SET-PIECES, ARCHITECTURE, LAMPS & TREES
     // ========================================================================
     for (let wy = layerStartWy; wy <= layerEndWy; wy++) {
@@ -8416,11 +8835,19 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           if ((wx + wy) % 2 === 0 || h % 3 !== 0) {
             const jx = ((h >> 4) % 3) - 1;
             const jy = ((h >> 7) % 3) - 1;
-            draw16BitTreeCanopy(pctx, sx + jx, sy + jy, h, sway, regionalTheme.floraMode);
+            draw16BitTreeCanopy(
+              pctx,
+              sx + jx,
+              sy + jy,
+              h,
+              sway,
+              regionalTheme.floraMode,
+              resolvedCalMonth
+            );
           }
         } else if (t === T_SCRUB && h % 11 === 0) {
           // Scattered wind-sculpted umbrella pines, olives, junipers or gorse trees in garrigue/moorland
-          draw16BitTreeCanopy(pctx, sx, sy, h, sway, regionalTheme.floraMode);
+          draw16BitTreeCanopy(pctx, sx, sy, h, sway, regionalTheme.floraMode, resolvedCalMonth);
         } else if (t === T_PARK && h % 9 === 0) {
           draw16BitTreeCanopy(
             pctx,
@@ -8428,10 +8855,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             sy,
             h % 4 === 0 ? 3 : (h % 3) * 5,
             sway,
-            regionalTheme.floraMode === 'mediterranean' ? 'mediterranean' : 'temperate'
+            regionalTheme.floraMode === 'mediterranean' ? 'mediterranean' : 'temperate',
+            resolvedCalMonth
           );
         } else if (t === T_CEMETERY && h % 7 === 0) {
-          draw16BitTreeCanopy(pctx, sx, sy, 3, sway, 'temperate');
+          draw16BitTreeCanopy(pctx, sx, sy, 3, sway, 'temperate', resolvedCalMonth);
         } else if (
           t === T_RESIDENTIAL &&
           getSettlementAt(wx, wy) !== SETTLE_CITY_CENTER &&
@@ -8440,9 +8868,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           getTileAt(wx, wy - 1) !== T_BUILDING &&
           !isLandmarkCellAt(wx, wy - 1)
         ) {
-          draw16BitTreeCanopy(pctx, sx, sy, h, sway, regionalTheme.floraMode);
+          draw16BitTreeCanopy(pctx, sx, sy, h, sway, regionalTheme.floraMode, resolvedCalMonth);
         } else if (t === T_MEADOW && h % 37 === 0) {
-          draw16BitTreeCanopy(pctx, sx, sy, h, sway, regionalTheme.floraMode);
+          draw16BitTreeCanopy(pctx, sx, sy, h, sway, regionalTheme.floraMode, resolvedCalMonth);
         } else if (
           (t === T_MAIN_ROAD || t === T_PLAZA) &&
           h % 19 === 0 &&
@@ -8463,17 +8891,143 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     pctx.drawImage(worldLayer, layerSubX, layerSubY, VW, VH, 0, 0, VW, VH);
 
     // ========================================================================
-    // PASS 2B: LIVING 16-BIT FAUNA + TERRA INCOGNITA FOG OF WAR
+    // PASS 2B: LIVING 16-BIT FAUNA + SEASONAL BREEZE + TERRA INCOGNITA FOG
     // ========================================================================
     const effectiveTime = currentEffectiveTime;
+    const seasonVis = resolveCalendarSeasonVisuals(resolvedCalMonth);
     const isPrecipitating =
       weather?.condition === 'rain' ||
       weather?.condition === 'storm' ||
       weather?.condition === 'snow';
+    const litWindowGlowPts: Array<{ vx: number; vy: number }> = [];
 
     if (!subterraneanMode) {
+      // ======================================================================
+      // PASS 2B-0: LIVING VILLAGE WINDOWS, CHIMNEY SMOKE & MOONLIGHT SHIMMER
+      // ======================================================================
+      const isNightOrDusk = effectiveTime === 'night' || effectiveTime === 'dusk';
+      const isCoolChimneyWeather =
+        isNightOrDusk ||
+        effectiveTime === 'dawn' ||
+        seasonVis.season === 'hiver' ||
+        seasonVis.season === 'automne' ||
+        (typeof weather?.tempC === 'number' && weather.tempC <= 13);
+
+      for (let wy = startWy; wy <= endWy; wy++) {
+        const sy = wy * TILE - offsetY;
+        if (sy < -TILE || sy > VH + TILE) continue;
+        for (let wx = startWx; wx <= endWx; wx++) {
+          const sx = wx * TILE - offsetX;
+          if (sx < -TILE || sx > VW + TILE) continue;
+          const t = getTileAt(wx, wy);
+          const th = ((wx * 73856093) ^ (wy * 19349663)) >>> 0;
+
+          if (t === T_WATER && isNightOrDusk) {
+            const gx = wx - originWx;
+            const gy = wy - originWy;
+            const hasBridge =
+              gx >= 0 &&
+              gx < gridSize &&
+              gy >= 0 &&
+              gy < gridSize &&
+              bridgeModeGrid[gy * gridSize + gx] !== B_NONE;
+            if (!hasBridge && (th % 5 === 0)) {
+              const shimmerPhase = (envTick + (th & 7)) % 6;
+              if (shimmerPhase < 4) {
+                const glX = sx + 2 + ((th >> 3) % 9) + (shimmerPhase === 2 ? 1 : 0);
+                const glY = sy + 4 + ((th >> 6) % 8);
+                pctx.fillStyle =
+                  effectiveTime === 'night'
+                    ? shimmerPhase === 1
+                      ? '#fef08a'
+                      : 'rgba(186, 230, 253, 0.78)'
+                    : 'rgba(253, 186, 116, 0.75)';
+                pctx.fillRect(glX, glY, shimmerPhase === 1 ? 4 : 3, 1);
+                if (shimmerPhase === 1) {
+                  pctx.fillStyle = '#ffffff';
+                  pctx.fillRect(glX + 1, glY, 1, 1);
+                }
+              }
+            }
+          } else if (t === T_BUILDING) {
+            const southIsBldg = getTileAt(wx, wy + 1) === T_BUILDING;
+            const northIsBldg = getTileAt(wx, wy - 1) === T_BUILDING;
+
+            // Warm Amber Lit Cottage / Townhouse Windows on front facades at Dusk & Night!
+            if (isNightOrDusk && !southIsBldg && th % 8 < 5) {
+              const candleFlicker = (animTick + (th & 15)) % 19 === 0;
+              const winCore = candleFlicker ? '#fb923c' : '#fde047';
+              const winFrame = '#d97706';
+              pctx.fillStyle = 'rgba(251, 191, 36, 0.28)';
+              pctx.fillRect(sx + 2, sy + 9, 12, 6);
+              pctx.fillStyle = winFrame;
+              pctx.fillRect(sx + 3, sy + 10, 3, 4);
+              pctx.fillStyle = winCore;
+              pctx.fillRect(sx + 4, sy + 11, 2, 2);
+              if ((th & 3) !== 0) {
+                pctx.fillStyle = winFrame;
+                pctx.fillRect(sx + 10, sy + 10, 3, 4);
+                pctx.fillStyle = winCore;
+                pctx.fillRect(sx + 10, sy + 11, 2, 2);
+              }
+              if (litWindowGlowPts.length < 20 && th % 3 === 0) {
+                litWindowGlowPts.push({ vx: sx + 8, vy: sy + 12 });
+              }
+            }
+
+            // Rising 16-Bit Pixel Chimney Smoke Plumes on Village/Town Rooftops!
+            if (isCoolChimneyWeather && !northIsBldg && th % 9 === 0) {
+              const chX = sx + 11;
+              const chY = sy + 1;
+              for (let p = 0; p < 3; p++) {
+                const age = (animTick + p * 4 + (th & 7)) % 12;
+                const riseY = chY - 2 - age;
+                const windDrift = Math.round((age * 0.45) + Math.sin((animTick + p) * 0.25));
+                const alpha = age < 4 ? 0.55 : age < 8 ? 0.36 : 0.18;
+                pctx.fillStyle =
+                  effectiveTime === 'night'
+                    ? `rgba(148, 163, 184, ${alpha})`
+                    : `rgba(241, 245, 249, ${alpha})`;
+                const sz = age >= 6 ? 3 : 2;
+                pctx.fillRect(chX + windDrift, riseY, sz, 2);
+              }
+            }
+          }
+        }
+      }
+
+      // Ephemeral 16-Bit Footstep Tracks / Puddle Ripples / Snow Prints Behind the Explorer
+      const nowRenderMs = performance.now();
+      if (footstepsRef.current.length > 0) {
+        footstepsRef.current = footstepsRef.current.filter((fpItem) => nowRenderMs - fpItem.createdAt < 3400);
+        for (const fpItem of footstepsRef.current) {
+          const age01 = (nowRenderMs - fpItem.createdAt) / 3400;
+          if (age01 >= 1) continue;
+          const fv = projectToVirtual(fpItem.lat, fpItem.lng);
+          if (fv.vx < -8 || fv.vx > VW + 8 || fv.vy < -8 || fv.vy > VH + 8) continue;
+          const alpha = Math.max(0.12, (1 - age01) * 0.62);
+          if (fpItem.isWet) {
+            const r = 2 + Math.round(age01 * 4);
+            pctx.strokeStyle = `rgba(125, 211, 252, ${alpha})`;
+            pctx.lineWidth = 1;
+            pctx.strokeRect(fv.vx - r, fv.vy + 7 - Math.round(r * 0.5), r * 2, Math.max(2, r));
+          } else if (fpItem.isSnowy) {
+            pctx.fillStyle = `rgba(148, 163, 184, ${alpha})`;
+            pctx.fillRect(fv.vx - 2, fv.vy + 7, 2, 2);
+            pctx.fillRect(fv.vx + 1, fv.vy + 8, 2, 2);
+          } else {
+            pctx.fillStyle =
+              fpItem.surface === 'grass'
+                ? `rgba(21, 128, 61, ${alpha * 0.75})`
+                : `rgba(92, 64, 40, ${alpha * 0.65})`;
+            pctx.fillRect(fv.vx - 2, fv.vy + 8, 2, 1);
+            pctx.fillRect(fv.vx + 1, fv.vy + 7, 2, 1);
+          }
+        }
+      }
       if (effectiveTime !== 'night' && !isPrecipitating) {
-        const butterflyCount = effectiveTime === 'dusk' ? 2 : 5;
+        const butterflyCount =
+          seasonVis.season === 'hiver' ? 0 : effectiveTime === 'dusk' ? 2 : 5;
         for (let bIdx = 0; bIdx < butterflyCount; bIdx++) {
           const bxBase = ((bIdx * 103 + Math.floor(worldPxX * 0.25)) % (VW - 40)) + 20;
           const byBase = ((bIdx * 67 + Math.floor(worldPxY * 0.25)) % (VH - 40)) + 20;
@@ -8495,9 +9049,36 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           }
         }
       }
+
+      // Seasonal Floating 16-bit Particles (Spring Blossoms / Autumn Leaves / Winter Frost)
+      if (!isPrecipitating && seasonVis.particleKind !== 'summer_pollen') {
+        const pCount = 7;
+        for (let sIdx = 0; sIdx < pCount; sIdx++) {
+          const pxDrift =
+            ((sIdx * 83 + animTick * 2 + Math.floor(worldPxX * 0.15)) % Math.max(40, VW - 16)) + 8;
+          const pyDrift =
+            ((sIdx * 53 + animTick + Math.floor(worldPxY * 0.15)) % Math.max(40, VH - 16)) + 8;
+          const swayX = pxDrift + Math.round(Math.sin((animTick + sIdx * 11) * 0.2) * 4);
+          if (seasonVis.particleKind === 'blossom_petals') {
+            pctx.fillStyle = sIdx % 2 === 0 ? '#fbcfe8' : '#fff1f2';
+            pctx.fillRect(swayX, pyDrift, 2, 1);
+            pctx.fillRect(swayX + 1, pyDrift + 1, 1, 1);
+          } else if (seasonVis.particleKind === 'autumn_leaves') {
+            pctx.fillStyle =
+              sIdx % 3 === 0 ? '#ea580c' : sIdx % 3 === 1 ? '#f59e0b' : '#b91c1c';
+            pctx.fillRect(swayX, pyDrift, 2, 2);
+            pctx.fillStyle = '#fde047';
+            pctx.fillRect(swayX, pyDrift, 1, 1);
+          } else if (seasonVis.particleKind === 'winter_frost') {
+            pctx.fillStyle = sIdx % 2 === 0 ? 'rgba(224, 242, 254, 0.85)' : '#ffffff';
+            pctx.fillRect(swayX, pyDrift, 1, 1);
+          }
+        }
+      }
+
       if ((effectiveTime === 'dusk' || effectiveTime === 'night') && !isPrecipitating) {
         // Dusk & Nocturnal Bioluminescent Fireflies!
-        const fireflyCount = effectiveTime === 'night' ? 8 : 4;
+        const fireflyCount = seasonVis.season === 'hiver' ? 2 : effectiveTime === 'night' ? 8 : 4;
         for (let fIdx = 0; fIdx < fireflyCount; fIdx++) {
           const fxBase = ((fIdx * 89 + Math.floor(worldPxX * 0.2)) % (VW - 36)) + 18;
           const fyBase = ((fIdx * 59 + Math.floor(worldPxY * 0.2)) % (VH - 36)) + 18;
@@ -8508,6 +9089,21 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             pctx.fillRect(fx - 1, fy - 1, 4, 4);
             pctx.fillStyle = '#fef08a';
             pctx.fillRect(fx, fy, 2, 2);
+          }
+        }
+
+        // Astronomical Meteor Shower Shooting Star Streak on Shower Nights!
+        if (effectiveTime === 'night') {
+          const moonCheck = computeRealMoonPhase(calendarDate || new Date());
+          if (moonCheck.isMeteorShowerNight && animTick % 28 < 5) {
+            const mStep = animTick % 5;
+            const msx = Math.round(VW * 0.22) + mStep * 16;
+            const msy = 20 + mStep * 6;
+            pctx.fillStyle = 'rgba(186, 230, 253, 0.72)';
+            pctx.fillRect(msx - 10, msy - 4, 7, 1);
+            pctx.fillRect(msx - 4, msy - 2, 4, 1);
+            pctx.fillStyle = '#ffffff';
+            pctx.fillRect(msx, msy, 2, 2);
           }
         }
       }
@@ -8545,6 +9141,55 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         if ((animTick + mIdx * 2) % 5 < 3) {
           pctx.fillStyle = mIdx % 3 === 0 ? 'rgba(103, 232, 249, 0.55)' : 'rgba(253, 224, 71, 0.45)';
           pctx.fillRect(mx, my, 2, 2);
+        }
+      }
+    }
+
+    // Reactive Micro-Fauna (Startled Woodland Songbirds, Water-Bank Frogs & Cavern Portal Bats!)
+    if (reactiveFaunaRef.current.length > 0) {
+      const nowFaunaMs = performance.now();
+      for (const fItem of reactiveFaunaRef.current) {
+        const elapsed = nowFaunaMs - fItem.spawnedAt;
+        if (elapsed < 0 || elapsed > 2100) continue;
+        const tSec = elapsed / 1000;
+        const baseV = projectToVirtual(fItem.lat, fItem.lng);
+        if (fItem.kind === 'bird' || fItem.kind === 'bat') {
+          const fx = Math.round(baseV.vx + fItem.vx * tSec * 22 + Math.sin(tSec * 9 + fItem.id) * 2);
+          const fy = Math.round(baseV.vy + fItem.vy * tSec * 20);
+          if (fx < -12 || fx > VW + 12 || fy < -12 || fy > VH + 12) continue;
+          const flap = Math.floor(elapsed / 95 + fItem.id) % 2 === 0;
+          if (fItem.kind === 'bird') {
+            pctx.fillStyle = 'rgba(20, 12, 7, 0.22)';
+            pctx.fillRect(fx, Math.min(VH, baseV.vy + 2), 3, 1);
+            pctx.fillStyle = '#1e293b';
+            pctx.fillRect(fx + 1, fy, 2, 1);
+            pctx.fillStyle = fItem.color;
+            pctx.fillRect(fx, fy + (flap ? -2 : 1), 2, 2);
+            pctx.fillRect(fx + 2, fy + (flap ? -2 : 1), 2, 2);
+          } else {
+            // Fluttering cavern/portal bat
+            pctx.fillStyle = '#1e1b4b';
+            pctx.fillRect(fx + 1, fy, 2, 2);
+            pctx.fillStyle = '#6366f1';
+            pctx.fillRect(fx - 1, fy + (flap ? -1 : 1), 2, 2);
+            pctx.fillRect(fx + 3, fy + (flap ? -1 : 1), 2, 2);
+          }
+        } else if (fItem.kind === 'frog') {
+          // Hopping emerald frog arc + water splash ring!
+          const hop01 = Math.min(1, elapsed / 750);
+          const hopX = Math.round(baseV.vx + hop01 * 7);
+          const hopY = Math.round(baseV.vy - Math.sin(hop01 * Math.PI) * 6);
+          if (hop01 < 0.85) {
+            pctx.fillStyle = '#14532d';
+            pctx.fillRect(hopX - 1, hopY - 1, 4, 3);
+            pctx.fillStyle = '#4ade80';
+            pctx.fillRect(hopX, hopY - 1, 2, 2);
+          } else {
+            const splashR = Math.min(6, 2 + Math.round(((elapsed - 620) / 900) * 5));
+            pctx.strokeStyle = 'rgba(186, 230, 253, 0.78)';
+            pctx.lineWidth = 1;
+            pctx.strokeRect(hopX - splashR, hopY - Math.round(splashR * 0.5), splashR * 2, Math.max(2, splashR));
+          }
         }
       }
     }
@@ -8709,6 +9354,18 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           sctx.fill();
         }
 
+        // Soft warm cottage-window light pools carved into nocturnal village streets!
+        for (let wi = 0; wi < litWindowGlowPts.length; wi++) {
+          const wp = litWindowGlowPts[wi];
+          const wGrad = sctx.createRadialGradient(wp.vx, wp.vy, 2, wp.vx, wp.vy, 18);
+          wGrad.addColorStop(0, 'rgba(0, 0, 0, 0.65)');
+          wGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          sctx.fillStyle = wGrad;
+          sctx.beginPath();
+          sctx.arc(wp.vx, wp.vy, 18, 0, Math.PI * 2);
+          sctx.fill();
+        }
+
         pctx.drawImage(shadeCanvas, 0, 0);
       }
 
@@ -8805,6 +9462,73 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         px(bp.vx - 1, bp.vy - 1, 2, 2, 'rgba(120, 53, 15, 0.55)');
         px(bp.vx, bp.vy, 1, 1, '#fde68a');
       }
+    }
+
+    // Persistent 16-Bit Road-Snapped Walking Loop Ribbon (works in both Real GPS & Simulated Walk!)
+    if (!subterraneanMode && activeLoop && activeLoop.waypoints.length > 1) {
+      ctx.save();
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+
+      ctx.beginPath();
+      for (let i = 0; i < activeLoop.waypoints.length; i++) {
+        const vp = projectToVirtual(activeLoop.waypoints[i].lat, activeLoop.waypoints[i].lng);
+        if (i === 0) ctx.moveTo(vp.vx * SCALE, vp.vy * SCALE);
+        else ctx.lineTo(vp.vx * SCALE, vp.vy * SCALE);
+      }
+      // Crisp 16-bit dark sepia road-trace casing
+      ctx.strokeStyle = 'rgba(20, 11, 5, 0.9)';
+      ctx.lineWidth = 4.2 * SCALE;
+      ctx.stroke();
+
+      // Solid emerald cartographer loop ribbon
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2.1 * SCALE;
+      ctx.stroke();
+
+      // Animated golden directional cadence ticks along the road loop
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 1.3 * SCALE;
+      ctx.setLineDash([3 * SCALE, 6 * SCALE]);
+      ctx.lineDashOffset = -(animTick % 9) * SCALE;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Origin / Loop Closure marker
+      const origVp = projectToVirtual(activeLoop.waypoints[0].lat, activeLoop.waypoints[0].lng);
+      if (origVp.vx >= -16 && origVp.vx <= VW + 16 && origVp.vy >= -16 && origVp.vy <= VH + 16) {
+        const ox = Math.round(origVp.vx * SCALE);
+        const oy = Math.round(origVp.vy * SCALE);
+        ctx.fillStyle = '#140b05';
+        ctx.fillRect(ox - 7 * SCALE, oy - 7 * SCALE, 14 * SCALE, 14 * SCALE);
+        ctx.fillStyle = '#065f46';
+        ctx.fillRect(ox - 6 * SCALE, oy - 6 * SCALE, 12 * SCALE, 12 * SCALE);
+        ctx.fillStyle = '#fde047';
+        ctx.font = `bold ${Math.max(9, Math.round(7 * SCALE))}px "JetBrains Mono", monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('↺', ox, oy + 0.5);
+      }
+
+      // Numbered Stop Badges (1, 2, 3...) along the loop
+      activeLoop.stops.forEach((stop, sIdx) => {
+        const svp = projectToVirtual(stop.poi.lat, stop.poi.lng);
+        if (svp.vx < -18 || svp.vx > VW + 18 || svp.vy < -18 || svp.vy > VH + 18) return;
+        const bx = Math.round(svp.vx * SCALE);
+        const by = Math.round((svp.vy - 14) * SCALE);
+        const done = unlockedIds.has(stop.poi.id);
+        ctx.fillStyle = '#140b05';
+        ctx.fillRect(bx - 6 * SCALE, by - 5 * SCALE, 12 * SCALE, 10 * SCALE);
+        ctx.fillStyle = done ? '#065f46' : '#991b1b';
+        ctx.fillRect(bx - 5 * SCALE, by - 4 * SCALE, 10 * SCALE, 8 * SCALE);
+        ctx.fillStyle = '#fef3c7';
+        ctx.font = `bold ${Math.max(8, Math.round(6 * SCALE))}px "JetBrains Mono", monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(sIdx + 1), bx, by + 0.5);
+      });
+
+      ctx.restore();
     }
 
     if (plannedRoute.length > 0) {
@@ -9032,32 +9756,77 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       });
     }
 
-    if (!subterraneanMode && !uiCollapsed && zoomLevel >= 2 && zoomLevel <= 5) {
-      ctx.font = 'bold 10px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      for (const lbl of namedPlaceLabels) {
-        const lv = projectToVirtual(lbl.lat, lbl.lng);
-        if (lv.vx < 36 || lv.vx > VW - 36 || lv.vy < 28 || lv.vy > VH - 28) continue;
-        const text = lbl.name;
-        const tw = Math.ceil(ctx.measureText(text).width) + 12;
-        const tx = Math.round(lv.vx * SCALE - tw / 2);
-        const ty = Math.round(lv.vy * SCALE - 8);
-        if (hasRectCollision(occupiedLabelRects, tx - 2, ty - 2, tx + tw + 2, ty + 16, 4)) {
-          continue;
+    // ========================================================================
+    // PASS 2F: LIEUX-DITS, HAMEAUX, SOMMETS & HYDRONYMES SUR BANNIÈRES VÉLIN
+    // ========================================================================
+    if (!subterraneanMode && !uiCollapsed && lieuxDitsVisible && zoomLevel >= 2 && zoomLevel <= 6) {
+      const bannerQueue: Array<{
+        lat: number;
+        lng: number;
+        name: string;
+        kind: LieuDitKind;
+        altitudeMeters?: number;
+      }> = [];
+      const seenBannerNorm = new Set<string>();
+
+      for (const ld of lieuxDits) {
+        const norm = ld.name.trim().toLowerCase();
+        if (!norm || seenBannerNorm.has(norm)) continue;
+        seenBannerNorm.add(norm);
+        bannerQueue.push({
+          lat: ld.lat,
+          lng: ld.lng,
+          name: ld.name,
+          kind: ld.kind,
+          altitudeMeters: ld.altitudeMeters,
+        });
+      }
+
+      if (zoomLevel <= 5) {
+        for (const lbl of namedPlaceLabels) {
+          const norm = lbl.name.trim().toLowerCase();
+          if (!norm || seenBannerNorm.has(norm)) continue;
+          seenBannerNorm.add(norm);
+          const fallbackKind: LieuDitKind =
+            lbl.kind === 'water' || lbl.kind === 'waterway' || lbl.kind === 'wetland'
+              ? 'hydronyme'
+              : lbl.kind === 'forest' || lbl.kind === 'park' || lbl.kind === 'scrub'
+              ? 'bois_vallee'
+              : 'lieu_dit';
+          bannerQueue.push({
+            lat: lbl.lat,
+            lng: lbl.lng,
+            name: lbl.name,
+            kind: fallbackKind,
+          });
         }
-        occupiedLabelRects.push({ x0: tx - 2, y0: ty - 2, x1: tx + tw + 2, y1: ty + 16 });
-        ctx.fillStyle = 'rgba(20, 11, 5, 0.72)';
-        ctx.fillRect(tx - 1, ty - 1, tw + 2, 16);
-        ctx.fillStyle =
-          lbl.kind === 'water' || lbl.kind === 'waterway' || lbl.kind === 'wetland'
-            ? 'rgba(224, 242, 254, 0.88)'
-            : lbl.kind === 'forest' || lbl.kind === 'park' || lbl.kind === 'scrub'
-            ? 'rgba(220, 252, 231, 0.88)'
-            : 'rgba(251, 242, 220, 0.88)';
-        ctx.fillRect(tx, ty, tw, 14);
-        ctx.fillStyle = '#1e1209';
-        ctx.fillText(text, Math.round(lv.vx * SCALE), ty + 7);
+      }
+
+      ctx.font = 'bold 10px "Cinzel", Georgia, serif';
+      for (const bItem of bannerQueue) {
+        const lv = projectToVirtual(bItem.lat, bItem.lng);
+        if (lv.vx < 40 || lv.vx > VW - 40 || lv.vy < 26 || lv.vy > VH - 26) continue;
+        const fullTxt =
+          bItem.kind === 'col_sommet' && typeof bItem.altitudeMeters === 'number'
+            ? `${bItem.name} · ${Math.round(bItem.altitudeMeters)}m`
+            : bItem.name;
+        const estBodyW = Math.ceil(ctx.measureText(fullTxt).width) + 26;
+        const centerX = Math.round(lv.vx * SCALE);
+        const topY = Math.round(lv.vy * SCALE - 9);
+        const bx0 = Math.round(centerX - estBodyW / 2) - 7;
+        const by0 = topY - 2;
+        const bx1 = Math.round(centerX + estBodyW / 2) + 7;
+        const by1 = topY + 19;
+        if (hasRectCollision(occupiedLabelRects, bx0, by0, bx1, by1, 5)) continue;
+        const drawnBox = drawLieuDitBanner16Bit(
+          ctx,
+          centerX,
+          topY,
+          bItem.name,
+          bItem.kind,
+          bItem.altitudeMeters
+        );
+        occupiedLabelRects.push(drawnBox);
       }
     }
 
@@ -9095,6 +9864,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         const fc = fogCoordsFromLatLng(chest.lat, chest.lng);
         if (!fogSet.has(fogKeyFromCoords(fc.fx, fc.fy))) continue;
       }
+      const openedAtMs = chestOpenAnimsRef.current.get(chest.chestId);
+      const openingProgress01 =
+        typeof openedAtMs === 'number'
+          ? Math.max(0, Math.min(1, (performance.now() - openedAtMs) / 1600))
+          : undefined;
       drawArchivistChestSprite16Bit(ctx, {
         cx: cv.vx,
         cy: cv.vy,
@@ -9102,6 +9876,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         isOpened,
         isHovered: hoveredChestId === chest.chestId || (!isOpened && distChest <= 35),
         animTick,
+        openingProgress01,
+        relicId: chest.relic.id,
       });
     }
 
@@ -9148,6 +9924,33 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     }
 
     // ========================================================================
+    // PASS 2I: TABLES D'ORIENTATION PANORAMIQUES 16-BIT (PIERRE DE VOLVIC & LAITON)
+    // ========================================================================
+    if (!subterraneanMode && orientationTables.length > 0) {
+      for (const tbl of orientationTables) {
+        // Avoid double-drawing right on top of an unlocked POI sprite if linked
+        if (tbl.poiId && unlockedIds.has(tbl.poiId)) continue;
+        const tv = projectToVirtual(tbl.lat, tbl.lng);
+        if (tv.vx < -24 || tv.vx > VW + 24 || tv.vy < -24 || tv.vy > VH + 24) continue;
+        const dTbl = haversineMeters(effectivePlayerLat, effectivePlayerLng, tbl.lat, tbl.lng);
+        const isInspected = Boolean(inspectedTableIds?.has(tbl.id));
+        if (!isInspected && fogEnabled && fogSet && dTbl > npcClearR * 1.35) {
+          const fc = fogCoordsFromLatLng(tbl.lat, tbl.lng);
+          if (!fogSet.has(fogKeyFromCoords(fc.fx, fc.fy))) continue;
+        }
+        drawOrientationTableSprite16Bit(
+          ctx,
+          tv.vx,
+          tv.vy,
+          SCALE,
+          hoveredTableId === tbl.id || dTbl <= 45,
+          isInspected,
+          animTick
+        );
+      }
+    }
+
+    // ========================================================================
     // PASS 3A: LIVING 16-BIT NPCS (HUMAINS, ANIMAUX & INSECTES — ATLAS CACHED)
     // ========================================================================
     for (const item of visibleNpcsForFrame) {
@@ -9177,7 +9980,29 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     // ========================================================================
     // PASS 3: 16-BIT MINIATURE MONUMENTS (DISCOVERED) & RELIQUARY SEALS (MYSTERY)
     // ========================================================================
+    if (!subterraneanMode && unrevealedSecretCoords.length > 0) {
+      // Subtle Familiar / Compass Sympathetic-Ink Resonance when within 145 m of an UNREVEALED Secret Site!
+      for (const sec of unrevealedSecretCoords) {
+        const dSec = haversineMeters(effectivePlayerLat, effectivePlayerLng, sec.lat, sec.lng);
+        if (dSec > 145) continue;
+        const pVirt = projectToVirtual(effectivePlayerLat, effectivePlayerLng);
+        const rPulse = 10 + ((animTick * 2) % 8);
+        const auraStroke = dSec <= 75 ? '#fde047' : '#c084fc';
+        strokePxRect(pVirt.vx - rPulse, pVirt.vy - rPulse - 4, rPulse * 2, rPulse, auraStroke);
+        if (animTick % 2 === 0) {
+          px(pVirt.vx - 1, pVirt.vy - 26, 3, 3, '#c084fc');
+          px(pVirt.vx, pVirt.vy - 25, 1, 1, '#fde047');
+        }
+        break;
+      }
+    }
+
     for (const { poi, vx, vy, isUnlocked, distMeters } of projectedPois) {
+      const isSecretSite = Boolean(revealedSecretPoiIds?.has(poi.id));
+      const isClueCarrier = Boolean(clueCarrierPoiIds?.has(poi.id));
+      const hasOfficialStateLabel = Boolean(
+        inferOfficialStateLabel(poi.source, poi.subType, poi.officialLabel)
+      );
 
       const isSelected = selectedPoiId === poi.id || hoveredPoiId === poi.id;
       const isHotProximity = !isUnlocked && distMeters <= poi.unlockRadiusMeters * 1.65;
@@ -9200,81 +10025,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         px(vx - 8, vy - 4, 17, 1, subterraneanMode ? '#94a3b8' : '#fbf6e8');
         px(vx - 6, vy - 2, 13, 1, pal.main);
 
-        const subHay = `${poi.subType} ${poi.name}`.toLowerCase();
-        if (
-          /nivellement|géodésique|geodesique|médaillon ign|triangulation|rbf|rdf/.test(subHay)
-        ) {
-          // 16-Bit IGN Geodesic Pillar + Gleaming Bronze Leveling Medallion!
-          px(vx - 5, vy - 19, 11, 15, '#1c1917');
-          px(vx - 4, vy - 18, 9, 13, '#cbd5e1');
-          px(vx - 4, vy - 18, 4, 13, '#f1f5f9');
-          // Bronze IGN circular medallion with golden crosshair
-          px(vx - 4, vy - 14, 9, 7, '#78350f');
-          px(vx - 3, vy - 13, 7, 5, '#d97706');
-          px(vx - 2, vy - 12, 5, 3, '#fbbf24');
-          px(vx, vy - 12, 1, 3, '#fffbeb');
-          px(vx - 1, vy - 11, 3, 1, '#fffbeb');
-        } else if (/\blavoir\b/.test(subHay)) {
-          // 16-Bit Lavoir Communal: Pitched tile roof on timber posts over azure stone basin!
-          px(vx - 8, vy - 19, 17, 6, '#291509');
-          px(vx - 7, vy - 18, 15, 4, '#c2410c');
-          px(vx - 6, vy - 18, 13, 2, '#ea580c');
-          px(vx - 6, vy - 13, 2, 5, '#78350f');
-          px(vx + 5, vy - 13, 2, 5, '#78350f');
-          px(vx - 7, vy - 9, 15, 5, '#d6c3a3');
-          px(vx - 5, vy - 8, 11, 3, '#0284c7');
-          px(vx - 4 + (phase % 3), vy - 8, 5, 1, '#bae6fd');
-        } else if (/four à pain|four banal|fournil|bakehouse/.test(subHay)) {
-          // 16-Bit Four à Pain Communal: Domed stone oven, brick arch, glowing embers & chimney!
-          px(vx + 3, vy - 21, 4, 6, '#291a0d');
-          px(vx + 4, vy - 20, 2, 5, '#a8a29e');
-          px(vx - 7, vy - 16, 15, 12, '#291a0d');
-          px(vx - 6, vy - 15, 13, 10, '#d6c3a3');
-          px(vx - 5, vy - 16, 11, 3, '#b45309');
-          px(vx - 3, vy - 11, 7, 6, '#7c2d12');
-          px(vx - 2, vy - 10, 5, 5, '#1c1008');
-          px(vx - 1, vy - 7, 3, 2, phase % 2 === 0 ? '#f97316' : '#fde047');
-        } else if (/\bmoulin\b/.test(subHay)) {
-          // 16-Bit Moulin (à vent à ailes blanches OU à eau à roue sur bief)!
-          const isWaterMill = /eau|bief/.test(subHay);
-          px(vx - 5, vy - 18, 11, 14, '#291a0d');
-          px(vx - 4, vy - 17, 9, 12, '#efe2c6');
-          px(vx - 5, vy - 20, 11, 4, '#334155');
-          if (isWaterMill) {
-            px(vx + 4, vy - 13, 5, 8, '#451a03');
-            px(vx + 5, vy - 12, 3, 6, '#b45309');
-            px(vx + 4, vy - 6, 6, 2, '#38bdf8');
-          } else {
-            // 4 crisp canvas windmill sails!
-            const rot = phase % 2;
-            px(vx - 8, vy - 18 + rot, 5, 2, '#f8fafc');
-            px(vx + 4, vy - 12 - rot, 5, 2, '#f8fafc');
-            px(vx - 1 + rot, vy - 22, 2, 5, '#f8fafc');
-            px(vx - 1 - rot, vy - 11, 2, 5, '#f8fafc');
-            px(vx - 1, vy - 15, 3, 3, '#fde047');
-          }
-        } else if (
-          /calvaire|croix de chemin|oratoire|fontaine miraculeuse|source sacrée|bonne fontaine/.test(
-            subHay
-          )
-        ) {
-          if (/fontaine|source/.test(subHay)) {
-            // Sacred Miraculous Fountain Grotto with turquoise healing spring & golden halo
-            px(vx - 6, vy - 18, 13, 14, '#240b36');
-            px(vx - 5, vy - 17, 11, 12, '#cbd5e1');
-            px(vx - 3, vy - 14, 7, 9, '#0369a1');
-            px(vx - 2, vy - 13, 5, 7, '#38bdf8');
-            px(vx - 1, vy - 12 + (phase % 2), 3, 4, '#e0f2fe');
-            px(vx - 2, vy - 19, 5, 2, '#fde047');
-          } else {
-            // Carved Granite Wayside Cross (Calvaire)
-            px(vx - 5, vy - 9, 11, 5, '#44403c');
-            px(vx - 4, vy - 8, 9, 3, '#a8a29e');
-            px(vx - 2, vy - 21, 5, 13, '#1c1917');
-            px(vx - 5, vy - 17, 11, 4, '#1c1917');
-            px(vx - 1, vy - 20, 3, 12, '#e7e5e4');
-            px(vx - 4, vy - 16, 9, 2, '#e7e5e4');
-          }
+        const heritageMicroKind = !subterraneanMode ? classifyHeritageMicroSprite(poi) : null;
+        if (heritageMicroKind) {
+          drawHeritageMicroSprite16Bit(ctx, vx, vy, SCALE, heritageMicroKind, phase);
         } else if (poi.category === 'histoire') {
           px(vx - 7, vy - 19, 15, 15, '#1a1008');
           px(vx - 6, vy - 18, 3, 3, '#fde68a');
@@ -9325,11 +10078,21 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         }
 
         px(vx - 2, vy - 24, 5, 4, '#1a1008');
-        px(vx - 1, vy - 23, 3, 2, '#fde047');
+        px(vx - 1, vy - 23, 3, 2, isSecretSite ? '#c084fc' : '#fde047');
         px(vx, vy - 23, 1, 1, '#ffffff');
+        // Official State Heritage tricolor/gold crest or sympathetic-ink quill glint on discovered monument
+        if (hasOfficialStateLabel) {
+          px(vx + 6, vy - 23, 5, 5, '#140b05');
+          px(vx + 7, vy - 22, 3, 3, '#dc2626');
+          px(vx + 8, vy - 21, 1, 1, '#fef08a');
+        }
+        if (isClueCarrier) {
+          px(vx - 10, vy - 22, 4, 4, '#2e1065');
+          px(vx - 9, vy - 21, 2, 2, phase % 2 === 0 ? '#fde047' : '#e9d5ff');
+        }
       } else {
         // ====================================================================
-        // UNDISCOVERED MYSTERY POI: 16-BIT ORNATE FLOATING RELIQUARY SEAL!
+        // UNDISCOVERED MYSTERY POI (OR REVEALED SECRET ARCHIVE SEAL ✦)
         // ====================================================================
         const bobTable = isHotProximity
           ? [0, -2, -4, -3, -1, -2, -4, -2]
@@ -9338,20 +10101,36 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         const py = vy + bob;
 
         if (phase === 0 || phase === 1) {
-          strokePxRect(vx - 5, vy - 2, 11, 5, '#fde047');
+          strokePxRect(vx - 5, vy - 2, 11, 5, isSecretSite ? '#c084fc' : '#fde047');
         } else if (phase === 2 || phase === 3 || phase === 4) {
-          strokePxRect(vx - 9, vy - 4, 19, 8, isHotProximity ? '#ef4444' : '#fbbf24');
+          strokePxRect(
+            vx - 9,
+            vy - 4,
+            19,
+            8,
+            isSecretSite ? '#e879f9' : isHotProximity ? '#ef4444' : '#fbbf24'
+          );
         } else if (phase === 5 || phase === 6) {
-          strokePxRect(vx - 13, vy - 5, 27, 10, 'rgba(253, 224, 71, 0.72)');
+          strokePxRect(
+            vx - 13,
+            vy - 5,
+            27,
+            10,
+            isSecretSite ? 'rgba(216, 180, 254, 0.85)' : 'rgba(253, 224, 71, 0.72)'
+          );
         }
 
         px(vx - 14, py - 27, 29, 25, 'rgba(18, 10, 6, 0.52)');
         px(vx - 6, vy - 1, 13, 4, 'rgba(18, 10, 6, 0.72)');
 
         px(vx - 1, py - 3, 3, vy - py + 4, '#140b05');
-        px(vx, py - 3, 1, vy - py + 3, '#fde047');
+        px(vx, py - 3, 1, vy - py + 3, isSecretSite ? '#e879f9' : '#fde047');
 
-        const auraColor = isHotProximity
+        const auraColor = isSecretSite
+          ? phase % 2 === 0
+            ? '#fde047'
+            : '#c084fc'
+          : isHotProximity
           ? phase % 2 === 0
             ? '#fde047'
             : '#ef4444'
@@ -9369,11 +10148,21 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         px(vx - 5, py - 5, 11, 3, '#140b05');
         px(vx - 2, py - 2, 5, 3, '#140b05');
 
-        const frameMain = subterraneanMode ? '#0369a1' : '#d97706';
-        const frameTip = subterraneanMode ? '#0ea5e9' : '#f59e0b';
+        const frameMain = isSecretSite
+          ? '#7e22ce'
+          : subterraneanMode
+          ? '#0369a1'
+          : '#d97706';
+        const frameTip = isSecretSite
+          ? '#a855f7'
+          : subterraneanMode
+          ? '#0ea5e9'
+          : '#f59e0b';
         const goldBright =
           phase === 1 || phase === 5 || isSelected
             ? '#ffffff'
+            : isSecretSite
+            ? '#fde047'
             : subterraneanMode
             ? '#bae6fd'
             : '#fef08a';
@@ -9384,23 +10173,48 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         px(vx - 4, py - 6, 9, 3, frameTip);
         px(vx - 1, py - 3, 3, 2, goldBright);
 
-        const rubyDark = subterraneanMode ? '#0f172a' : '#881337';
-        const rubyMid = subterraneanMode
+        const rubyDark = isSecretSite
+          ? '#2e1065'
+          : subterraneanMode
+          ? '#0f172a'
+          : '#881337';
+        const rubyMid = isSecretSite
+          ? phase % 2 === 0
+            ? '#581c87'
+            : '#3b0764'
+          : subterraneanMode
           ? isHotProximity && phase % 2 === 0
             ? '#0284c7'
             : '#1e3a8a'
           : isHotProximity && phase % 2 === 0
           ? '#e11d48'
           : '#be123c';
-        const rubyLight = subterraneanMode ? '#38bdf8' : '#fb7185';
+        const rubyLight = isSecretSite
+          ? '#e879f9'
+          : subterraneanMode
+          ? '#38bdf8'
+          : '#fb7185';
         px(vx - 9, py - 23, 19, 15, rubyMid);
         px(vx - 9, py - 12, 19, 4, rubyDark);
         px(vx - 8, py - 22, 4, 3, rubyLight);
 
-        px(vx - 9, py - 23, 19, 4, pal.dark);
-        px(vx - 9, py - 23, 19, 3, pal.main);
-        px(vx - 4, py - 23, 9, 1, pal.light);
+        px(vx - 9, py - 23, 19, 4, isSecretSite ? '#3b0764' : pal.dark);
+        px(vx - 9, py - 23, 19, 3, isSecretSite ? '#fde047' : pal.main);
+        px(vx - 4, py - 23, 9, 1, isSecretSite ? '#ffffff' : pal.light);
         px(vx - 9, py - 19, 19, 1, '#140b05');
+
+        if (isClueCarrier && !isSecretSite) {
+          // Subtle violet-gold quill seal corner on Clue-Carrier POIs
+          px(vx + 6, py - 27, 6, 6, '#140b05');
+          px(vx + 7, py - 26, 4, 4, '#7e22ce');
+          px(vx + 8, py - 25, 2, 2, phase % 2 === 0 ? '#fde047' : '#ffffff');
+        }
+        if (hasOfficialStateLabel && !isSecretSite) {
+          // Miniature crimson-gold State Heritage diamond corner
+          px(vx - 12, py - 27, 6, 6, '#140b05');
+          px(vx - 11, py - 26, 4, 4, '#dc2626');
+          px(vx - 10, py - 25, 2, 2, '#fef08a');
+        }
 
         const qShadow = subterraneanMode ? '#082f49' : '#450a0a';
         px(vx - 3, py - 17, 8, 2, qShadow);
@@ -9610,6 +10424,19 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       const explorerAnimTick = effectiveWalking
         ? (visualCam.strideTick + animTick) % 360
         : animTick;
+      const isColdAir =
+        !subterraneanMode &&
+        (seasonVis.season === 'hiver' ||
+          (typeof weather?.tempC === 'number' && weather.tempC <= 5));
+
+      const isSnowGround =
+        !subterraneanMode &&
+        (wCond === 'snow' ||
+          (seasonVis.season === 'hiver' && typeof weather?.tempC === 'number' && weather.tempC <= 0));
+      const isWetGround =
+        lastSurfaceRef.current.nearWater ||
+        (!subterraneanMode && (wCond === 'rain' || wCond === 'storm'));
+
       drawExplorerSprite16Bit(ctx, {
         cx: exPx,
         cy: eyPx + 9,
@@ -9620,7 +10447,154 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         appearance: resolvedAppearance,
         drawAura: true,
         isNight: subterraneanMode || effectiveTime === 'night',
+        familiarAura,
+        coldBreath: isColdAir,
+        surfaceType: lastSurfaceRef.current.surface,
+        isWet: isWetGround,
+        isSnowy: isSnowGround,
       });
+
+      // Expressive Scent-Tracking Familiar Emote Bubble (`!` Treasure, `?` Mystery Seal/Lead, `♪` Rare Specimen)
+      if (resolvedAppearance.familiarId && resolvedAppearance.familiarId !== 'aucun') {
+        let senseKind: 'treasure' | 'mystery' | 'specimen' | null = null;
+        let bestSenseDist = Infinity;
+        let targetLat = effectivePlayerLat;
+        let targetLng = effectivePlayerLng;
+
+        // Priority 1: Unopened Archivist Chest or Unfound Geocache within <= 145 m -> Crimson `!`
+        if (layerChests) {
+          for (const ch of layerChests) {
+            if (openedChestIds?.has(ch.chestId)) continue;
+            const d = haversineMeters(effectivePlayerLat, effectivePlayerLng, ch.lat, ch.lng);
+            if (d <= 145 && d < bestSenseDist) {
+              senseKind = 'treasure';
+              bestSenseDist = d;
+              targetLat = ch.lat;
+              targetLng = ch.lng;
+            }
+          }
+        }
+        if (layerGeocaches) {
+          for (const gc of layerGeocaches) {
+            if (foundGeocacheIds?.has(gc.id)) continue;
+            const d = haversineMeters(effectivePlayerLat, effectivePlayerLng, gc.lat, gc.lng);
+            if (d <= 145 && d < bestSenseDist) {
+              senseKind = 'treasure';
+              bestSenseDist = d;
+              targetLat = gc.lat;
+              targetLng = gc.lng;
+            }
+          }
+        }
+
+        // Priority 2: Undiscovered POI Seal or Unverified Rumor Lead within <= 135 m -> Golden `?`
+        if (!senseKind) {
+          for (const p of filteredPois) {
+            if (unlockedIds.has(p.id)) continue;
+            const d = haversineMeters(effectivePlayerLat, effectivePlayerLng, p.lat, p.lng);
+            if (d <= 135 && d < bestSenseDist) {
+              senseKind = 'mystery';
+              bestSenseDist = d;
+              targetLat = p.lat;
+              targetLng = p.lng;
+            }
+          }
+          for (const lead of activeLayerRumors) {
+            const d = haversineMeters(effectivePlayerLat, effectivePlayerLng, lead.lat, lead.lng);
+            if (d <= 135 && d < bestSenseDist) {
+              senseKind = 'mystery';
+              bestSenseDist = d;
+              targetLat = lead.lat;
+              targetLng = lead.lng;
+            }
+          }
+        }
+
+        // Priority 3: Unharvested Botanical / Geological Specimen within <= 95 m -> Emerald `♪`
+        if (!senseKind && layerSpecimens) {
+          for (const sp of layerSpecimens) {
+            const d = haversineMeters(effectivePlayerLat, effectivePlayerLng, sp.lat, sp.lng);
+            if (d <= 95 && d < bestSenseDist) {
+              senseKind = 'specimen';
+              bestSenseDist = d;
+              targetLat = sp.lat;
+              targetLng = sp.lng;
+            }
+          }
+        }
+
+        if (senseKind) {
+          const famVirtualDx =
+            facingDir === 'left' ? 10.5 : facingDir === 'right' ? -11 : -10.5;
+          const bob = animTick % 4 < 2 ? -1.5 : 0;
+          const alertCx = Math.round((exPx + famVirtualDx) * SCALE);
+          const alertCy = Math.round((eyPx - 9 + bob) * SCALE);
+          const s = SCALE;
+
+          // Speech bubble box with dark ink border
+          ctx.fillStyle = '#140b05';
+          ctx.fillRect(alertCx - 5 * s, alertCy - 8 * s, 10 * s, 10 * s);
+          ctx.fillRect(alertCx - 1 * s, alertCy + 2 * s, 2 * s, 2 * s);
+          ctx.fillStyle =
+            senseKind === 'treasure'
+              ? '#fffbeb'
+              : senseKind === 'mystery'
+              ? '#fefce8'
+              : '#ecfdf5';
+          ctx.fillRect(alertCx - 4 * s, alertCy - 7 * s, 8 * s, 8 * s);
+
+          // Directional scent pip on the outer edge of the bubble pointing toward the sensed secret!
+          const dEast = (targetLng - effectivePlayerLng) * Math.cos((effectivePlayerLat * Math.PI) / 180);
+          const dNorth = targetLat - effectivePlayerLat;
+          if (Math.abs(dEast) > 1e-6 || Math.abs(dNorth) > 1e-6) {
+            const ang = Math.atan2(-dNorth, dEast);
+            const pipX = alertCx + Math.round(Math.cos(ang) * 5 * s);
+            const pipY = alertCy - 3 * s + Math.round(Math.sin(ang) * 5 * s);
+            ctx.fillStyle =
+              senseKind === 'treasure'
+                ? '#ef4444'
+                : senseKind === 'mystery'
+                ? '#f59e0b'
+                : '#10b981';
+            ctx.fillRect(pipX - s, pipY - s, 2 * s, 2 * s);
+          }
+
+          if (senseKind === 'treasure') {
+            // Bold Crimson `!`
+            ctx.fillStyle = '#dc2626';
+            ctx.fillRect(alertCx - 1 * s, alertCy - 6 * s, 2 * s, 4 * s);
+            ctx.fillRect(alertCx - 1 * s, alertCy - 1 * s, 2 * s, 1 * s);
+          } else if (senseKind === 'mystery') {
+            // Crisp Amber-Gold `?`
+            ctx.fillStyle = '#b45309';
+            ctx.fillRect(alertCx - 2 * s, alertCy - 6 * s, 4 * s, 1 * s);
+            ctx.fillRect(alertCx + 1 * s, alertCy - 5 * s, 1 * s, 2 * s);
+            ctx.fillRect(alertCx - 1 * s, alertCy - 3 * s, 2 * s, 1 * s);
+            ctx.fillRect(alertCx - 1 * s, alertCy - 1 * s, 2 * s, 1 * s);
+          } else {
+            // Crisp Emerald `♪` Musical Note
+            ctx.fillStyle = '#047857';
+            ctx.fillRect(alertCx, alertCy - 6 * s, 1 * s, 5 * s);
+            ctx.fillRect(alertCx + 1 * s, alertCy - 6 * s, 2 * s, 2 * s);
+            ctx.fillRect(alertCx - 2 * s, alertCy - 2 * s, 3 * s, 2 * s);
+          }
+        }
+      }
+    }
+
+    // Nocturnal 16-bit Astronomical Moon Phase Medallion on the Sky Corner
+    if (!subterraneanMode && effectiveTime === 'night' && !uiCollapsed) {
+      const moonNow = computeRealMoonPhase(calendarDate || new Date());
+      const mx = Math.round((VW - 22) * SCALE);
+      const my = Math.round(10 * SCALE);
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+      ctx.fillRect(mx - 2 * SCALE, my - 2 * SCALE, 18 * SCALE, 18 * SCALE);
+      ctx.strokeStyle = '#d97706';
+      ctx.lineWidth = Math.max(1, SCALE);
+      ctx.strokeRect(mx - 2 * SCALE, my - 2 * SCALE, 18 * SCALE, 18 * SCALE);
+      drawPixelMoon16Bit(ctx, mx, my, Math.max(2, Math.round(2 * SCALE)), moonNow.phaseIndex, true);
+      ctx.restore();
     }
 
     // Cached Warm Antiqued Tabletop Vignette (rebuilt only on resize or layer switch!)
@@ -9653,8 +10627,33 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     }
     ctx.drawImage(vig.canvas, 0, 0);
 
-    // Gentle cartographic / torchlight veil fade on regional jumps (>= 420m) or Surface <-> Sous-sol transitions!
-    if (visualCam.teleportFade > 0.01) {
+    // 16-Bit SNES Stepped Circular Iris Wipe on Surface <-> Sous-sol Portal Transitions!
+    if (visualCam.irisProgress > 0.01) {
+      const p = visualCam.irisProgress; // 1.0 -> 0.0
+      const open01 = Math.max(0.04, 1 - Math.pow(p, 1.55));
+      const maxR = Math.hypot(canvas.width, canvas.height) * 0.85;
+      // Quantize radius to chunky 16-bit pixel steps (4 * SCALE px)
+      const stepPx = 4 * SCALE;
+      const irisR = Math.max(8 * SCALE, Math.round((open01 * maxR) / stepPx) * stepPx);
+      const icx = Math.round(Math.max(24, Math.min(canvas.width - 24, exPx * SCALE)));
+      const icy = Math.round(Math.max(24, Math.min(canvas.height - 24, eyPx * SCALE)));
+
+      ctx.save();
+      ctx.fillStyle = subterraneanMode ? '#0b0704' : '#1c120b';
+      ctx.beginPath();
+      ctx.rect(0, 0, canvas.width, canvas.height);
+      ctx.arc(icx, icy, irisR, 0, Math.PI * 2, true);
+      ctx.fill();
+
+      // Crisp 16-bit brass / cyan portal rim around the expanding iris aperture
+      ctx.strokeStyle = subterraneanMode ? '#f59e0b' : '#fde047';
+      ctx.lineWidth = Math.max(2, 2 * SCALE);
+      ctx.beginPath();
+      ctx.arc(icx, icy, irisR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    } else if (visualCam.teleportFade > 0.01) {
+      // Gentle cartographic veil fade on regional jumps (>= 420m)
       const alpha = Math.min(0.72, visualCam.teleportFade * 0.72);
       ctx.fillStyle = subterraneanMode
         ? `rgba(18, 12, 7, ${alpha})`
@@ -9722,6 +10721,10 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     activeLayerRumors,
     uiCollapsed,
     zoomLevel,
+    activeCalendarMonth,
+    calendarDate,
+    activeLoop,
+    familiarAura,
   ]);
 
   const interactWithNpc = useCallback(
@@ -10007,6 +11010,31 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       }
     }
 
+    // Check tap/click on a 360° Panoramic Orientation Table!
+    if (!subterraneanMode && onOpenOrientationTable && orientationTables.length > 0) {
+      const tableHitRadius = isTouch ? 24 : 18;
+      let closestTable: OrientationTableNode | null = null;
+      let bestTablePx = tableHitRadius;
+      for (const tbl of orientationTables) {
+        const isInspected = Boolean(inspectedTableIds?.has(tbl.id));
+        const dM = haversineMeters(playerLat, playerLng, tbl.lat, tbl.lng);
+        if (!isInspected && fogEnabled && fogSet && dM > fogVisionMeters * 1.35) {
+          const fc = fogCoordsFromLatLng(tbl.lat, tbl.lng);
+          if (!fogSet.has(fogKeyFromCoords(fc.fx, fc.fy))) continue;
+        }
+        const tv = projectToVirtual(tbl.lat, tbl.lng);
+        const d = Math.hypot(tv.vx - unproj.vx, tv.vy - 9 - unproj.vy);
+        if (d < bestTablePx) {
+          bestTablePx = d;
+          closestTable = tbl;
+        }
+      }
+      if (closestTable) {
+        onOpenOrientationTable(closestTable);
+        return;
+      }
+    }
+
     // Check tap on an active Rumor marker or offscreen Rumor compass seal!
     for (const lead of activeLayerRumors) {
       const rv = projectToVirtual(lead.lat, lead.lng);
@@ -10196,6 +11224,34 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       }
     }
     setHoveredGeocacheId((prev) => (prev === foundGeo ? prev : foundGeo));
+
+    let foundTable: string | null = null;
+    if (
+      !subterraneanMode &&
+      !found &&
+      !foundNpc &&
+      !foundSpec &&
+      !foundChest &&
+      !foundGeo &&
+      orientationTables.length > 0
+    ) {
+      let bestT = 18;
+      for (const tbl of orientationTables) {
+        const isInspected = Boolean(inspectedTableIds?.has(tbl.id));
+        const dM = haversineMeters(playerLat, playerLng, tbl.lat, tbl.lng);
+        if (!isInspected && fogEnabled && fogSet && dM > fogVisionMeters * 1.35) {
+          const fc = fogCoordsFromLatLng(tbl.lat, tbl.lng);
+          if (!fogSet.has(fogKeyFromCoords(fc.fx, fc.fy))) continue;
+        }
+        const tv = projectToVirtual(tbl.lat, tbl.lng);
+        const d = Math.hypot(tv.vx - unproj.vx, tv.vy - 9 - unproj.vy);
+        if (d < bestT) {
+          bestT = d;
+          foundTable = tbl.id;
+        }
+      }
+    }
+    setHoveredTableId((prev) => (prev === foundTable ? prev : foundTable));
   };
 
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -10218,6 +11274,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     setHoveredSpecimenId((prev) => (prev === null ? prev : null));
     setHoveredChestId((prev) => (prev === null ? prev : null));
     setHoveredGeocacheId((prev) => (prev === null ? prev : null));
+    setHoveredTableId((prev) => (prev === null ? prev : null));
   };
 
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -10308,6 +11365,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
   const hoveredGeocache = hoveredGeocacheId
     ? layerGeocaches.find((g) => g.id === hoveredGeocacheId) || null
     : null;
+  const hoveredOrientationTable = hoveredTableId
+    ? orientationTables.find((t) => t.id === hoveredTableId) || null
+    : null;
   const livePlayerAlt = useMemo(
     () => sampleElevationMeters(elevation, playerLat, playerLng),
     [elevation, playerLat, playerLng]
@@ -10371,7 +11431,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           className={`w-full h-full pixelated block touch-none ${
             isDraggingMap
               ? 'cursor-grabbing'
-              : hoveredPoiId || hoveredNpcId || hoveredChestId || hoveredGeocacheId
+              : hoveredPoiId ||
+                hoveredNpcId ||
+                hoveredChestId ||
+                hoveredGeocacheId ||
+                hoveredTableId
               ? 'cursor-pointer'
               : simulationMode
               ? 'cursor-crosshair'
@@ -10651,6 +11715,16 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   <span className="w-2.5 h-2.5 bg-[#4da142] border border-[#166534] inline-block" />
                   <span>Parcs & Futaies</span>
                 </span>
+                {trailsVisible && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 bg-[#dc2626] border-t-[3px] border-t-white border border-[#1c1008] inline-block" />
+                    <span>Sentiers GR / PR</span>
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 bg-[#0284c7] border-2 border-[#fbbf24] inline-block" />
+                  <span>Panorama 360°</span>
+                </span>
               </>
             )}
           </div>
@@ -10667,6 +11741,35 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             }`}
           >
             {stratumBanner.label}
+          </div>
+        )}
+
+        {/* Discreet 16-Bit Unfurling Vellum Banner when Entering a French Lieu-dit / Hameau / Sommet */}
+        {!stratumBanner && lieuDitArrival && !subterraneanMode && (
+          <div
+            aria-live="polite"
+            className="pointer-events-none absolute top-[3.25rem] sm:top-12 left-1/2 -translate-x-1/2 max-w-[calc(100%-1.5rem)] px-3.5 py-1.5 bg-[#fbf2dc]/96 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow-crimson z-20 flex items-center gap-2"
+          >
+            <span className="w-2 h-2 bg-[#991b1b] border border-[#24160c] shrink-0" />
+            <span className="text-[10px] uppercase tracking-wider font-bold text-[#991b1b] shrink-0">
+              {lieuDitArrival.kind === 'hameau'
+                ? 'Hameau'
+                : lieuDitArrival.kind === 'quartier'
+                ? 'Quartier'
+                : lieuDitArrival.kind === 'col_sommet'
+                ? 'Belvédère'
+                : lieuDitArrival.kind === 'bois_vallee'
+                ? 'Contrée'
+                : 'Lieu-dit'}
+            </span>
+            <span className="font-display font-bold text-xs sm:text-sm truncate">
+              {lieuDitArrival.name}
+            </span>
+            {typeof lieuDitArrival.altitudeMeters === 'number' && (
+              <span className="text-[11px] font-mono font-bold text-amber-900 shrink-0">
+                · {Math.round(lieuDitArrival.altitudeMeters)} m
+              </span>
+            )}
           </div>
         )}
 
@@ -10986,6 +12089,31 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               </span>
               <span className="text-[11px] text-emerald-100/85 truncate">
                 · Par {hoveredGeocache.authorCallsign}
+              </span>
+            </div>
+          )}
+
+        {!activeNpcDialogue &&
+          !hoveredPoi &&
+          !hoveredNpc &&
+          !hoveredSpecimen &&
+          !hoveredChest &&
+          !hoveredGeocache &&
+          hoveredOrientationTable &&
+          !uiCollapsed && (
+            <div
+              className={`pointer-events-none hidden sm:flex absolute right-2.5 bg-[#1c120b] text-sky-100 border-2 border-amber-400 px-3 py-1.5 text-xs jrpg-shadow items-center gap-2 max-w-sm z-10 ${
+                immersiveFullscreen
+                  ? 'bottom-[calc(4.6rem+env(safe-area-inset-bottom))]'
+                  : 'max-lg:bottom-16 lg:bottom-2.5'
+              }`}
+            >
+              <PixelUiIcon name="mountain" className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <span className="font-bold font-display text-amber-300 truncate">
+                {hoveredOrientationTable.name}
+              </span>
+              <span className="text-[11px] text-sky-200 shrink-0">
+                · Panorama 360° ({hoveredOrientationTable.altitudeMeters} m)
               </span>
             </div>
           )}

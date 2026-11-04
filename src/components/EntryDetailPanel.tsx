@@ -10,11 +10,20 @@ import {
 import { addPhotoForPoi, deletePhotoById, getPhotosForPoi, StoredFieldPhoto } from '../photoStore';
 import { playStampSfx } from '../sound';
 import {
+  findSecretClueHostedOnPoi,
+  isEntryFromSecretArchive,
+  SecretArchivesState,
+  SecretHiddenSite,
+} from '../secretArchives';
+import { isEntryFromLiveEvent } from '../pantheonAndLiveEvents';
+import {
   CAIRN_TAG_META,
   CairnTag,
   CATEGORY_META,
   ExplorerAppearance,
   ExplorerCairn,
+  inferOfficialStateLabel,
+  OFFICIAL_STATE_LABEL_META,
   PostcardSubject,
   TrophyId,
   UnlockedEntry,
@@ -22,6 +31,7 @@ import {
 import { ExplorerSpriteCanvas } from './ExplorerAvatarCanvas';
 import { PixelCornerRivets, PixelGuildIcon, PixelUiIcon } from './PixelIcons';
 import { ResilientPixelImage } from './ResilientPixelImage';
+import { SympatheticInkClueBanner } from './SecretArchivesView';
 
 interface EntryDetailPanelProps {
   entry: UnlockedEntry;
@@ -40,6 +50,10 @@ interface EntryDetailPanelProps {
   onOpenRiddle?: (entry: UnlockedEntry) => void;
   onBackToList?: () => void;
   backLabel?: string;
+  sectorSecrets?: SecretHiddenSite[];
+  secretState?: SecretArchivesState;
+  onOpenSecretDecipherModal?: (site: SecretHiddenSite) => void;
+  onFocusSecretOnMap?: (lat: number, lng: number, isSubterranean: boolean) => void;
 }
 
 export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
@@ -59,6 +73,10 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
   onOpenRiddle,
   onBackToList,
   backLabel = 'Retour aux feuillets',
+  sectorSecrets = [],
+  secretState,
+  onOpenSecretDecipherModal,
+  onFocusSecretOnMap,
 }) => {
   const [noteDraft, setNoteDraft] = useState(entry.personalNote);
   const [photos, setPhotos] = useState<StoredFieldPhoto[]>([]);
@@ -317,6 +335,34 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
             <span aria-hidden="true">·</span>
             <span className="font-sans">Archive : {entry.source}</span>
           </div>
+
+          {(() => {
+            const official = inferOfficialStateLabel(entry.source, entry.subType);
+            const isSecret = secretState ? isEntryFromSecretArchive(entry, secretState) : entry.subType.startsWith('✦ Lieu Caché');
+            const isLiveEvt = isEntryFromLiveEvent(entry);
+            if (!official && !isSecret && !isLiveEvt) return null;
+            return (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {official && (
+                  <span
+                    className={`px-2.5 py-0.5 text-[11px] font-bold border-2 ${OFFICIAL_STATE_LABEL_META[official].badgeClass}`}
+                  >
+                    ★ {OFFICIAL_STATE_LABEL_META[official].fullTitle}
+                  </span>
+                )}
+                {isSecret && (
+                  <span className="px-2.5 py-0.5 text-[11px] font-bold bg-[#2e1065] text-amber-300 border-2 border-[#fde047]">
+                    ✦ ARCHIVE SECRÈTE DÉVOILÉE
+                  </span>
+                )}
+                {isLiveEvt && (
+                  <span className="px-2.5 py-0.5 text-[11px] font-bold bg-[#4c0519] text-amber-200 border-2 border-[#fbbf24]">
+                    ✦ CHRONIQUE D’ÉVÉNEMENT VIVANT
+                  </span>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Procedural Crimson Ink Archive Stamp + Optional Golden Scholar Seal */}
@@ -341,6 +387,23 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Hosted Sympathetic-Ink Clue Banner (if this POI holds a marginalia clue for a Secret Site) */}
+      {(() => {
+        if (!secretState || !onOpenSecretDecipherModal || sectorSecrets.length === 0) return null;
+        const hosted = findSecretClueHostedOnPoi(entry.poiId, sectorSecrets);
+        if (!hosted) return null;
+        return (
+          <SympatheticInkClueBanner
+            site={hosted.site}
+            clue={hosted.clue}
+            secretState={secretState}
+            unlockedIds={unlockedIds}
+            onOpenDecipherModal={onOpenSecretDecipherModal}
+            onFocusSecretOnMap={onFocusSecretOnMap}
+          />
+        );
+      })()}
 
       {/* Waterway Context */}
       {entry.nearWaterway && (

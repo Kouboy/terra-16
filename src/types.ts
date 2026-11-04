@@ -18,6 +18,7 @@ export type ActiveTab = 'carte' | 'carnet' | 'missions' | 'branches' | 'profil';
 
 export type CarnetViewMode =
   | 'liste'
+  | 'secrets'
   | 'bestiaire'
   | 'herbier'
   | 'tresors'
@@ -151,7 +152,9 @@ export type ExplorerHeadgearId =
   | 'lunettes_astro'
   | 'monocle_erudit'
   | 'tricorne_reliquaire'
-  | 'couronne_saisons';
+  | 'couronne_saisons'
+  | 'couronne_chroniqueur'
+  | 'bandeau_guilde_unie';
 
 export type ExplorerOutfitId =
   | 'arpenteur'
@@ -161,7 +164,8 @@ export type ExplorerOutfitId =
   | 'ombres'
   | 'barde'
   | 'almanach_solaire'
-  | 'chasseur_reliques';
+  | 'chasseur_reliques'
+  | 'conteuse_legende';
 
 export type ExplorerToolId =
   | 'lanterne_laiton'
@@ -171,7 +175,8 @@ export type ExplorerToolId =
   | 'fiole_spectrale'
   | 'loupe_sceau_or'
   | 'clef_coffres_anciens'
-  | 'sablier_ephemeride';
+  | 'sablier_ephemeride'
+  | 'plume_trois_actes';
 
 export type ExplorerPackId =
   | 'besace_cuir'
@@ -190,7 +195,9 @@ export type ExplorerFamiliarId =
   | 'salamandre_cristal'
   | 'corbeau_cartographe'
   | 'feu_follet_astral'
-  | 'hermine_royale';
+  | 'hermine_royale'
+  | 'cerf_brumes'
+  | 'loutre_riviere';
 
 export type ExplorerGender = 'feminin' | 'masculin' | 'neutre';
 
@@ -352,6 +359,75 @@ export function getZoomWalkStepMeters(zoomLevel: ZoomLevel): {
   return { manualStepMeters, tickStepMeters, snapMeters };
 }
 
+export type OfficialStateLabel =
+  | 'monument_historique'
+  | 'maison_illustres'
+  | 'jardin_remarquable'
+  | 'musee_de_france'
+  | 'datatourisme';
+
+export const OFFICIAL_STATE_LABEL_META: Record<
+  OfficialStateLabel,
+  { shortBadge: string; fullTitle: string; badgeClass: string }
+> = {
+  monument_historique: {
+    shortBadge: 'Monument Historique',
+    fullTitle: 'Ministère de la Culture · Immeuble protégé (Base Mérimée)',
+    badgeClass: 'bg-[#7f1d1d] text-[#fef3c7] border-[#fbbf24]',
+  },
+  maison_illustres: {
+    shortBadge: 'Maison des Illustres',
+    fullTitle: 'Ministère de la Culture · Label Maisons des Illustres',
+    badgeClass: 'bg-[#312e81] text-[#fef08a] border-[#c084fc]',
+  },
+  jardin_remarquable: {
+    shortBadge: 'Jardin Remarquable',
+    fullTitle: 'Ministère de la Culture · Label Jardin Remarquable',
+    badgeClass: 'bg-[#064e3b] text-[#d1fae5] border-[#34d399]',
+  },
+  musee_de_france: {
+    shortBadge: 'Musée de France',
+    fullTitle: 'Ministère de la Culture · Appellation Musée de France (Muséofile)',
+    badgeClass: 'bg-[#1e3a8a] text-[#e0f2fe] border-[#38bdf8]',
+  },
+  datatourisme: {
+    shortBadge: 'Patrimoine & Tourisme',
+    fullTitle: 'Référentiel national ouvert DATAtourisme · Offices de Tourisme',
+    badgeClass: 'bg-[#78350f] text-[#fef3c7] border-[#f59e0b]',
+  },
+};
+
+export function inferOfficialStateLabel(
+  source: string,
+  subType = '',
+  explicit?: OfficialStateLabel
+): OfficialStateLabel | null {
+  if (explicit) return explicit;
+  const hay = `${source} ${subType}`.toLowerCase();
+  if (hay.includes('maison des illustres') || hay.includes('maisons des illustres')) {
+    return 'maison_illustres';
+  }
+  if (hay.includes('jardin remarquable') || hay.includes('jardins remarquables')) {
+    return 'jardin_remarquable';
+  }
+  if (hay.includes('muséofile') || hay.includes('museofile') || hay.includes('musée de france')) {
+    return 'musee_de_france';
+  }
+  if (
+    hay.includes('mérimée') ||
+    hay.includes('merimee') ||
+    hay.includes('monument historique') ||
+    hay.includes('classé mh') ||
+    hay.includes('inscrit mh')
+  ) {
+    return 'monument_historique';
+  }
+  if (hay.includes('datatourisme')) {
+    return 'datatourisme';
+  }
+  return null;
+}
+
 export interface PoiItem {
   id: string;
   name: string;
@@ -373,6 +449,8 @@ export interface PoiItem {
   relatedPoiIds: string[];
   relatedPoiTitles: string[];
   isSubterranean?: boolean;
+  officialLabel?: OfficialStateLabel;
+  officialRef?: string;
 }
 
 export type TerrainKind =
@@ -420,6 +498,51 @@ export type BuildingArchetype =
   | 'rural_farm'
   | 'civic_school';
 
+export type TrailNetwork = 'gr' | 'grp' | 'pr';
+
+export type LieuDitKind =
+  | 'lieu_dit'
+  | 'hameau'
+  | 'quartier'
+  | 'col_sommet'
+  | 'bois_vallee'
+  | 'hydronyme';
+
+export interface LieuDitBanner {
+  id: string;
+  name: string;
+  kind: LieuDitKind;
+  lat: number;
+  lng: number;
+  altitudeMeters?: number;
+}
+
+export type HeritageMicroSpriteKind =
+  | 'calvaire'
+  | 'lavoir'
+  | 'menhir'
+  | 'moulin_vent'
+  | 'moulin_eau'
+  | 'fontaine'
+  | 'four_pain'
+  | 'pigeonnier'
+  | 'phare'
+  | 'borne_ign'
+  | 'chapelle'
+  | 'ruine'
+  | 'puits'
+  | 'table_orientation';
+
+export interface OrientationTableNode {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  altitudeMeters: number;
+  sourceLabel: string;
+  poiId?: string;
+}
+
 export interface TerrainFeature {
   id: string;
   kind: TerrainKind;
@@ -431,6 +554,8 @@ export interface TerrainFeature {
   bldgClass?: BuildingArchetype;
   levels?: number;
   waterwayRank?: 'river' | 'canal' | 'stream';
+  trailNetwork?: TrailNetwork;
+  trailRef?: string;
 }
 
 export interface BedrockInfo {
@@ -487,6 +612,7 @@ export interface SectorPayloadData {
   pois: PoiItem[];
   terrain: TerrainFeature[];
   subterranean?: SubterraneanFeature[];
+  lieuxDits?: LieuDitBanner[];
   bedrock: BedrockInfo | null;
   elevation?: ElevationGrid | null;
   weather?: WeatherInfo | null;
@@ -563,7 +689,12 @@ export type TrophyId =
   | 'ouvreur_reliques'
   | 'leveur_brumes'
   | 'naturaliste_complet'
-  | 'champion_contrats';
+  | 'champion_contrats'
+  | 'tisserand_recits'
+  | 'maitre_chroniques'
+  | 'heraut_communaute'
+  | 'temoin_phenomenes'
+  | 'champion_pantheon';
 
 export const VALID_TROPHY_IDS: TrophyId[] = [
   'oiseau_de_nuit',
@@ -578,6 +709,11 @@ export const VALID_TROPHY_IDS: TrophyId[] = [
   'leveur_brumes',
   'naturaliste_complet',
   'champion_contrats',
+  'tisserand_recits',
+  'maitre_chroniques',
+  'heraut_communaute',
+  'temoin_phenomenes',
+  'champion_pantheon',
 ];
 
 export interface ExplorerProgress {
@@ -604,6 +740,9 @@ export interface ExplorerProgress {
   solvedRiddlesCount?: number;
   completedHuntsCount?: number;
   claimedAlmanacCount?: number;
+  completedNarrativesCount?: number;
+  claimedCommunityChallengesCount?: number;
+  claimedLiveEventsCount?: number;
   discoveriesCount: number;
   completedMissions: string[];
 }

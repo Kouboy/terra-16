@@ -68,6 +68,13 @@ type BuildingArchetype =
   | 'rural_farm'
   | 'civic_school';
 
+type OfficialStateLabel =
+  | 'monument_historique'
+  | 'maison_illustres'
+  | 'jardin_remarquable'
+  | 'musee_de_france'
+  | 'datatourisme';
+
 interface RawPoi {
   id: string;
   name: string;
@@ -88,6 +95,27 @@ interface RawPoi {
   unlockRadiusMeters: number;
   relatedPoiIds: string[];
   relatedPoiTitles: string[];
+  officialLabel?: OfficialStateLabel;
+  officialRef?: string;
+}
+
+type TrailNetwork = 'gr' | 'grp' | 'pr';
+
+type LieuDitKind =
+  | 'lieu_dit'
+  | 'hameau'
+  | 'quartier'
+  | 'col_sommet'
+  | 'bois_vallee'
+  | 'hydronyme';
+
+interface LieuDitBanner {
+  id: string;
+  name: string;
+  kind: LieuDitKind;
+  lat: number;
+  lng: number;
+  altitudeMeters?: number;
 }
 
 interface TerrainFeature {
@@ -101,6 +129,8 @@ interface TerrainFeature {
   bldgClass?: BuildingArchetype;
   levels?: number;
   waterwayRank?: 'river' | 'canal' | 'stream';
+  trailNetwork?: TrailNetwork;
+  trailRef?: string;
 }
 
 interface BedrockInfo {
@@ -164,6 +194,7 @@ interface SectorPayload {
   pois: RawPoi[];
   terrain: TerrainFeature[];
   subterranean: SubterraneanFeature[];
+  lieuxDits?: LieuDitBanner[];
   bedrock: BedrockInfo | null;
   elevation: ElevationGrid | null;
   weather: WeatherInfo | null;
@@ -232,7 +263,13 @@ const almanacCache = new BoundedTtlMap<
       dateIso: string;
       month: number;
       day: number;
-      locality: { commune: string; departement: string; region: string; population?: number };
+      locality: {
+        commune: string;
+        departement: string;
+        codeDepartement?: string;
+        region: string;
+        population?: number;
+      };
       globalEphemerides: Array<{
         year: number;
         text: string;
@@ -250,6 +287,18 @@ const almanacCache = new BoundedTtlMap<
         lat: number;
         lng: number;
         articleUrl?: string;
+      }>;
+      localFestivals: Array<{
+        id: string;
+        name: string;
+        commune: string;
+        domain: string;
+        monthLabel: string;
+        isCurrentMonth: boolean;
+        distanceKm: number | null;
+        lat: number | null;
+        lng: number | null;
+        website?: string;
       }>;
     };
   }
@@ -829,9 +878,14 @@ function minDistanceMetersToPlayer(
 async function queryVectorTileTopology(
   lat: number,
   lng: number
-): Promise<{ terrain: TerrainFeature[]; pois: RawPoi[]; subterranean: SubterraneanFeature[] }> {
+): Promise<{
+  terrain: TerrainFeature[];
+  pois: RawPoi[];
+  subterranean: SubterraneanFeature[];
+  lieuxDits: LieuDitBanner[];
+}> {
   const source = await resolveVectorTileTemplate();
-  if (!source) return { terrain: [], pois: [], subterranean: [] };
+  if (!source) return { terrain: [], pois: [], subterranean: [], lieuxDits: [] };
 
   const { url: tpl, zoom: z } = source;
   // Cover ~1.25km around player so wide 0.5x Contrée zoom is richly populated
@@ -1022,6 +1076,8 @@ async function queryVectorTileTopology(
 
   const pois: RawPoi[] = [];
   const seenPoiKeys = new Set<string>();
+  const lieuxDitsBucket: Array<{ dist: number; prio: number; item: LieuDitBanner }> = [];
+  const seenLieuKeys = new Set<string>();
   let seq = 0;
 
   for (let idx = 0; idx < selectedCoords.length; idx++) {
@@ -1500,6 +1556,47 @@ async function queryVectorTileTopology(
           if (isTinyServiceAlley && dist > 380) continue;
 
           const roadName = String(props['name:fr'] || props.name || '');
+          const roadRef = String(props.ref || props.route_ref || '').trim();
+          const roadNetwork = String(props.network || props.route || props['osmc:symbol'] || '').toLowerCase();
+          const fullTrailHay = `${roadName} ${roadRef} ${roadNetwork}`;
+
+          let trailNetwork: TrailNetwork | undefined;
+          let trailRef: string | undefined;
+          if (/\b(grp|gr\s*de\s*pays|tour\s+du|tour\s+des)\b/i.test(fullTrailHay) || roadNetwork.includes('rwn')) {
+            trailNetwork = 'grp';
+            trailRef = roadRef || 'GRP';
+          } else if (
+            /\b(gr\s?\d+|sentier\s+gr|grande\s+randonn[ée]e|chemin\s+de\s+compostelle|sentier\s+du\s+littoral|sentier\s+des\s+douaniers)\b/i.test(
+              fullTrailHay
+            ) ||
+            roadNetwork.includes('iwn') ||
+            roadNetwork.includes('nwn') ||
+            roadNetwork.includes('red:white')
+          ) {
+            trailNetwork = 'gr';
+            trailRef = roadRef || 'GR';
+          } else if (
+            /\b(pr\s?\d*|promenade|sentier\s+botanique|sentier\s+p[ée]destre|sentier\s+de\s+découverte|chemin\s+de\s+randonn[ée]e)\b/i.test(
+              fullTrailHay
+            ) ||
+            roadNetwork.includes('lwn') ||
+            roadNetwork.includes('yellow')
+          ) {
+            trailNetwork = 'pr';
+            trailRef = roadRef || 'PR';
+          } else if (roadKind === 'path' && simplified.length >= 6) {
+            // Deterministic scenic PR/GR balisage on long continuous rural/woodland footpaths when MVT omits relation tags
+            const spanM = haversineMeters(
+              simplified[0].lat,
+              simplified[0].lng,
+              simplified[simplified.length - 1].lat,
+              simplified[simplified.length - 1].lng
+            );
+            if (spanM >= 155) {
+              trailNetwork = spanM >= 360 ? 'gr' : 'pr';
+            }
+          }
+
           const roadPrio =
             roadKind === 'bridge'
               ? 0
@@ -1519,6 +1616,8 @@ async function queryVectorTileTopology(
               name: roadName,
               points: simplified,
               ...(bridgeMode ? { bridgeMode } : {}),
+              ...(trailNetwork ? { trailNetwork } : {}),
+              ...(trailRef ? { trailRef } : {}),
             },
           };
 
@@ -1664,8 +1763,7 @@ async function queryVectorTileTopology(
             mysteryTitle: kind === 'survey_point' ? 'Clou de Triangulation' : 'Sentinelle Côtière',
             xp: 130,
           };
-        } else if (/^(fountain|spring|waterfall|peak|viewpoint|watermill|windmill|rock)$/.test(kind)) {
-          if (!rawName && kind === 'viewpoint') continue;
+        } else if (/^(fountain|spring|waterfall|peak|viewpoint|watermill|windmill|rock|saddle)$/.test(kind)) {
           poiMeta = {
             category: 'geographie',
             subType:
@@ -1673,9 +1771,11 @@ async function queryVectorTileTopology(
                 ? 'Fontaine ou source'
                 : kind === 'watermill' || kind === 'windmill'
                 ? 'Moulin historique'
+                : kind === 'viewpoint'
+                ? 'Table d’orientation & belvédère'
                 : 'Belvédère & relief',
-            mysteryTitle: 'Murmure de Source',
-            xp: 110,
+            mysteryTitle: kind === 'viewpoint' ? 'Horizon Panoramique' : 'Murmure de Source',
+            xp: 115,
           };
         } else if (/^(tree|nature_reserve|garden)$/.test(kind)) {
           if (!rawName) continue;
@@ -1739,7 +1839,9 @@ async function queryVectorTileTopology(
         const pos = tilePixelToLatLng(tx, ty, z, pt.x, pt.y, extent);
         if (haversineMeters(lat, lng, pos.lat, pos.lng) > 1500) continue;
 
-        const finalName = rawName || poiMeta.subType;
+        const finalName =
+          rawName ||
+          (kind === 'viewpoint' ? 'Belvédère & Table d’orientation' : poiMeta.subType);
         const dedupeKey = `${finalName.toLowerCase()}_${pos.lat.toFixed(3)}_${pos.lng.toFixed(3)}`;
         if (seenPoiKeys.has(dedupeKey)) continue;
         seenPoiKeys.add(dedupeKey);
@@ -1765,6 +1867,68 @@ async function queryVectorTileTopology(
           unlockRadiusMeters: 85,
           relatedPoiIds: [],
           relatedPoiTitles: [],
+        });
+      }
+    }
+
+    // F. LIEUX-DITS, HAMEAUX, QUARTIERS & SOMMETS FROM VECTOR TILE PLACE LAYERS
+    for (const layerName of ['places', 'place', 'place_label', 'mountain_peak']) {
+      const layer = vt.layers[layerName];
+      if (!layer) continue;
+      const extent = layer.extent || 4096;
+      for (let i = 0; i < layer.length; i++) {
+        const feat = layer.feature(i);
+        if (feat.type !== 1) continue;
+        const props = feat.properties || {};
+        const pName = String(props['name:fr'] || props.name || '').trim();
+        if (pName.length < 2 || pName.length > 34) continue;
+        const pKind = String(
+          props.kind || props['pmap:kind'] || props.kind_detail || props.class || props.place || ''
+        ).toLowerCase();
+
+        let bannerKind: LieuDitKind | null = null;
+        let prio = 2;
+        if (/^(isolated_dwelling|farm)$/.test(pKind)) {
+          bannerKind = 'lieu_dit';
+          prio = 0;
+        } else if (/^(locality|allotments)$/.test(pKind)) {
+          bannerKind = 'lieu_dit';
+          prio = 0;
+        } else if (/^(hamlet|village)$/.test(pKind)) {
+          bannerKind = 'hameau';
+          prio = 0;
+        } else if (/^(quarter|neighbourhood|suburb|borough)$/.test(pKind)) {
+          bannerKind = 'quartier';
+          prio = 1;
+        } else if (/^(peak|saddle|volcano|ridge|cliff)$/.test(pKind) || layerName === 'mountain_peak') {
+          bannerKind = 'col_sommet';
+          prio = 0;
+        }
+        if (!bannerKind) continue;
+
+        const geom = feat.loadGeometry();
+        const pt = geom[0]?.[0];
+        if (!pt) continue;
+        const pos = tilePixelToLatLng(tx, ty, z, pt.x, pt.y, extent);
+        const dist = haversineMeters(lat, lng, pos.lat, pos.lng);
+        if (dist > 1750) continue;
+
+        const normKey = pName.toLowerCase();
+        if (seenLieuKeys.has(normKey)) continue;
+        seenLieuKeys.add(normKey);
+
+        const rawEle = Number(props.ele ?? props.elevation ?? NaN);
+        lieuxDitsBucket.push({
+          dist,
+          prio,
+          item: {
+            id: `vt_ld_${tx}_${ty}_${i}`,
+            name: pName,
+            kind: bannerKind,
+            lat: pos.lat,
+            lng: pos.lng,
+            ...(Number.isFinite(rawEle) ? { altitudeMeters: Math.round(rawEle) } : {}),
+          },
         });
       }
     }
@@ -1831,10 +1995,25 @@ async function queryVectorTileTopology(
     ...selectedBuildings,
   ];
 
+  lieuxDitsBucket.sort((a, b) => (a.prio !== b.prio ? a.prio - b.prio : a.dist - b.dist));
+  const selectedLieuxDits: LieuDitBanner[] = [];
+  for (const cand of lieuxDitsBucket) {
+    if (
+      selectedLieuxDits.some(
+        (ex) => haversineMeters(ex.lat, ex.lng, cand.item.lat, cand.item.lng) < 165
+      )
+    ) {
+      continue;
+    }
+    selectedLieuxDits.push(cand.item);
+    if (selectedLieuxDits.length >= 14) break;
+  }
+
   return {
     terrain: combinedTerrain,
     pois: pois.slice(0, 18),
     subterranean: subterraneanBucket.slice(0, 140).map((x) => x.feat),
+    lieuxDits: selectedLieuxDits,
   };
 }
 
@@ -4136,8 +4315,10 @@ function enrichAndLinkPois(
   const merged: RawPoi[] = [];
 
   for (const candidate of allSourcesPois) {
+    candidate.subType = candidate.subType.slice(0, 78);
+    candidate.source = candidate.source.slice(0, 78);
     const duplicate = merged.find(
-      (existing) => haversineMeters(existing.lat, existing.lng, candidate.lat, candidate.lng) < 36
+      (existing) => haversineMeters(existing.lat, existing.lng, candidate.lat, candidate.lng) < 38
     );
     if (duplicate) {
       if (candidate.summary.length > duplicate.summary.length) {
@@ -4147,11 +4328,15 @@ function enrichAndLinkPois(
         );
       }
       if (!duplicate.source.includes(candidate.source)) {
-        duplicate.source = `${duplicate.source} + ${candidate.source}`.slice(0, 85);
+        duplicate.source = `${duplicate.source} + ${candidate.source}`.slice(0, 78);
+      }
+      if (!duplicate.officialLabel && candidate.officialLabel) {
+        duplicate.officialLabel = candidate.officialLabel;
+        duplicate.officialRef = candidate.officialRef;
       }
       if (candidate.category === 'legende') {
         duplicate.category = 'legende';
-        duplicate.subType = candidate.subType;
+        duplicate.subType = candidate.subType.slice(0, 78);
       }
       duplicate.xpReward = Math.max(duplicate.xpReward, candidate.xpReward + 15);
     } else {
@@ -4418,7 +4603,20 @@ async function queryGeorisquesCavites(
 
 const geodesicMicroCache = new Map<
   string,
-  { expires: number; pois: RawPoi[]; subFeatures: SubterraneanFeature[] }
+  {
+    expires: number;
+    pois: RawPoi[];
+    subFeatures: SubterraneanFeature[];
+    lieuxDits: LieuDitBanner[];
+    hikingTraces: Array<{
+      network: TrailNetwork;
+      ref: string;
+      points: Array<{ lat: number; lng: number }>;
+    }>;
+    hasIgnGeodesy?: boolean;
+    hasUndergroundHydro?: boolean;
+    hasBrgmMinerals?: boolean;
+  }
 >();
 
 const BRGM_SUBSTANCE_FR: Record<string, string> = {
@@ -4461,14 +4659,28 @@ async function queryGeodesicAndRuralMicroHeritage(
 ): Promise<{
   pois: RawPoi[];
   subFeatures: SubterraneanFeature[];
+  lieuxDits?: LieuDitBanner[];
+  hikingTraces?: Array<{
+    network: TrailNetwork;
+    ref: string;
+    points: Array<{ lat: number; lng: number }>;
+  }>;
   hasIgnGeodesy?: boolean;
   hasUndergroundHydro?: boolean;
   hasBrgmMinerals?: boolean;
 }> {
-  const cellKey = `v2_${(Math.round(lat * 100) / 100).toFixed(2)}_${(Math.round(lng * 100) / 100).toFixed(2)}`;
+  const cellKey = `v3_${(Math.round(lat * 100) / 100).toFixed(2)}_${(Math.round(lng * 100) / 100).toFixed(2)}`;
   const hit = geodesicMicroCache.get(cellKey);
   if (hit && hit.expires > Date.now()) {
-    return { pois: hit.pois, subFeatures: hit.subFeatures };
+    return {
+      pois: hit.pois,
+      subFeatures: hit.subFeatures,
+      lieuxDits: hit.lieuxDits,
+      hikingTraces: hit.hikingTraces,
+      hasIgnGeodesy: hit.hasIgnGeodesy,
+      hasUndergroundHydro: hit.hasUndergroundHydro,
+      hasBrgmMinerals: hit.hasBrgmMinerals,
+    };
   }
 
   const dLat = Math.min(0.024, Math.max(0.011, (radiusMeters * 1.05) / 110540));
@@ -4503,19 +4715,26 @@ async function queryGeodesicAndRuralMicroHeritage(
   const brgmGitesUrl = `https://geoservices.brgm.fr/geologie?SERVICE=WFS&VERSION=1.1.0&REQUEST=GetFeature&TYPENAME=ms:GITES_PT&SRSNAME=EPSG:4326&BBOX=${brgmBbox}&MAXFEATURES=6&OUTPUTFORMAT=geojson`;
   const brgmMinesUrl = `https://geoservices.brgm.fr/geologie?SERVICE=WFS&VERSION=1.1.0&REQUEST=GetFeature&TYPENAME=ms:MINES_PT&SRSNAME=EPSG:4326&BBOX=${brgmBbox}&MAXFEATURES=6&OUTPUTFORMAT=geojson`;
 
-  // 4. Resilient Overpass query (primary + mirror fallback) for rural vernacular heritage, sacred springs, remarkable trees & buried culverts
+  // 4. Official IGN BD TOPO Lieux-dits habités & Hameaux
+  const ignLieuDitUrl = `https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=BDTOPO_V3:lieu_dit_habite&BBOX=${crs84Bbox}&SRSNAME=CRS:84&COUNT=14&OUTPUTFORMAT=application/json`;
+
+  // 5. Resilient Overpass query (primary + mirror fallback) for rural vernacular heritage, viewpoints, megaliths, lieux-dits & GR/PR hiking routes
   const r = Math.min(2200, Math.max(950, Math.round(radiusMeters * 0.95)));
   const overpassQuery = `[out:json][timeout:3];(
     node["man_made"="survey_point"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
     nwr["amenity"~"^(lavoir|baking_oven)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
     nwr["building"~"^(bakehouse|dovecote|watermill|windmill)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
-    nwr["historic"~"^(lavoir|bakehouse|wayside_cross|wayside_shrine|aqueduct|holy_well|mine|mine_shaft)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    nwr["historic"~"^(lavoir|bakehouse|wayside_cross|wayside_shrine|aqueduct|holy_well|mine|mine_shaft|archaeological_site)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
     nwr["man_made"~"^(dovecote|watermill|windmill|adit|mineshaft)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    node["tourism"="viewpoint"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    node["information"="board"]["board_type"="viewpoint"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    node["place"~"^(hamlet|isolated_dwelling|locality|quarter|neighbourhood)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
+    relation["route"~"^(hiking|foot)$"](around:${Math.min(1600, r)},${lat.toFixed(5)},${lng.toFixed(5)});
     node["natural"="tree"]["denotation"~"^(natural_monument|landmark)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
     node["natural"="tree"]["monument"="yes"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
     way["geological"~"^(fault|dyke|vein)$"](around:${r},${lat.toFixed(5)},${lng.toFixed(5)});
     way["waterway"]["tunnel"~"^(culvert|yes|flooded)$"](around:${Math.min(1500, r)},${lat.toFixed(5)},${lng.toFixed(5)});
-  );out center geom 56;`;
+  );out center geom 72;`;
 
   const fetchOverpassWithFallback = async () => {
     const mirrors = [
@@ -4549,6 +4768,7 @@ async function queryGeodesicAndRuralMicroHeritage(
     brgmStructRes,
     brgmGitesRes,
     brgmMinesRes,
+    ignLieuDitRes,
     overpassRes,
   ] = await Promise.allSettled([
     fetchWithTimeout(ignRnUrl, {}, 3400).then((res) => (res.ok ? res.json() : null)),
@@ -4558,14 +4778,74 @@ async function queryGeodesicAndRuralMicroHeritage(
     fetchWithTimeout(brgmStructUrl, {}, 3500).then((res) => (res.ok ? res.json() : null)),
     fetchWithTimeout(brgmGitesUrl, {}, 3500).then((res) => (res.ok ? res.json() : null)),
     fetchWithTimeout(brgmMinesUrl, {}, 3500).then((res) => (res.ok ? res.json() : null)),
+    fetchWithTimeout(ignLieuDitUrl, {}, 3200).then((res) => (res.ok ? res.json() : null)),
     fetchOverpassWithFallback(),
   ]);
 
   const pois: RawPoi[] = [];
   const subFeatures: SubterraneanFeature[] = [];
+  const lieuxDits: LieuDitBanner[] = [];
+  const hikingTraces: Array<{
+    network: TrailNetwork;
+    ref: string;
+    points: Array<{ lat: number; lng: number }>;
+  }> = [];
   let hasIgnGeodesy = false;
   let hasUndergroundHydro = false;
   let hasBrgmMinerals = false;
+
+  // A0. Official IGN BD TOPO Lieux-dits habités & Hameaux
+  if (ignLieuDitRes.status === 'fulfilled' && ignLieuDitRes.value?.features) {
+    for (const feat of ignLieuDitRes.value.features) {
+      const props = feat.properties || {};
+      const geom = feat.geometry;
+      let coords: { lat: number; lng: number } | null = null;
+      if (geom?.type === 'Point' && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2) {
+        const gLng = Number(geom.coordinates[0]);
+        const gLat = Number(geom.coordinates[1]);
+        if (Number.isFinite(gLat) && Number.isFinite(gLng)) coords = { lat: gLat, lng: gLng };
+      } else if (geom?.type === 'MultiPoint' && Array.isArray(geom.coordinates?.[0])) {
+        const gLng = Number(geom.coordinates[0][0]);
+        const gLat = Number(geom.coordinates[0][1]);
+        if (Number.isFinite(gLat) && Number.isFinite(gLng)) coords = { lat: gLat, lng: gLng };
+      } else if (
+        (geom?.type === 'Polygon' || geom?.type === 'MultiPolygon') &&
+        Array.isArray(geom.coordinates)
+      ) {
+        const ring =
+          geom.type === 'Polygon' ? geom.coordinates[0] : geom.coordinates[0]?.[0];
+        if (Array.isArray(ring) && ring.length > 0) {
+          let sumLng = 0;
+          let sumLat = 0;
+          let cnt = 0;
+          for (const pt of ring) {
+            if (Array.isArray(pt) && pt.length >= 2 && Number.isFinite(Number(pt[0])) && Number.isFinite(Number(pt[1]))) {
+              sumLng += Number(pt[0]);
+              sumLat += Number(pt[1]);
+              cnt++;
+            }
+          }
+          if (cnt > 0) coords = { lat: sumLat / cnt, lng: sumLng / cnt };
+        }
+      }
+      if (!coords) continue;
+      const topName = String(props.toponyme || props.nom || '').trim();
+      if (topName.length < 2 || topName.length > 36) continue;
+      const nature = String(props.nature || '').toLowerCase();
+      const ldKind: LieuDitKind = /hameau|écart/.test(nature)
+        ? 'hameau'
+        : /quartier/.test(nature)
+        ? 'quartier'
+        : 'lieu_dit';
+      lieuxDits.push({
+        id: `ign_ld_${sanitizeId(String(feat.id || topName))}`,
+        name: topName,
+        kind: ldKind,
+        lat: coords.lat,
+        lng: coords.lng,
+      });
+    }
+  }
 
   // A1. Official IGN Repères de Nivellement (Bronze Wall Medallions!)
   if (rnRes.status === 'fulfilled' && Array.isArray(rnRes.value?.features)) {
@@ -4893,11 +5173,131 @@ async function queryGeodesicAndRuralMicroHeritage(
 
   for (const el of elements) {
     const tags = el.tags || {};
+    const rawName = String(tags['name:fr'] || tags.name || '').trim();
+
+    // 0A. Real FFRP / OSM Hiking Route Relations (GR, GRP, PR)
+    if (el.type === 'relation' && /^(hiking|foot)$/.test(String(tags.route || ''))) {
+      const netTag = String(tags.network || '').toLowerCase();
+      const symTag = String(tags['osmc:symbol'] || '').toLowerCase();
+      const refTag = String(tags.ref || rawName || '').trim();
+      const fullH = `${rawName} ${refTag} ${netTag} ${symTag}`;
+      const net: TrailNetwork =
+        /\bgrp\b|gr\s*de\s*pays/i.test(fullH) || netTag === 'rwn'
+          ? 'grp'
+          : /\bgr\b|grande\s+randonn/i.test(fullH) ||
+            netTag === 'iwn' ||
+            netTag === 'nwn' ||
+            symTag.includes('red:white')
+          ? 'gr'
+          : 'pr';
+      const pts: Array<{ lat: number; lng: number }> = [];
+      if (Array.isArray(el.members)) {
+        for (const m of el.members) {
+          if (Array.isArray(m.geometry)) {
+            for (const g of m.geometry) {
+              if (typeof g.lat === 'number' && typeof g.lon === 'number') {
+                pts.push({ lat: g.lat, lng: g.lon });
+              }
+            }
+          }
+          if (pts.length >= 90) break;
+        }
+      }
+      if (pts.length >= 2) {
+        hikingTraces.push({ network: net, ref: refTag || net.toUpperCase(), points: pts });
+      }
+      continue;
+    }
+
     const pLat = el.lat ?? el.center?.lat ?? el.geometry?.[0]?.lat;
     const pLng = el.lon ?? el.center?.lon ?? el.geometry?.[0]?.lon;
     if (typeof pLat !== 'number' || typeof pLng !== 'number') continue;
 
-    const rawName = String(tags['name:fr'] || tags.name || '').trim();
+    // 0B. Overpass Lieux-dits, Hameaux & Quartiers
+    if (tags.place && rawName.length >= 2 && rawName.length <= 36) {
+      const pl = String(tags.place).toLowerCase();
+      lieuxDits.push({
+        id: `ov_ld_${el.id}`,
+        name: rawName,
+        kind:
+          pl === 'hamlet'
+            ? 'hameau'
+            : pl === 'quarter' || pl === 'neighbourhood'
+            ? 'quartier'
+            : 'lieu_dit',
+        lat: pLat,
+        lng: pLng,
+      });
+      continue;
+    }
+
+    // 0C. Panoramic Viewpoints & Orientation Tables
+    if (
+      tags.tourism === 'viewpoint' ||
+      (tags.information === 'board' && tags.board_type === 'viewpoint')
+    ) {
+      const vpName =
+        rawName ||
+        (tags.information === 'board'
+          ? 'Table d’Orientation Panoramique'
+          : 'Belvédère Panoramique');
+      pois.push({
+        id: `ov_vp_${el.id}`,
+        name: vpName.slice(0, 180),
+        mysteryTitle: 'Table des Horizons',
+        category: 'geographie',
+        subType: 'Table d’orientation & belvédère',
+        stratum: 'contemporain',
+        eraLabel: 'Lecture du grand paysage',
+        source: 'IGN / Belvédères OpenStreetMap',
+        lat: pLat,
+        lng: pLng,
+        summary:
+          tags.description ||
+          `Belvédère d’observation offrant un dégagement visuel remarquable sur les lignes de crête, les vallées et les clochers alentour.`,
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: '',
+        externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+        xpReward: 130,
+        unlockRadiusMeters: 65,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+      continue;
+    }
+
+    // 0D. Prehistoric Menhirs & Dolmens
+    if (tags.historic === 'archaeological_site') {
+      const siteType = String(tags.site_type || tags.megalith_type || '').toLowerCase();
+      if (!/megalith|menhir|dolmen|tumulus|cromlech/.test(`${siteType} ${rawName.toLowerCase()}`)) {
+        continue;
+      }
+      const megName = rawName || 'Mégalithe Préhistorique (Menhir / Dolmen)';
+      pois.push({
+        id: `ov_meg_${el.id}`,
+        name: megName.slice(0, 180),
+        mysteryTitle: 'Pierre Levée',
+        category: 'histoire',
+        subType: 'Menhir ou dolmen néolithique',
+        stratum: 'prehistoire',
+        eraLabel: 'Néolithique (env. 4500–2500 av. J.-C.)',
+        source: 'Mégalithes & Archéologie OSM',
+        lat: pLat,
+        lng: pLng,
+        summary: `${megName} — pierre dressée ou chambre mégalithique érigée au Néolithique, marquant le territoire sacré des premiers agriculteurs.`,
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: '',
+        externalUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+        xpReward: 145,
+        unlockRadiusMeters: 60,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+      });
+      continue;
+    }
+
     const manMade = (tags.man_made || '').toLowerCase();
     const amenity = (tags.amenity || '').toLowerCase();
     const historic = (tags.historic || '').toLowerCase();
@@ -5173,20 +5573,622 @@ async function queryGeodesicAndRuralMicroHeritage(
     });
   }
 
-  const trimmedPois = pois.slice(0, 22);
+  const trimmedPois = pois.slice(0, 24);
   const trimmedSub = subFeatures.slice(0, 56);
+  const trimmedLieuxDits = lieuxDits.slice(0, 18);
+  const trimmedHikingTraces = hikingTraces.slice(0, 14);
   geodesicMicroCache.set(cellKey, {
     expires: Date.now() + 20 * 60 * 1000,
     pois: trimmedPois,
     subFeatures: trimmedSub,
+    lieuxDits: trimmedLieuxDits,
+    hikingTraces: trimmedHikingTraces,
+    hasIgnGeodesy,
+    hasUndergroundHydro,
+    hasBrgmMinerals,
   });
   return {
     pois: trimmedPois,
     subFeatures: trimmedSub,
+    lieuxDits: trimmedLieuxDits,
+    hikingTraces: trimmedHikingTraces,
     hasIgnGeodesy,
     hasUndergroundHydro,
     hasBrgmMinerals,
   };
+}
+
+// ============================================================================
+// 19. PACK « PATRIMOINE D'ÉTAT » : MINISTÈRE DE LA CULTURE (MÉRIMÉE, ILLUSTRES,
+// JARDINS REMARQUABLES, MUSÉOFILE) & PLATEFORME NATIONALE OUVERTE DATATOURISME
+// ============================================================================
+
+const REGION_TOKEN_TO_DATATOURISME: Array<{
+  match: RegExp;
+  csvTitle: string;
+  defaultResourceId: string;
+}> = [
+  { match: /île-de-france|ile-de-france/i, csvTitle: 'datatourisme-reg-idf.csv', defaultResourceId: 'b31a1eca-f2ff-495a-9b67-7c0bc281ea57' },
+  { match: /centre-val de loire/i, csvTitle: 'datatourisme-reg-cvl.csv', defaultResourceId: '6063e108-f8bd-4541-ba67-a5cadac804fb' },
+  { match: /bourgogne-franche-comté|bourgogne-franche-comte/i, csvTitle: 'datatourisme-reg-bfc.csv', defaultResourceId: 'd92f0184-e9cb-4bc9-81b0-b43fbcf2a0d2' },
+  { match: /normandie/i, csvTitle: 'datatourisme-reg-nor.csv', defaultResourceId: 'cb1ebc9c-73fb-43e8-9386-a7b3cf83a642' },
+  { match: /hauts-de-france/i, csvTitle: 'datatourisme-reg-hdf.csv', defaultResourceId: '838b6af3-74e5-4d51-873d-d359af3f1855' },
+  { match: /grand est/i, csvTitle: 'datatourisme-reg-gde.csv', defaultResourceId: '59956d74-969b-4c42-8ea4-9348f6a70f7a' },
+  { match: /pays de la loire/i, csvTitle: 'datatourisme-reg-pdl.csv', defaultResourceId: '56d437a7-eb0c-4c31-9138-539be94bc490' },
+  { match: /bretagne/i, csvTitle: 'datatourisme-reg-bre.csv', defaultResourceId: 'ab746af8-d21a-42d1-acae-fdfb2e52ecd5' },
+  { match: /nouvelle-aquitaine/i, csvTitle: 'datatourisme-reg-naq.csv', defaultResourceId: '734a4e86-d571-48f6-bdc0-596914066606' },
+  { match: /occitanie/i, csvTitle: 'datatourisme-reg-occ.csv', defaultResourceId: '0c463ef6-c00a-48e2-b50a-d17cfe998b84' },
+  { match: /auvergne-rhône-alpes|auvergne-rhone-alpes/i, csvTitle: 'datatourisme-reg-ara.csv', defaultResourceId: '5b3c2cee-44b7-48bd-b4e8-439a03ff6cd2' },
+  { match: /provence-alpes-côte|provence-alpes-cote/i, csvTitle: 'datatourisme-reg-pac.csv', defaultResourceId: '83a1f131-9e23-4c3b-b1c6-e58f33fe7b80' },
+  { match: /corse/i, csvTitle: 'datatourisme-reg-cor.csv', defaultResourceId: '2aefffc5-42f5-4e68-ba85-ba19c13fcb4c' },
+  { match: /guadeloupe/i, csvTitle: 'datatourisme-reg-glp.csv', defaultResourceId: 'f73506d6-a336-4743-827b-64a39d891158' },
+  { match: /martinique/i, csvTitle: 'datatourisme-reg-mtq.csv', defaultResourceId: '4f95a530-d106-4ecd-aa39-1b9d639ee45c' },
+  { match: /guyane/i, csvTitle: 'datatourisme-reg-guf.csv', defaultResourceId: '338bb298-cc1f-4bfd-adfd-a3c13fbfa393' },
+  { match: /réunion|reunion/i, csvTitle: 'datatourisme-reg-reu.csv', defaultResourceId: '2b52bb1f-8676-43f2-b883-f673e7015ed9' },
+  { match: /mayotte/i, csvTitle: 'datatourisme-reg-myt.csv', defaultResourceId: '77114c00-9928-49c1-9a1c-5545c10c7101' },
+];
+
+const activeResourceIdCache = new Map<string, string>([
+  ['immeubles-proteges-au-titre-des-monuments-historiques-2', '3a52af4a-f9da-4dcc-8110-b07774dfb3bc'],
+  ['liste-des-maisons-des-illustres', 'bd705a3d-e13e-4388-a0a1-100ed47cc85f'],
+  ['liste-des-jardins-remarquables', '49a648e5-ef47-41fe-aa18-9323a811c2c7'],
+  ['musees-de-france-base-museofile', '5ccd6238-4fb0-4b2c-b14a-581909489320'],
+]);
+const activeDatatourismeResourceByCsv = new Map<string, string>(
+  REGION_TOKEN_TO_DATATOURISME.map((r) => [r.csvTitle, r.defaultResourceId])
+);
+
+async function fetchTabularWithDatasetFallback(
+  datasetSlugOrId: string,
+  currentResourceId: string,
+  queryString: string,
+  timeoutMs = 4500,
+  targetCsvTitle?: string
+): Promise<any | null> {
+  try {
+    const firstResp = await fetchWithTimeout(
+      `https://tabular-api.data.gouv.fr/api/resources/${currentResourceId}/data/?${queryString}`,
+      {},
+      timeoutMs
+    );
+    if (firstResp.ok) {
+      return await firstResp.json();
+    }
+    if (firstResp.status !== 404 && firstResp.status !== 410) {
+      return null;
+    }
+    // Lazy resource-UUID refresh ONLY when producer rotated the CSV UUID (404/410)
+    const dsResp = await fetchWithTimeout(
+      `https://www.data.gouv.fr/api/1/datasets/${datasetSlugOrId}/`,
+      {},
+      3200
+    );
+    if (!dsResp.ok) return null;
+    const dsJson = (await dsResp.json()) as {
+      resources?: Array<{ id?: string; title?: string; format?: string }>;
+    };
+    const matched = targetCsvTitle
+      ? (dsJson.resources || []).find((r) => r.title === targetCsvTitle && r.id)
+      : (dsJson.resources || []).find((r) => /csv/i.test(String(r.format || '')) && r.id);
+    if (!matched?.id || matched.id === currentResourceId) return null;
+    if (targetCsvTitle) {
+      activeDatatourismeResourceByCsv.set(targetCsvTitle, matched.id);
+    } else {
+      activeResourceIdCache.set(datasetSlugOrId, matched.id);
+    }
+    const retryResp = await fetchWithTimeout(
+      `https://tabular-api.data.gouv.fr/api/resources/${matched.id}/data/?${queryString}`,
+      {},
+      timeoutMs
+    );
+    return retryResp.ok ? await retryResp.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseLatLngPairString(raw: unknown): { lat: number; lng: number } | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const parts = raw.split(/[,;]/).map((s) => Number(s.trim()));
+  if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+    if (Math.abs(parts[0]) <= 90 && Math.abs(parts[1]) <= 180) {
+      return { lat: parts[0], lng: parts[1] };
+    }
+  }
+  return null;
+}
+
+const cultureTourismCache = new Map<
+  string,
+  {
+    expires: number;
+    culturePois: RawPoi[];
+    tourismPois: RawPoi[];
+  }
+>();
+
+async function queryMinistereCultureAndDatatourisme(
+  lat: number,
+  lng: number,
+  radiusMeters: number
+): Promise<{ culturePois: RawPoi[]; tourismPois: RawPoi[] }> {
+  // Fast exit outside France (mainland, Corsica & overseas departments)
+  const inFranceBounds =
+    (lat >= 41.2 && lat <= 51.3 && lng >= -5.4 && lng <= 9.8) ||
+    (lat >= 14.2 && lat <= 18.2 && lng >= -63.3 && lng <= -60.7) ||
+    (lat >= -21.5 && lat <= -12.5 && lng >= 44.9 && lng <= 56.0) ||
+    (lat >= 2.0 && lat <= 5.9 && lng >= -54.7 && lng <= -51.5);
+  if (!inFranceBounds) return { culturePois: [], tourismPois: [] };
+
+  const cellKey = `cult_dt_v2_${(Math.round(lat * 100) / 100).toFixed(2)}_${(
+    Math.round(lng * 100) / 100
+  ).toFixed(2)}`;
+  const cached = cultureTourismCache.get(cellKey);
+  if (cached && cached.expires > Date.now()) {
+    return { culturePois: cached.culturePois, tourismPois: cached.tourismPois };
+  }
+
+  const maxLabelRadius = Math.max(4800, radiusMeters * 2.4);
+  const cosLat = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+  const dLatLabel = Math.min(0.055, maxLabelRadius / 110540);
+  const dLngLabel = dLatLabel / cosLat;
+  const dLatDt = Math.min(0.032, Math.max(0.015, (radiusMeters * 1.25) / 110540));
+  const dLngDt = dLatDt / cosLat;
+
+  const illustresResId =
+    activeResourceIdCache.get('liste-des-maisons-des-illustres') ||
+    'bd705a3d-e13e-4388-a0a1-100ed47cc85f';
+  const jardinsResId =
+    activeResourceIdCache.get('liste-des-jardins-remarquables') ||
+    '49a648e5-ef47-41fe-aa18-9323a811c2c7';
+  const merimeeResId =
+    activeResourceIdCache.get('immeubles-proteges-au-titre-des-monuments-historiques-2') ||
+    '3a52af4a-f9da-4dcc-8110-b07774dfb3bc';
+  const museoResId =
+    activeResourceIdCache.get('musees-de-france-base-museofile') ||
+    '5ccd6238-4fb0-4b2c-b14a-581909489320';
+
+  const bboxLabelQs = `latitude__greater=${(lat - dLatLabel).toFixed(4)}&latitude__less=${(
+    lat + dLatLabel
+  ).toFixed(4)}&longitude__greater=${(lng - dLngLabel).toFixed(4)}&longitude__less=${(
+    lng + dLngLabel
+  ).toFixed(4)}&page_size=25`;
+
+  // Start Maisons des Illustres & Jardins Remarquables bbox queries IMMEDIATELY in parallel with BAN reverse geocoding!
+  const illPromise = fetchTabularWithDatasetFallback(
+    'liste-des-maisons-des-illustres',
+    illustresResId,
+    bboxLabelQs,
+    4200
+  );
+  const jarPromise = fetchTabularWithDatasetFallback(
+    'liste-des-jardins-remarquables',
+    jardinsResId,
+    bboxLabelQs,
+    4200
+  );
+
+  // Identify exact citycode (including Paris 75101..75120 / Lyon / Marseille arrondissements!), postcode & region via BAN
+  let citycode = '';
+  let postcode = '';
+  let cityName = '';
+  let contextStr = '';
+  try {
+    const banResp = await fetchWithTimeout(
+      `https://api-adresse.data.gouv.fr/reverse/?lon=${lng.toFixed(5)}&lat=${lat.toFixed(
+        5
+      )}&limit=1`,
+      {},
+      3000
+    );
+    if (banResp.ok) {
+      const banJson = (await banResp.json()) as {
+        features?: Array<{
+          properties?: {
+            citycode?: string;
+            postcode?: string;
+            city?: string;
+            context?: string;
+          };
+        }>;
+      };
+      const props = banJson.features?.[0]?.properties;
+      if (props) {
+        citycode = String(props.citycode || '');
+        postcode = String(props.postcode || '');
+        cityName = String(props.city || '');
+        contextStr = String(props.context || '');
+      }
+    }
+  } catch {
+    // Fallback to geo.api.gouv.fr if BAN had no close address (e.g. deep forest / mountain peak)
+  }
+
+  if (!citycode) {
+    try {
+      const geoResp = await fetchWithTimeout(
+        `https://geo.api.gouv.fr/communes?lat=${lat.toFixed(5)}&lon=${lng.toFixed(
+          5
+        )}&fields=nom,code,codesPostaux,departement,region`,
+        {},
+        2800
+      );
+      if (geoResp.ok) {
+        const communes = (await geoResp.json()) as Array<{
+          nom?: string;
+          code?: string;
+          codesPostaux?: string[];
+          region?: { nom?: string };
+        }>;
+        if (communes[0]) {
+          citycode = String(communes[0].code || '');
+          cityName = String(communes[0].nom || '');
+          postcode = String(communes[0].codesPostaux?.[0] || '');
+          contextStr = String(communes[0].region?.nom || '');
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const dtRegionEntry = REGION_TOKEN_TO_DATATOURISME.find((r) => r.match.test(contextStr));
+  const dtRegionResId = dtRegionEntry
+    ? activeDatatourismeResourceByCsv.get(dtRegionEntry.csvTitle) || dtRegionEntry.defaultResourceId
+    : null;
+
+  const dtBboxBase = `Latitude__greater=${(lat - dLatDt).toFixed(4)}&Latitude__less=${(
+    lat + dLatDt
+  ).toFixed(4)}&Longitude__greater=${(lng - dLngDt).toFixed(4)}&Longitude__less=${(
+    lng + dLngDt
+  ).toFixed(4)}`;
+
+  const [merRes, illRes, jarRes, musRes, dtCultRes, dtParkRes] = await Promise.allSettled([
+    citycode
+      ? fetchTabularWithDatasetFallback(
+          'immeubles-proteges-au-titre-des-monuments-historiques-2',
+          merimeeResId,
+          `COG_Insee_lors_de_la_protection__contains=${encodeURIComponent(citycode)}&page_size=45`,
+          4500
+        )
+      : Promise.resolve(null),
+    illPromise,
+    jarPromise,
+    postcode || cityName
+      ? fetchTabularWithDatasetFallback(
+          'musees-de-france-base-museofile',
+          museoResId,
+          postcode
+            ? `Code_postal__contains=${encodeURIComponent(postcode.slice(0, 2))}&page_size=40`
+            : `Ville__contains=${encodeURIComponent(cityName)}&page_size=30`,
+          4200
+        )
+      : Promise.resolve(null),
+    dtRegionEntry && dtRegionResId
+      ? fetchTabularWithDatasetFallback(
+          '5b598be088ee387c0c353714',
+          dtRegionResId,
+          `${dtBboxBase}&Categories_de_POI__contains=CulturalSite&page_size=22`,
+          4200,
+          dtRegionEntry.csvTitle
+        )
+      : Promise.resolve(null),
+    dtRegionEntry && dtRegionResId
+      ? fetchTabularWithDatasetFallback(
+          '5b598be088ee387c0c353714',
+          dtRegionResId,
+          `${dtBboxBase}&Categories_de_POI__contains=ParkAndGarden&page_size=10`,
+          4000,
+          dtRegionEntry.csvTitle
+        )
+      : Promise.resolve(null),
+  ]);
+
+  const culturePois: RawPoi[] = [];
+  const tourismPois: RawPoi[] = [];
+  const maxCultureRadius = Math.max(2600, radiusMeters * 1.45);
+
+  // A. Ministère de la Culture — Base Mérimée (Monuments Historiques)
+  if (merRes.status === 'fulfilled' && Array.isArray(merRes.value?.data)) {
+    const merSorted = merRes.value.data
+      .map((row: any) => {
+        const pt = parseLatLngPairString(row.coordonnees_au_format_WGS84);
+        if (!pt) return null;
+        return { row, pt, dist: haversineMeters(lat, lng, pt.lat, pt.lng) };
+      })
+      .filter(
+        (x: any): x is { row: any; pt: { lat: number; lng: number }; dist: number } =>
+          Boolean(x && x.dist <= maxCultureRadius)
+      )
+      .sort((a: any, b: any) => a.dist - b.dist);
+
+    for (const { row, pt } of merSorted.slice(0, 10)) {
+      const ref = String(row.Reference || '').trim();
+      const title = String(
+        row.Titre_editorial_de_la_notice || row.Denomination_de_l_edifice || ''
+      ).trim();
+      if (!ref || !title) continue;
+      const hist = String(row.Historique || '').trim();
+      const desc = String(row.Description_de_l_edifice || '').trim();
+      const prot = String(
+        row.Typologie_de_la_protection || row.Nature_de_la_protection || 'Monument protégé'
+      ).trim();
+      const siecle = String(
+        row.Format_abrege_du_siecle_de_construction ||
+          row.Siecle_de_la_campagne_principale_de_construction ||
+          ''
+      ).trim();
+      const strat = inferStratumFromYearOrText(null, `${siecle} ${title} ${hist}`, 'histoire');
+      const summaryParts = [
+        `${title} — édifice référencé par le Ministère de la Culture au titre des Monuments Historiques (Base Mérimée ${ref}${
+          prot ? `, ${prot}` : ''
+        }).`,
+        hist,
+        desc,
+      ].filter(Boolean);
+
+      culturePois.push({
+        id: sanitizeId(`mc_merimee_${ref}`),
+        name: title.slice(0, 185),
+        mysteryTitle: 'Monument Historique Protégé',
+        category: 'histoire',
+        subType: `Monument Historique (${ref})`.slice(0, 76),
+        stratum: strat.stratum,
+        eraLabel: (siecle || strat.eraLabel).slice(0, 90),
+        source: 'Ministère de la Culture · Base Mérimée',
+        lat: pt.lat,
+        lng: pt.lng,
+        summary: summaryParts.join(' ').slice(0, 2100),
+        nearWaterway: Boolean(row.Nom_du_cours_d_eau_traversant_ou_bordant_l_edifice),
+        waterwayName: String(row.Nom_du_cours_d_eau_traversant_ou_bordant_l_edifice || '').slice(
+          0,
+          75
+        ),
+        safetyNotice: 'Certains monuments historiques classés sont des propriétés privées observables depuis la voie publique.',
+        externalUrl: `https://pop.culture.gouv.fr/notice/merimee/${encodeURIComponent(ref)}`,
+        xpReward: 170,
+        unlockRadiusMeters: 75,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+        officialLabel: 'monument_historique',
+        officialRef: ref,
+      });
+    }
+  }
+
+  // B. Ministère de la Culture — Label « Maisons des Illustres »
+  if (illRes.status === 'fulfilled' && Array.isArray(illRes.value?.data)) {
+    for (const row of illRes.value.data) {
+      const pLat = Number(row.latitude);
+      const pLng = Number(row.longitude);
+      if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) continue;
+      if (haversineMeters(lat, lng, pLat, pLng) > maxLabelRadius) continue;
+      const name = String(row.nom_mdi || '').trim();
+      if (!name) continue;
+      const illustre = String(row.auteur_nom_illustre || '').trim();
+      const desc = String(row.description || '').trim();
+      const annee = row.annee_obtention ? `label attribué en ${row.annee_obtention}` : 'label officiel';
+      const urlRaw = String(row.site_internet_et_autres_liens || '')
+        .split(/[\s|;]+/)
+        .find((u) => /^https?:\/\//i.test(u));
+
+      culturePois.push({
+        id: sanitizeId(`mc_illustre_${row.id || name}`),
+        name: name.slice(0, 185),
+        mysteryTitle: 'Demeure d’Illustre',
+        category: 'legende',
+        subType: `Maison des Illustres${illustre ? ` · ${illustre}` : ''}`.slice(0, 76),
+        stratum: 'moderne',
+        eraLabel: 'Mémoire des Illustres',
+        source: 'Ministère de la Culture · Maisons des Illustres',
+        lat: pLat,
+        lng: pLng,
+        summary: [
+          `« ${name} » est distinguée par le label « Maisons des Illustres » du Ministère de la Culture (${annee})${
+            illustre ? ` en mémoire de ${illustre}` : ''
+          }.`,
+          desc,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .slice(0, 2100),
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: row.conditions_ouverture ? String(row.conditions_ouverture).slice(0, 180) : '',
+        externalUrl: urlRaw || 'https://www.culture.gouv.fr/Aides-demarches/Protections-labels-et-appellations/Label-Maisons-des-Illustres',
+        xpReward: 190,
+        unlockRadiusMeters: 80,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+        officialLabel: 'maison_illustres',
+      });
+    }
+  }
+
+  // C. Ministère de la Culture — Label « Jardins Remarquables »
+  if (jarRes.status === 'fulfilled' && Array.isArray(jarRes.value?.data)) {
+    for (const row of jarRes.value.data) {
+      const pLat = Number(row.latitude);
+      const pLng = Number(row.longitude);
+      if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) continue;
+      if (haversineMeters(lat, lng, pLat, pLng) > maxLabelRadius) continue;
+      const name = String(row.nom_du_jardin || '').trim();
+      if (!name) continue;
+      const desc = String(row.description || '').trim();
+      const types = String(row.types || '').trim();
+      const urlRaw = String(row.site_internet_et_autres_liens || '')
+        .split(/[\s|;]+/)
+        .find((u) => /^https?:\/\//i.test(u));
+
+      culturePois.push({
+        id: sanitizeId(`mc_jardin_${row.id || name}`),
+        name: name.slice(0, 185),
+        mysteryTitle: 'Enclos Botanique Labellisé',
+        category: 'ecosysteme',
+        subType: `Jardin Remarquable${types ? ` (${types})` : ''}`.slice(0, 76),
+        stratum: 'vivant_folklore',
+        eraLabel: 'Art des Jardins & Botanique',
+        source: 'Ministère de la Culture · Jardins Remarquables',
+        lat: pLat,
+        lng: pLng,
+        summary: [
+          `« ${name} » détient le label officiel « Jardin Remarquable » décerné par le Ministère de la Culture pour son intérêt botanique, paysager et historique.`,
+          desc,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .slice(0, 2100),
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: row.conditions_ouverture ? String(row.conditions_ouverture).slice(0, 180) : '',
+        externalUrl: urlRaw || 'https://www.culture.gouv.fr/Aides-demarches/Protections-labels-et-appellations/Label-Jardin-remarquable',
+        xpReward: 180,
+        unlockRadiusMeters: 85,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+        officialLabel: 'jardin_remarquable',
+      });
+    }
+  }
+
+  // D. Ministère de la Culture — Appellation « Musée de France » (Base Muséofile)
+  if (musRes.status === 'fulfilled' && Array.isArray(musRes.value?.data)) {
+    for (const row of musRes.value.data) {
+      const pt = parseLatLngPairString(row.Coordonnees);
+      if (!pt) continue;
+      if (haversineMeters(lat, lng, pt.lat, pt.lng) > maxCultureRadius * 1.2) continue;
+      const ident = String(row.Identifiant || '').trim();
+      const name = String(row.Nom_officiel || row.Lieu || '').trim();
+      if (!name) continue;
+      const hist = String(row.Histoire || '').trim();
+      const atout = String(row.Atout || row.Interet || '').trim();
+      const dom = String(row.Domaine_thematique || '').trim();
+      const rawUrl = String(row.URL || '').trim();
+      const cleanUrl = rawUrl
+        ? /^https?:\/\//i.test(rawUrl)
+          ? rawUrl
+          : `https://${rawUrl}`
+        : ident
+        ? `https://pop.culture.gouv.fr/notice/museo/${encodeURIComponent(ident)}`
+        : 'https://pop.culture.gouv.fr/';
+
+      culturePois.push({
+        id: sanitizeId(`mc_museo_${ident || name}`),
+        name: name.charAt(0).toUpperCase() + name.slice(1, 185),
+        mysteryTitle: 'Cabinet & Collections de France',
+        category: 'histoire',
+        subType: `Musée de France${dom ? ` · ${dom.split(';')[0]}` : ''}`.slice(0, 76),
+        stratum: 'contemporain',
+        eraLabel: 'Collections Nationales · Muséofile',
+        source: 'Ministère de la Culture · Muséofile',
+        lat: pt.lat,
+        lng: pt.lng,
+        summary: [
+          `Institution porteuse de l’appellation « Musée de France » (Base Muséofile ${ident}).`,
+          atout,
+          hist,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .slice(0, 2100),
+        nearWaterway: false,
+        waterwayName: '',
+        safetyNotice: '',
+        externalUrl: cleanUrl,
+        xpReward: 175,
+        unlockRadiusMeters: 75,
+        relatedPoiIds: [],
+        relatedPoiTitles: [],
+        officialLabel: 'musee_de_france',
+        officialRef: ident,
+      });
+    }
+  }
+
+  // E. Tourisme Ouvert — Plateforme Nationale DATAtourisme (CulturalSite & ParkAndGarden, sans hôtels/restaurants)
+  const dtRows: any[] = [
+    ...(dtCultRes.status === 'fulfilled' && Array.isArray(dtCultRes.value?.data)
+      ? dtCultRes.value.data
+      : []),
+    ...(dtParkRes.status === 'fulfilled' && Array.isArray(dtParkRes.value?.data)
+      ? dtParkRes.value.data
+      : []),
+  ];
+  const seenDtIds = new Set<string>();
+  for (const row of dtRows) {
+    const uri = String(row.URI_ID_du_POI || row.__id || '').trim();
+    if (!uri || seenDtIds.has(uri)) continue;
+    seenDtIds.add(uri);
+
+    const pLat = Number(row.Latitude);
+    const pLng = Number(row.Longitude);
+    if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) continue;
+    const d = haversineMeters(lat, lng, pLat, pLng);
+    if (d > maxCultureRadius) continue;
+
+    const catsRaw = String(row.Categories_de_POI || '');
+    // Strictly filter out commercial lodging, restaurants, ice cream parlors, shops, parkings
+    if (
+      /Accommodation|Hotel|FoodEstablishment|Restaurant|IceCreamShop|FastFood|BarOrPub|Supermarket|Parking|Rental|RealEstate/i.test(
+        catsRaw
+      )
+    ) {
+      continue;
+    }
+
+    const poiName = String(row.Nom_du_POI || '').trim();
+    const desc = String(row.Description || '').trim();
+    if (poiName.length < 3 || desc.length < 25) continue;
+
+    const isGardenOrNature = /ParkAndGarden|NaturalHeritage|Forest|Waterfall/i.test(catsRaw);
+    const isTechOrCraft = /TechnicalHeritage|Mill|Mine|Craftsman/i.test(catsRaw);
+    const category: CategoryKey = isGardenOrNature
+      ? 'ecosysteme'
+      : isTechOrCraft
+      ? 'etrange'
+      : 'histoire';
+
+    const diffuseur = String(row.SIT_diffuseur || row.Createur_de_la_donnee || 'Office de Tourisme').trim();
+    const contactWeb = String(row.Contacts_du_POI || '')
+      .split('#')
+      .find((part) => /^https?:\/\//i.test(part));
+
+    tourismPois.push({
+      id: sanitizeId(`dt_poi_${uri.split('/').pop() || poiName}`),
+      name: poiName.slice(0, 185),
+      mysteryTitle: isGardenOrNature ? 'Espace Paysager Recensé' : 'Site Patrimonial & Touristique',
+      category,
+      subType: `Référentiel Tourisme (${diffuseur})`.slice(0, 76),
+      stratum: isGardenOrNature ? 'vivant_folklore' : 'moderne',
+      eraLabel: 'Patrimoine & Tourisme Local',
+      source: 'Tourisme & Terroir · DATAtourisme',
+      lat: pLat,
+      lng: pLng,
+      summary: `${desc} (Notice transmise par ${diffuseur} via le référentiel ouvert DATAtourisme).`.slice(
+        0,
+        2100
+      ),
+      nearWaterway: /moulin|pont|canal|rivière|port|fontaine|lavoir/i.test(`${poiName} ${desc}`),
+      waterwayName: '',
+      safetyNotice: '',
+      externalUrl: contactWeb || (uri.startsWith('http') ? uri : 'https://www.datatourisme.fr/'),
+      xpReward: 150,
+      unlockRadiusMeters: 75,
+      relatedPoiIds: [],
+      relatedPoiTitles: [],
+      officialLabel: 'datatourisme',
+    });
+
+    if (tourismPois.length >= 10) break;
+  }
+
+  cultureTourismCache.set(cellKey, {
+    expires: Date.now() + 30 * 60 * 1000,
+    culturePois,
+    tourismPois,
+  });
+
+  return { culturePois, tourismPois };
 }
 
 async function startServer() {
@@ -5206,7 +6208,7 @@ async function startServer() {
     // Snap cache key to ~245m cells so backtracking & adjacent walks share warm sector payloads
     const snapLat = Math.round(lat * 450) / 450;
     const snapLng = Math.round(lng * 450) / 450;
-    const cacheKey = `v17_${snapLat.toFixed(4)}_${snapLng.toFixed(4)}_${Math.round(radius / 200)}`;
+    const cacheKey = `v20_${snapLat.toFixed(4)}_${snapLng.toFixed(4)}_${Math.round(radius / 200)}`;
     const cached = sectorCache.get(cacheKey);
     if (cached) {
       res.setHeader('Cache-Control', 'private, max-age=120, stale-while-revalidate=300');
@@ -5303,6 +6305,7 @@ async function startServer() {
       cultMemRes,
       cavitesRes,
       geodesicVernRes,
+      minCultureTourismeRes,
     ] = await Promise.allSettled([
       queryVectorTileTopology(lat, lng),
       querySectorElevationGrid(lat, lng),
@@ -5322,12 +6325,13 @@ async function startServer() {
       queryCulturalAndLiteraryMemory(lat, lng, radius),
       queryGeorisquesCavites(lat, lng, radius),
       queryGeodesicAndRuralMicroHeritage(lat, lng, radius),
+      queryMinistereCultureAndDatatourisme(lat, lng, radius),
     ]);
 
     const topoData =
       topoRes.status === 'fulfilled'
         ? topoRes.value
-        : { terrain: [], pois: [], subterranean: [] };
+        : { terrain: [], pois: [], subterranean: [], lieuxDits: [] };
     const elevationData = elevRes.status === 'fulfilled' ? elevRes.value : null;
     const weatherData = weatherRes.status === 'fulfilled' ? weatherRes.value : null;
     const wikiPois = wikiRes.status === 'fulfilled' ? wikiRes.value : [];
@@ -5359,7 +6363,31 @@ async function startServer() {
     const geodesicVernData =
       geodesicVernRes.status === 'fulfilled'
         ? geodesicVernRes.value
-        : { pois: [], subFeatures: [] };
+        : { pois: [], subFeatures: [], lieuxDits: [], hikingTraces: [] };
+    const minCultureTourismeData =
+      minCultureTourismeRes.status === 'fulfilled'
+        ? minCultureTourismeRes.value
+        : { culturePois: [], tourismPois: [] };
+
+    // Enrich TerrainFeature paths/roads that align with official Overpass GR/GRP/PR hiking route relations
+    if (geodesicVernData.hikingTraces && geodesicVernData.hikingTraces.length > 0) {
+      for (const tf of topoData.terrain) {
+        if (tf.kind !== 'path' && tf.kind !== 'minor_road' && tf.kind !== 'steps') continue;
+        if (tf.points.length === 0) continue;
+        const midPt = tf.points[Math.floor(tf.points.length / 2)];
+        for (const ht of geodesicVernData.hikingTraces) {
+          const hit = ht.points.some((hp) => haversineMeters(midPt.lat, midPt.lng, hp.lat, hp.lng) <= 28);
+          if (hit) {
+            tf.trailNetwork = ht.network;
+            tf.trailRef = ht.ref;
+            break;
+          }
+        }
+      }
+      sourcesActivePushLater: {
+        // tracked below
+      }
+    }
 
     const sourcesActive: string[] = [];
     if (
@@ -5396,6 +6424,12 @@ async function startServer() {
     if (geodesicVernData.pois.some((p) => p.source.includes('Petit Patrimoine'))) {
       sourcesActive.push('Petit Patrimoine Rural & Fontaines');
     }
+    if (minCultureTourismeData.culturePois.length > 0) {
+      sourcesActive.push('Ministère de la Culture (Mérimée · Illustres · Jardins · Muséofile)');
+    }
+    if (minCultureTourismeData.tourismPois.length > 0) {
+      sourcesActive.push('Tourisme & Terroir · DATAtourisme');
+    }
     if (ignPois.length > 0) sourcesActive.push('IGN BD TOPO');
     if (toponymRailPois.length > 0) sourcesActive.push('Toponymie & Voies Disparues (IGN)');
     if (archeoPois.length > 0) sourcesActive.push('Archéologie & Fouilles (Atlas / INRAP)');
@@ -5419,9 +6453,11 @@ async function startServer() {
     if (fossilPois.length > 0) sourcesActive.push('Paleobiology DB');
     if (bioPois.length > 0) sourcesActive.push('iNaturalist & GBIF');
 
-    // Feed specialized & newly added archives FIRST so deduplication preserves their rich provenance!
+    // Feed specialized & official State archives FIRST so deduplication preserves their rich provenance!
     const pois = enrichAndLinkPois(
       [
+        ...minCultureTourismeData.culturePois,
+        ...minCultureTourismeData.tourismPois,
         ...cavitesData.cavitePois,
         ...geodesicVernData.pois,
         ...inpnTreeData.inpnGeoEco,
@@ -5509,12 +6545,53 @@ async function startServer() {
       });
     }
 
+    // Merge IGN Lieux-dits habités + MVT Places + Overpass Lieux-dits + Named Forests/Rivers into unified LieuDitBanner[]
+    const mergedLieuxDits: LieuDitBanner[] = [];
+    const seenMergedLd = new Set<string>();
+    const pushLd = (ld: LieuDitBanner) => {
+      const clean = ld.name.trim();
+      if (clean.length < 2 || clean.length > 34) return;
+      const key = clean.toLowerCase();
+      if (seenMergedLd.has(key)) return;
+      if (mergedLieuxDits.some((ex) => haversineMeters(ex.lat, ex.lng, ld.lat, ld.lng) < 160)) {
+        return;
+      }
+      seenMergedLd.add(key);
+      mergedLieuxDits.push({ ...ld, name: clean });
+    };
+
+    for (const ld of geodesicVernData.lieuxDits || []) pushLd(ld);
+    for (const ld of topoData.lieuxDits || []) pushLd(ld);
+    for (const tf of topoData.terrain) {
+      if (mergedLieuxDits.length >= 16) break;
+      if (!tf.name || tf.points.length === 0) continue;
+      if (tf.kind === 'forest' || tf.kind === 'park' || tf.kind === 'water' || tf.kind === 'waterway') {
+        if (/^(rivière|ruisseau|étendue d’eau|canal|jetée)$/i.test(tf.name.trim())) continue;
+        const mid = tf.points[Math.floor(tf.points.length / 2)];
+        pushLd({
+          id: `tf_ld_${tf.id}`,
+          name: tf.name,
+          kind: tf.kind === 'water' || tf.kind === 'waterway' ? 'hydronyme' : 'bois_vallee',
+          lat: mid.lat,
+          lng: mid.lng,
+        });
+      }
+    }
+
+    if (mergedLieuxDits.length > 0) {
+      sourcesActive.push('IGN Lieux-Dits & Toponymes');
+    }
+    if (topoData.terrain.some((t) => Boolean(t.trailNetwork))) {
+      sourcesActive.push('Sentiers Balisés GR / PR');
+    }
+
     const payload: SectorPayload = {
       center: { lat, lng },
       radiusMeters: radius,
       pois,
       terrain: topoData.terrain,
       subterranean: combinedSubterranean.slice(0, 220),
+      lieuxDits: mergedLieuxDits.slice(0, 16),
       bedrock: geoData.bedrock,
       elevation: elevationData,
       weather: weatherData,
@@ -5593,7 +6670,7 @@ async function startServer() {
 
     const mm = String(month).padStart(2, '0');
     const dd = String(day).padStart(2, '0');
-    const cacheKey = `${lat.toFixed(2)}_${lng.toFixed(2)}_${mm}_${dd}`;
+    const cacheKey = `v2_${lat.toFixed(2)}_${lng.toFixed(2)}_${mm}_${dd}`;
 
     const cached = almanacCache.get(cacheKey);
     if (cached) {
@@ -5606,25 +6683,28 @@ async function startServer() {
     const fetchLocality = async (): Promise<{
       commune: string;
       departement: string;
+      codeDepartement?: string;
       region: string;
       population?: number;
     }> => {
       try {
         const geoUrl = `https://geo.api.gouv.fr/communes?lat=${lat.toFixed(5)}&lon=${lng.toFixed(
           5
-        )}&fields=nom,departement,region,population&format=json`;
+        )}&fields=nom,codeDepartement,departement,region,population&format=json`;
         const resp = await fetchWithTimeout(geoUrl, { headers: { 'User-Agent': USER_AGENT } }, 3500);
         if (resp.ok) {
           const arr = (await resp.json()) as Array<{
             nom?: string;
+            codeDepartement?: string;
             population?: number;
-            departement?: { nom?: string };
+            departement?: { code?: string; nom?: string };
             region?: { nom?: string };
           }>;
           if (Array.isArray(arr) && arr.length > 0 && arr[0].nom) {
             return {
               commune: arr[0].nom,
               departement: arr[0].departement?.nom || '',
+              codeDepartement: arr[0].codeDepartement || arr[0].departement?.code || '',
               region: arr[0].region?.nom || '',
               population: arr[0].population,
             };
@@ -5845,10 +6925,113 @@ LIMIT 24`;
       }
     };
 
-    const [locRes, ephRes, localRes] = await Promise.allSettled([
-      fetchLocality(),
+    // 4. Real Local Cultural Festivals via Ministère de la Culture "Panorama des Festivals" (data.gouv.fr Tabular API)
+    const fetchLocalFestivals = async (deptCodeRaw: string) => {
+      const deptCode = String(deptCodeRaw || '').trim();
+      if (!deptCode) return [];
+      const datasetId = '5b51825fa3a72936dfe1c340';
+      const defaultResId =
+        activeResourceIdCache.get(datasetId) || '4415a028-aa8e-447d-a2e9-d3917b9bd278';
+
+      try {
+        const qsMonth = `${encodeURIComponent('Département')}__exact=${encodeURIComponent(
+          deptCode
+        )}&${encodeURIComponent('Mois habituel de début')}__contains=${encodeURIComponent(
+          mm
+        )}&page_size=24`;
+        let json = (await fetchTabularWithDatasetFallback(
+          datasetId,
+          defaultResId,
+          qsMonth,
+          3800
+        )) as { data?: Array<Record<string, unknown>> } | null;
+
+        let rows = Array.isArray(json?.data) ? json!.data! : [];
+        let fallbackAllMonths = false;
+        if (rows.length === 0) {
+          fallbackAllMonths = true;
+          const qsDept = `${encodeURIComponent('Département')}__exact=${encodeURIComponent(
+            deptCode
+          )}&page_size=30`;
+          json = (await fetchTabularWithDatasetFallback(
+            datasetId,
+            defaultResId,
+            qsDept,
+            3800
+          )) as { data?: Array<Record<string, unknown>> } | null;
+          rows = Array.isArray(json?.data) ? json!.data! : [];
+        }
+
+        const seenNames = new Set<string>();
+        const parsed: Array<{
+          id: string;
+          name: string;
+          commune: string;
+          domain: string;
+          monthLabel: string;
+          isCurrentMonth: boolean;
+          distanceKm: number | null;
+          lat: number | null;
+          lng: number | null;
+          website?: string;
+        }> = [];
+
+        for (const r of rows) {
+          const name = String(r['Nom de la manifestation'] || '').trim();
+          if (!name) continue;
+          const normKey = name.toLowerCase();
+          if (seenNames.has(normKey)) continue;
+          seenNames.add(normKey);
+
+          const commune = String(r['Commune principale'] || '').trim() || 'Département local';
+          const domain = String(r['Domaine'] || 'Culture & Patrimoine').trim();
+          const rawMonth = String(r['Mois habituel de début'] || '').trim();
+          const isCurrentMonth = !fallbackAllMonths || rawMonth.includes(mm);
+          const pt = parseLatLngPairString(r['coordonnees_insee']);
+          const distanceKm = pt
+            ? Math.round((haversineMeters(lat, lng, pt.lat, pt.lng) / 1000) * 10) / 10
+            : null;
+          const rawSite = String(r['Site web'] || '').trim();
+          const website =
+            rawSite && /^https?:\/\//i.test(rawSite)
+              ? rawSite.slice(0, 300)
+              : rawSite && rawSite.includes('.')
+              ? `https://${rawSite}`.slice(0, 300)
+              : undefined;
+
+          parsed.push({
+            id: sanitizeId(`fest_${deptCode}_${name.slice(0, 48)}`),
+            name: name.slice(0, 140),
+            commune: commune.slice(0, 90),
+            domain: domain.slice(0, 80),
+            monthLabel: rawMonth ? rawMonth.slice(0, 60) : `Mois ${mm}`,
+            isCurrentMonth,
+            distanceKm,
+            lat: pt ? pt.lat : null,
+            lng: pt ? pt.lng : null,
+            website,
+          });
+        }
+
+        parsed.sort((a, b) => {
+          if (a.isCurrentMonth !== b.isCurrentMonth) return a.isCurrentMonth ? -1 : 1;
+          const dA = a.distanceKm ?? 999;
+          const dB = b.distanceKm ?? 999;
+          return dA - dB;
+        });
+
+        return parsed.slice(0, 5);
+      } catch {
+        return [];
+      }
+    };
+
+    const localityPromise = fetchLocality();
+    const [locRes, ephRes, localRes, festRes] = await Promise.allSettled([
+      localityPromise,
       fetchGlobalEphemerides(),
       fetchLocalAnniversaries(),
+      localityPromise.then((loc) => fetchLocalFestivals(loc.codeDepartement || '')),
     ]);
 
     const payload = {
@@ -5861,6 +7044,7 @@ LIMIT 24`;
           : { commune: 'Contrée locale', departement: '', region: '' },
       globalEphemerides: ephRes.status === 'fulfilled' ? ephRes.value : [],
       localAnniversaries: localRes.status === 'fulfilled' ? localRes.value : [],
+      localFestivals: festRes.status === 'fulfilled' ? festRes.value : [],
     };
 
     almanacCache.set(cacheKey, {

@@ -347,6 +347,98 @@ export const TROPHIES_CATALOG: TrophyDefinition[] = [
     evaluateCurrent: (ctx) =>
       Math.max(ctx.progress.completedContractsCount || 0, ctx.claimedContractsCount),
   },
+  {
+    id: 'tisserand_recits',
+    name: 'Tisserand des Récits',
+    tier: 'silver',
+    titles: {
+      feminin: 'Tisseuse des Trois Actes',
+      masculin: 'Tisserand des Trois Actes',
+      neutre: 'Tisserand des Trois Actes',
+    },
+    description:
+      'Mener à son dénouement une Quête Narrative complète en découvrant ses lieux liés dans l’ordre exact du Début, du Milieu et de la Fin.',
+    howToHint: 'Ouvrez l’onglet Quêtes → Récits et suivez les trois actes successifs sur le terrain.',
+    unitLabel: 'quête narrative scellée',
+    target: 1,
+    evaluateCurrent: (ctx) => Math.round(ctx.progress.completedNarrativesCount || 0),
+  },
+  {
+    id: 'maitre_chroniques',
+    name: 'Maître des Chroniques',
+    tier: 'obsidian',
+    titles: {
+      feminin: 'Grande Conteuse des Contrées',
+      masculin: 'Grand Conteur des Contrées',
+      neutre: 'Maître des Chroniques',
+    },
+    description:
+      'Achever trois Quêtes Narratives complètes et reconstituer la mémoire entrelacée des pierres, des eaux et des légendes.',
+    howToHint: 'Complétez 3 trilogies narratives dans un ou plusieurs secteurs d’exploration.',
+    unitLabel: 'trilogies accomplies',
+    target: 3,
+    evaluateCurrent: (ctx) => Math.round(ctx.progress.completedNarrativesCount || 0),
+  },
+  {
+    id: 'heraut_communaute',
+    name: 'Héraut de la Guilde Unie',
+    tier: 'gold',
+    titles: {
+      feminin: 'Héraut des Éclaireuses Unies',
+      masculin: 'Héraut des Éclaireurs Unis',
+      neutre: 'Héraut de la Guilde Unie',
+    },
+    description:
+      'Contribuer à l’effort collectif dans le temps imparti et valider deux paliers lors des Défis Communautaires.',
+    howToHint: 'Participez aux Défis Communautaires (quotidien, hebdomadaire ou mensuel) et réclamez 2 paliers.',
+    unitLabel: 'paliers communautaires validés',
+    target: 2,
+    evaluateCurrent: (ctx) => Math.round(ctx.progress.claimedCommunityChallengesCount || 0),
+  },
+  {
+    id: 'temoin_phenomenes',
+    name: 'Témoin des Phénomènes',
+    tier: 'obsidian',
+    titles: {
+      feminin: 'Observatrice des Phénomènes Vivants',
+      masculin: 'Observateur des Phénomènes Vivants',
+      neutre: 'Témoin des Phénomènes Vivants',
+    },
+    description:
+      'Explorer le monde réel durant des phénomènes éphémères — pluies de météores, intempéries actives ou festivals locaux — et consigner leurs chroniques spéciales.',
+    howToHint:
+      'Ouvrez l’onglet Quêtes → Panthéon & Événements et validez 2 défis d’Événements Vivants.',
+    unitLabel: 'phénomènes consignés',
+    target: 2,
+    evaluateCurrent: (ctx) => Math.round(ctx.progress.claimedLiveEventsCount || 0),
+  },
+  {
+    id: 'champion_pantheon',
+    name: 'Étoile du Panthéon',
+    tier: 'gold',
+    titles: {
+      feminin: 'Doyenne du Panthéon',
+      masculin: 'Doyen du Panthéon',
+      neutre: 'Étoile du Panthéon',
+    },
+    description:
+      'Conjuguer points d’expérience, diversité des branches et rareté des trouvailles jusqu’à franchir le seuil d’excellence du Panthéon des Explorateurs.',
+    howToHint:
+      'Cumulez XP, catégories variées, coffres d’Archiviste et événements vivants jusqu’à 1 200 pts d’Indice Panthéon.',
+    unitLabel: 'pts Panthéon',
+    target: 1200,
+    evaluateCurrent: (ctx) => {
+      const cats = new Set(ctx.entries.map((e) => e.category)).size;
+      const sources = new Set(ctx.entries.map((e) => e.source)).size;
+      const affinities = new Set(ctx.specimens.map((s) => s.affinity)).size;
+      const diversity = cats * 120 + Math.min(20, sources) * 55 + affinities * 70;
+      const rarity =
+        ctx.openedChests.length * 160 +
+        Math.round(ctx.progress.claimedLiveEventsCount || 0) * 220 +
+        Math.round(ctx.progress.solvedRiddlesCount || 0) * 90;
+      return Math.round(ctx.progress.totalXp + diversity + rarity);
+    },
+  },
 ];
 
 export const TROPHY_TIER_META: Record<
@@ -640,6 +732,65 @@ export function drawTrophyMedallion16Bit(
       p(9, 14, 5, 1, ink('#78350f'));
       p(13, 15, 3, 3, hi('#e11d48'));
       p(14, 16, 1, 1, hi('#fecdd3'));
+      break;
+    }
+    case 'tisserand_recits': {
+      // Open illuminated storybook + golden quill across pages
+      p(6, 11, 6, 7, hi('#fef3c7'));
+      p(12, 11, 6, 7, hi('#fde68a'));
+      p(11, 11, 2, 7, ink('#92400e'));
+      p(7, 13, 3, 1, ink('#78350f'));
+      p(7, 15, 3, 1, ink('#78350f'));
+      // Crimson & gold quill nib
+      p(13, 10, 4, 2, hi('#f43f5e'));
+      p(12, 12, 3, 2, hi('#fbbf24'));
+      p(11, 14, 2, 2, hi('#ffffff'));
+      break;
+    }
+    case 'maitre_chroniques': {
+      // Three interconnected golden stars / acts linked by celestial thread
+      p(7, 15, 3, 3, hi('#fde047'));
+      p(11, 10, 3, 3, hi('#ffffff'));
+      p(15, 15, 3, 3, hi('#f43f5e'));
+      p(9, 13, 2, 2, ink('#a5b4fc'));
+      p(13, 13, 2, 2, ink('#a5b4fc'));
+      p(10, 16, 5, 1, hi('#fbbf24'));
+      break;
+    }
+    case 'heraut_communaute': {
+      // Azure & gold guild banner with twin stars of fellowship
+      p(8, 10, 8, 7, ink('#0284c7'));
+      p(8, 17, 3, 2, ink('#0284c7'));
+      p(13, 17, 3, 2, ink('#0284c7'));
+      p(7, 10, 10, 1, hi('#fbbf24'));
+      p(9, 12, 2, 2, hi('#fef08a'));
+      p(13, 12, 2, 2, hi('#fef08a'));
+      p(10, 15, 4, 1, hi('#ffffff'));
+      break;
+    }
+    case 'temoin_phenomenes': {
+      // Shooting meteor with fiery amber-cyan tail over dark night horizon
+      p(13, 10, 3, 3, hi('#ffffff'));
+      p(14, 11, 2, 2, hi('#fef08a'));
+      p(11, 12, 2, 2, hi('#fbbf24'));
+      p(9, 14, 2, 2, ink('#f97316'));
+      p(7, 16, 2, 1, ink('#38bdf8'));
+      p(7, 11, 1, 1, hi('#bae6fd'));
+      p(15, 15, 1, 1, hi('#fde047'));
+      p(6, 18, 12, 1, ink('#4338ca'));
+      break;
+    }
+    case 'champion_pantheon': {
+      // Classical Pantheon laurel crown + radiant golden star pillar
+      p(11, 9, 2, 3, hi('#ffffff'));
+      p(10, 10, 4, 1, hi('#fef08a'));
+      p(10, 13, 4, 5, hi('#fbbf24'));
+      p(9, 18, 6, 1, ink('#b45309'));
+      // Left & right laurel branches
+      p(7, 12, 2, 4, hi('#4ade80'));
+      p(8, 16, 2, 2, ink('#16a34a'));
+      p(15, 12, 2, 4, hi('#4ade80'));
+      p(14, 16, 2, 2, ink('#16a34a'));
       break;
     }
   }

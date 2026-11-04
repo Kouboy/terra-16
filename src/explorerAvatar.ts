@@ -216,6 +216,8 @@ export type CosmeticUnlockSourceKind =
   | 'enigme'
   | 'chasse'
   | 'almanach'
+  | 'narrative'
+  | 'communaute'
   | 'terrain'
   | 'guilde';
 
@@ -232,6 +234,8 @@ export interface CosmeticItemDef {
   minSolvedRiddles?: number;
   minCompletedHunts?: number;
   minClaimedAlmanac?: number;
+  minCompletedNarratives?: number;
+  minCommunityChallengeClaims?: number;
 }
 
 export const HEADGEAR_CATALOG: Array<CosmeticItemDef & { id: ExplorerHeadgearId }> = [
@@ -305,6 +309,20 @@ export const HEADGEAR_CATALOG: Array<CosmeticItemDef & { id: ExplorerHeadgearId 
     subtitle: 'Toque d’érudit pourpre, monocle cerclé d’or & fine chaînette',
     minSolvedRiddles: 3,
   },
+  {
+    id: 'couronne_chroniqueur',
+    slot: 'headgear',
+    name: 'Laurier d’Or des Trois Actes',
+    subtitle: 'Couronne de laurier ciselée d’or & rubis scellé des maîtres du récit',
+    minCompletedNarratives: 1,
+  },
+  {
+    id: 'bandeau_guilde_unie',
+    slot: 'headgear',
+    name: 'Bandeau d’Éclaireur Communautaire',
+    subtitle: 'Bandeau d’azur et d’or aux pans flottants des expéditions collectives',
+    minCommunityChallengeClaims: 1,
+  },
 ];
 
 export const OUTFIT_COSMETICS_CATALOG: Array<CosmeticItemDef & { id: ExplorerOutfitId }> = [
@@ -373,6 +391,13 @@ export const OUTFIT_COSMETICS_CATALOG: Array<CosmeticItemDef & { id: ExplorerOut
     subtitle: 'Cuir fauve de chercheur de coffres, épaulettes d’or & foulard sarcelle',
     minCompletedHunts: 3,
   },
+  {
+    id: 'conteuse_legende',
+    slot: 'outfit',
+    name: 'Manteau Enluminé des Récits',
+    subtitle: 'Brocart outremer enluminé d’or, écharpe d’ivoire & fermoir de chroniqueur',
+    minCompletedNarratives: 2,
+  },
 ];
 
 export const TOOL_CATALOG: Array<CosmeticItemDef & { id: ExplorerToolId }> = [
@@ -436,6 +461,13 @@ export const TOOL_CATALOG: Array<CosmeticItemDef & { id: ExplorerToolId }> = [
     name: 'Passe-Partout des Caches Anciennes',
     subtitle: 'Grande clef squelette en or massif ouvrant les coffres de piste',
     minCompletedHunts: 2,
+  },
+  {
+    id: 'plume_trois_actes',
+    slot: 'tool',
+    name: 'Calame Scellé des Trois Actes',
+    subtitle: 'Plume carmin & or accompagnée d’un rouleau scellé de cire vermeille',
+    minCompletedNarratives: 1,
   },
 ];
 
@@ -546,6 +578,20 @@ export const FAMILIAR_CATALOG: Array<CosmeticItemDef & { id: ExplorerFamiliarId 
     subtitle: 'Esprit stellaire doré coiffé d’une minuscule couronne astrale',
     minClaimedAlmanac: 3,
   },
+  {
+    id: 'cerf_brumes',
+    slot: 'familiar',
+    name: 'Petit Cerf Blanc des Légendes',
+    subtitle: 'Faon d’ivoire aux jeunes bois dorés né au dénouement des quêtes narratives',
+    minCompletedNarratives: 1,
+  },
+  {
+    id: 'loutre_riviere',
+    slot: 'familiar',
+    name: 'Loutre des Rivières Unies',
+    subtitle: 'Loutre espiègle portant un galet turquoise poli par l’entraide des éclaireurs',
+    minCommunityChallengeClaims: 2,
+  },
 ];
 
 export const ALL_COSMETIC_ITEMS: CosmeticItemDef[] = [
@@ -568,7 +614,9 @@ export function isCosmeticUnlocked(
     !item.minCompletedMissions &&
     !item.minSolvedRiddles &&
     !item.minCompletedHunts &&
-    !item.minClaimedAlmanac
+    !item.minClaimedAlmanac &&
+    !item.minCompletedNarratives &&
+    !item.minCommunityChallengeClaims
   ) {
     return true;
   }
@@ -597,6 +645,15 @@ export function isCosmeticUnlocked(
   if (item.minClaimedAlmanac && (progress.claimedAlmanacCount || 0) >= item.minClaimedAlmanac) {
     return true;
   }
+  if (item.minCompletedNarratives && (progress.completedNarrativesCount || 0) >= item.minCompletedNarratives) {
+    return true;
+  }
+  if (
+    item.minCommunityChallengeClaims &&
+    (progress.claimedCommunityChallengesCount || 0) >= item.minCommunityChallengeClaims
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -613,6 +670,29 @@ export function getCosmeticUnlockStatus(
   sourceKind: CosmeticUnlockSourceKind;
 } {
   const unlocked = isCosmeticUnlocked(item, progress, entries);
+  if (item.minCompletedNarratives) {
+    const cur = Math.min(item.minCompletedNarratives, progress.completedNarrativesCount || 0);
+    return {
+      unlocked,
+      requirementLabel: `Achever ${item.minCompletedNarratives} quête${item.minCompletedNarratives > 1 ? 's' : ''} narrative${item.minCompletedNarratives > 1 ? 's' : ''} en 3 actes`,
+      current: cur,
+      target: item.minCompletedNarratives,
+      sourceKind: 'narrative',
+    };
+  }
+  if (item.minCommunityChallengeClaims) {
+    const cur = Math.min(
+      item.minCommunityChallengeClaims,
+      progress.claimedCommunityChallengesCount || 0
+    );
+    return {
+      unlocked,
+      requirementLabel: `Valider ${item.minCommunityChallengeClaims} palier${item.minCommunityChallengeClaims > 1 ? 's' : ''} de défis communautaires`,
+      current: cur,
+      target: item.minCommunityChallengeClaims,
+      sourceKind: 'communaute',
+    };
+  }
   if (item.minSolvedRiddles) {
     const cur = Math.min(item.minSolvedRiddles, progress.solvedRiddlesCount || 0);
     return {
@@ -793,6 +873,11 @@ export interface DrawExplorerSpriteOptions {
   appearance: ExplorerAppearance;
   drawAura?: boolean;
   isNight?: boolean;
+  familiarAura?: 'aucune' | 'solaire' | 'sylvestre' | 'astrale';
+  coldBreath?: boolean;
+  surfaceType?: 'stone' | 'gravel' | 'grass' | 'wood';
+  isWet?: boolean;
+  isSnowy?: boolean;
 }
 
 /**
@@ -815,6 +900,11 @@ export function drawExplorerSprite16Bit(
     appearance,
     drawAura = true,
     isNight = false,
+    familiarAura = 'aucune',
+    coldBreath = false,
+    surfaceType = 'gravel',
+    isWet = false,
+    isSnowy = false,
   } = opts;
 
   const gender = getExplorerGenderDef(appearance.gender).id;
@@ -899,12 +989,28 @@ export function drawExplorerSprite16Bit(
     }
   }
 
-  // Footstep dust puffs when walking
+  // Context-reactive 16-bit footstep FX (water splash, snow puff, meadow leaf, or path dust)
   if (isWalking) {
     const dustX =
       facingDir === 'right' ? -19 : facingDir === 'left' ? 14 : stride < 2 ? -12 : 8;
-    fp(dustX, -3 - breeze * 2, 5, 3, 'rgba(245, 235, 214, 0.84)');
-    fp(dustX + (facingDir === 'left' ? -2 : 3), -1, 3, 2, 'rgba(214, 196, 162, 0.72)');
+    const altSide = facingDir === 'left' ? -2 : 3;
+    if (isSnowy) {
+      fp(dustX, -3 - breeze * 2, 5, 3, 'rgba(240, 249, 255, 0.92)');
+      fp(dustX + altSide, -1, 3, 2, 'rgba(186, 230, 253, 0.85)');
+      fp(dustX + 1, -5 - breeze, 2, 2, '#ffffff');
+    } else if (isWet) {
+      // Crisp 16-bit puddle ripple & azure water droplets
+      fp(-11, -1, 22, 2, 'rgba(125, 211, 252, 0.45)');
+      fp(dustX, -4 - breeze * 2, 3, 3, 'rgba(186, 230, 253, 0.92)');
+      fp(dustX + altSide, -6 - breeze, 2, 2, '#e0f2fe');
+      fp(dustX - 2, -2, 4, 2, 'rgba(56, 189, 248, 0.78)');
+    } else if (surfaceType === 'grass') {
+      fp(dustX, -4 - breeze * 2, 3, 2, 'rgba(134, 239, 172, 0.88)');
+      fp(dustX + altSide, -2 - breeze, 2, 2, 'rgba(74, 222, 128, 0.78)');
+    } else {
+      fp(dustX, -3 - breeze * 2, 5, 3, 'rgba(245, 235, 214, 0.84)');
+      fp(dustX + altSide, -1, 3, 2, 'rgba(214, 196, 162, 0.72)');
+    }
   }
 
   // Crisp 2-tier elliptical 16-bit ground contact shadow
@@ -1565,6 +1671,30 @@ export function drawExplorerSprite16Bit(
       fp(mx + 4, hy + 8, 1, 3, '#fde047');
       fp(mx + 3, hy + 10, 2, 1, '#d97706');
     }
+  } else if (headgear === 'couronne_chroniqueur') {
+    // Golden Laurel Wreath of the Three Acts + Faceted Crimson Ruby
+    fp(-12, hy - 6, 24, 6, OUT);
+    fp(-11, hy - 5, 22, 4, '#b45309');
+    fp(-10, hy - 6, 5, 3, '#fde047');
+    fp(5, hy - 6, 5, 3, '#fde047');
+    fp(-7, hy - 7, 4, 3, '#fef08a');
+    fp(3, hy - 7, 4, 3, '#fef08a');
+    // Center sealed ruby gem
+    fp(-3, hy - 7, 6, 5, OUT);
+    fp(-2, hy - 6, 4, 3, '#e11d48');
+    fp(-1, hy - 6, 2, 1, '#fecdd3');
+  } else if (headgear === 'bandeau_guilde_unie') {
+    // Azure & Gold Community Explorer Headband + Flowing Twin Ribbons
+    fp(-12, hy - 5, 24, 5, OUT);
+    fp(-11, hy - 4, 22, 3, '#0284c7');
+    fp(-11, hy - 4, 22, 1, '#38bdf8');
+    fp(-3, hy - 5, 6, 4, '#fbbf24');
+    fp(-2, hy - 4, 4, 2, '#fef08a');
+    // Twin ribbon tails fluttering behind
+    const tailX = facingDir === 'left' ? 10 : -14;
+    fp(tailX, hy - 3 + breeze, 4, 7, OUT);
+    fp(tailX + 1, hy - 2 + breeze, 2, 5, '#0284c7');
+    fp(tailX + 1, hy + 2 + breeze, 2, 1, '#fde047');
   }
 
   // ==========================================================================
@@ -1644,6 +1774,15 @@ export function drawExplorerSprite16Bit(
     fp(toolX + 4, toolY + 6, 3, 4, OUT);
     fp(toolX + 4, toolY + 7, 2, 1, '#fde047');
     fp(toolX + 4, toolY + 9, 2, 1, '#fde047');
+  } else if (tool === 'plume_trois_actes') {
+    // Illuminated Crimson-Gold Calamus Quill + Wax-Sealed Narrative Scroll
+    fp(toolX - 2, toolY + 2, 10, 6, OUT);
+    fp(toolX - 1, toolY + 3, 8, 4, '#fef3c7');
+    fp(toolX + 2, toolY + 4, 2, 2, '#e11d48'); // red wax seal
+    fp(toolX + 2, toolY - 7 + breeze, 6, 9, OUT);
+    fp(toolX + 3, toolY - 6 + breeze, 4, 7, '#dc2626');
+    fp(toolX + 4, toolY - 6 + breeze, 2, 4, '#fde047');
+    fp(toolX + 4, toolY - 7 + breeze, 1, 2, '#ffffff');
   }
 
   // ==========================================================================
@@ -1807,6 +1946,98 @@ export function drawExplorerSprite16Bit(
       // Orbiting stardust mote
       const moteX = fx + (animTick % 6 < 3 ? -7 : 6);
       fp(moteX, wy - 2 + breeze * 2, 2, 2, '#fde047');
+    } else if (familiar === 'cerf_brumes') {
+      // Petit Cerf Blanc des Légendes: Snow-White Fawn with Golden Antler Buds
+      const dy = -12 + petHop;
+      const tailX = fx - fFlip * 6;
+      fp(tailX - 1, dy + 1, 3, 3, '#ffffff');
+      // Slender ivory body & hooves
+      fp(fx - 5, dy + 1, 10, 8, OUT);
+      fp(fx - 4, dy + 2, 8, 5, '#f8fafc');
+      fp(fx - 2, dy + 3, 1, 1, '#fde047'); // golden fawn spot
+      fp(fx + 1, dy + 3, 1, 1, '#fde047');
+      fp(fx - 3, dy + 7, 2, 4, '#78350f');
+      fp(fx + 1, dy + 7, 2, 4, '#78350f');
+      // Graceful head & golden antlers
+      const hx = fx + fFlip * 2;
+      fp(hx - 4, dy - 6, 8, 7, OUT);
+      fp(hx - 3, dy - 5, 6, 5, '#ffffff');
+      fp(hx - 3, dy - 9, 2, 3, '#fbbf24'); // left golden antler
+      fp(hx + 1, dy - 9, 2, 3, '#fbbf24'); // right golden antler
+      fp(hx - 4, dy - 8, 2, 1, '#fef08a');
+      fp(hx + 2, dy - 8, 2, 1, '#fef08a');
+      fp(hx + (fLookRight ? 1 : -2), dy - 3, 1, 2, OUT); // eye
+    } else if (familiar === 'loutre_riviere') {
+      // Loutre des Rivières Unies: Playful River Otter Holding a Turquoise Pebble
+      const ly = -10 + petHop;
+      const tailX = fx - fFlip * 7;
+      fp(tailX - 2, ly + 3, 6, 4, OUT);
+      fp(tailX - 1, ly + 4, 4, 2, '#78350f');
+      // Sleek chestnut body & cream belly
+      fp(fx - 5, ly, 10, 9, OUT);
+      fp(fx - 4, ly + 1, 8, 7, '#92400e');
+      fp(fx - 2, ly + 2, 4, 5, '#fde68a');
+      // Turquoise river pebble clutched on chest
+      fp(fx - 1, ly + 3, 3, 3, '#06b6d4');
+      fp(fx, ly + 3, 1, 1, '#cffafe');
+      // Rounded otter head, whiskers & bright eyes
+      fp(fx - 5, ly - 5, 10, 6, OUT);
+      fp(fx - 4, ly - 4, 8, 4, '#b45309');
+      fp(fx - 3, ly - 2, 6, 2, '#fef3c7');
+      fp(fx - 2, ly - 3, 1, 1, OUT);
+      fp(fx + 1, ly - 3, 1, 1, OUT);
+    }
+
+    // Alchemical Talisman Aura around the Familiar (Solaire / Sylvestre / Astrale)
+    if (familiarAura && familiarAura !== 'aucune') {
+      const auraCenterY =
+        familiar === 'chouette_erudite' ||
+        familiar === 'corbeau_cartographe' ||
+        familiar === 'feu_follet_astral' ||
+        familiar === 'scarabee_boussole'
+          ? -16
+          : -9;
+      const auraHalo =
+        familiarAura === 'solaire'
+          ? 'rgba(251, 191, 36, 0.25)'
+          : familiarAura === 'sylvestre'
+          ? 'rgba(52, 211, 153, 0.25)'
+          : 'rgba(56, 189, 248, 0.28)';
+      const moteMain =
+        familiarAura === 'solaire'
+          ? '#fde047'
+          : familiarAura === 'sylvestre'
+          ? '#86efac'
+          : '#67e8f9';
+      const moteCore = '#ffffff';
+
+      fp(fx - 8, auraCenterY - 6, 16, 12, auraHalo);
+      const phase = animTick % 8;
+      const mx1 = fx + Math.round(Math.cos((phase * Math.PI) / 4) * 8);
+      const my1 = auraCenterY + Math.round(Math.sin((phase * Math.PI) / 4) * 5);
+      const mx2 = fx - Math.round(Math.cos((phase * Math.PI) / 4) * 7);
+      const my2 = auraCenterY - Math.round(Math.sin((phase * Math.PI) / 4) * 4);
+      fp(mx1, my1, 2, 2, moteMain);
+      fp(mx1, my1, 1, 1, moteCore);
+      fp(mx2, my2, 2, 2, moteMain);
+    }
+  }
+
+  // Winter / Frosty Air Condensed Breath Puff near Explorer's Mouth (when not facing away)
+  if (coldBreath && facingDir !== 'up') {
+    const breathPhase = animTick % 16;
+    if (breathPhase < 7) {
+      const drift = Math.floor(breathPhase / 2);
+      const bx =
+        facingDir === 'right'
+          ? 7 + drift * 2
+          : facingDir === 'left'
+          ? -10 - drift * 2
+          : 3 + drift;
+      const by = ty - 9 - drift;
+      const alpha = breathPhase < 4 ? 0.72 : 0.42;
+      fp(bx, by, 4, 3, `rgba(241, 245, 249, ${alpha})`);
+      fp(bx + 1, by - 1, 2, 2, `rgba(255, 255, 255, ${alpha})`);
     }
   }
 }

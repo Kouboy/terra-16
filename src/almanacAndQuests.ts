@@ -40,6 +40,19 @@ export interface LocalAnniversaryItem {
   articleUrl?: string;
 }
 
+export interface LocalFestivalItem {
+  id: string;
+  name: string;
+  commune: string;
+  domain: string;
+  monthLabel: string;
+  isCurrentMonth: boolean;
+  distanceKm: number | null;
+  lat: number | null;
+  lng: number | null;
+  website?: string;
+}
+
 export interface SectorAlmanacPayload {
   dateIso: string;
   month: number;
@@ -47,11 +60,13 @@ export interface SectorAlmanacPayload {
   locality: {
     commune: string;
     departement: string;
+    codeDepartement?: string;
     region: string;
     population?: number;
   };
   globalEphemerides: GlobalEphemerisItem[];
   localAnniversaries: LocalAnniversaryItem[];
+  localFestivals?: LocalFestivalItem[];
 }
 
 export interface CalendarEventDefinition {

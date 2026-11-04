@@ -668,4 +668,82 @@ export function playCapsuleBurySfx(muted: boolean) {
   playFilteredTone(783.99, 0.15, 0.22, 'sine', 0.038, 2300);
 }
 
+export function playTitleSelectSfx(muted: boolean) {
+  if (muted) return;
+  playFilteredTone(659.25, 0, 0.055, 'triangle', 0.04, 2400);
+  playFilteredTone(987.77, 0.04, 0.085, 'sine', 0.035, 2600);
+}
+
+export function playTitleEmbarkSfx(muted: boolean) {
+  if (muted) return;
+  // Warm SNES overworld harp glissando + brass fifth resolve
+  const harp = [261.63, 329.63, 392.0, 523.25, 659.25, 783.99, 1046.5];
+  harp.forEach((f, idx) => {
+    const t = idx * 0.052;
+    const isFinal = idx === harp.length - 1;
+    playFilteredTone(
+      f,
+      t,
+      isFinal ? 0.55 : 0.18,
+      isFinal ? 'triangle' : 'sine',
+      isFinal ? 0.06 : 0.038,
+      2600
+    );
+  });
+  playFilteredTone(130.81, 0.16, 0.58, 'triangle', 0.055, 900);
+  playFilteredTone(196.0, 0.22, 0.52, 'triangle', 0.045, 1200);
+}
+
+let lastBirdFlutterAt = 0;
+export function playStartledBirdsSfx(muted: boolean) {
+  if (muted) return;
+  const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  if (now - lastBirdFlutterAt < 4500) return;
+  lastBirdFlutterAt = now;
+  playShortNoiseBurst(0.05, 1650, 1.6, 0.018);
+  playShortNoiseBurst(0.045, 1850, 1.7, 0.014);
+  playFilteredTone(1567.98, 0.03, 0.06, 'sine', 0.02, 3200);
+  playFilteredTone(1975.53, 0.09, 0.075, 'sine', 0.018, 3400);
+}
+
+export function playOrientationTableSfx(muted: boolean) {
+  if (muted) return;
+  // Crisp brass azimuth click + open-horizon airy fifth chord
+  playShortNoiseBurst(0.03, 1800, 2.0, 0.018);
+  const horizonNotes = [392.0, 587.33, 783.99, 1174.66];
+  horizonNotes.forEach((f, idx) => {
+    const t = 0.03 + idx * 0.065;
+    playFilteredTone(f, t, idx === 3 ? 0.45 : 0.2, 'triangle', 0.04, 2400);
+  });
+}
+
+export function playLieuDitBannerSfx(muted: boolean) {
+  if (muted) return;
+  // Soft vellum scroll rustle + gentle cartographic chime
+  playShortNoiseBurst(0.045, 1150, 1.4, 0.015);
+  playFilteredTone(523.25, 0.02, 0.11, 'sine', 0.024, 2000);
+  playFilteredTone(659.25, 0.08, 0.16, 'triangle', 0.022, 2200);
+}
+
+export function playSecretClueChimeSfx(muted: boolean) {
+  if (muted) return;
+  // Mysterious Lydian sympathetic-ink shimmer (F#4 - A#4 - C#5 - F5 - G#5)
+  playShortNoiseBurst(0.04, 1500, 1.8, 0.014);
+  const inkNotes = [369.99, 466.16, 554.37, 698.46, 830.61];
+  inkNotes.forEach((f, idx) => {
+    playFilteredTone(f, 0.02 + idx * 0.06, idx === 4 ? 0.36 : 0.16, 'triangle', 0.036, 2600);
+  });
+}
+
+export function playSecretArchiveSealBreakSfx(muted: boolean) {
+  if (muted) return;
+  // Crisp wax-seal crack + royal purple archive fanfare
+  playShortNoiseBurst(0.065, 950, 1.3, 0.03);
+  const notes = [293.66, 440.0, 554.37, 659.25, 880.0, 1108.73];
+  notes.forEach((f, idx) => {
+    const t = 0.04 + idx * 0.07;
+    playFilteredTone(f, t, idx >= 4 ? 0.52 : 0.22, 'triangle', 0.05, 2900);
+  });
+  playFilteredTone(146.83, 0.12, 0.58, 'sine', 0.055, 850);
+}
 

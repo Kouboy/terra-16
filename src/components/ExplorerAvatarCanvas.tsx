@@ -1,4 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { FamiliarAuraId } from '../alchemyAndPassport';
+import {
+  computeRealMoonPhase,
+  drawPixelMoon16Bit,
+  resolveCalendarSeasonVisuals,
+} from '../astronomyAndSeasons';
 import { drawExplorerSprite16Bit } from '../explorerAvatar';
 import { ExplorerAppearance, TimeOfDayMode } from '../types';
 
@@ -10,6 +16,8 @@ interface ExplorerSpriteCanvasProps {
   pixelScale?: number;
   stageBackdrop?: boolean;
   timeMode?: TimeOfDayMode;
+  familiarAura?: FamiliarAuraId;
+  calendarDate?: Date;
   className?: string;
 }
 
@@ -26,6 +34,8 @@ export const ExplorerSpriteCanvas: React.FC<ExplorerSpriteCanvasProps> = ({
   pixelScale = 4,
   stageBackdrop = false,
   timeMode = 'auto',
+  familiarAura = 'aucune',
+  calendarDate,
   className = '',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -63,6 +73,7 @@ export const ExplorerSpriteCanvas: React.FC<ExplorerSpriteCanvasProps> = ({
   // Ensure even integer scale so `u = renderScale * 0.5` is always a crisp integer pixel!
   const subUnit = Math.max(1, Math.round(pixelScale));
   const renderScale = subUnit * 2;
+  const refDateMs = calendarDate ? calendarDate.getTime() : 0;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -72,6 +83,7 @@ export const ExplorerSpriteCanvas: React.FC<ExplorerSpriteCanvasProps> = ({
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    const refDate = refDateMs ? new Date(refDateMs) : new Date();
     const hour = new Date().getHours();
     const effTime =
       timeMode !== 'auto'
@@ -84,6 +96,8 @@ export const ExplorerSpriteCanvas: React.FC<ExplorerSpriteCanvasProps> = ({
         ? 'dawn'
         : 'day';
     const isNight = effTime === 'night';
+    const seasonVis = resolveCalendarSeasonVisuals(refDate.getMonth());
+    const moonInfo = computeRealMoonPhase(refDate);
 
     const p = (x: number, y: number, w: number, h: number, col: string) => {
       ctx.fillStyle = col;
@@ -121,8 +135,21 @@ export const ExplorerSpriteCanvas: React.FC<ExplorerSpriteCanvasProps> = ({
         p(5, 4, 1, 1, '#fef08a');
         p(14, 7, 1, 1, '#ffffff');
         p(28, 3, 1, 1, '#bae6fd');
-        p(41, 4, 3, 3, '#fde047');
-        p(42, 4, 2, 2, '#ffffff');
+        // Real 16-bit Astronomical Moon Phase!
+        drawPixelMoon16Bit(
+          ctx,
+          Math.round(39 * renderScale),
+          Math.round(2.5 * renderScale),
+          Math.max(1, Math.round(renderScale * 0.85)),
+          moonInfo.phaseIndex,
+          true
+        );
+        // Shooting star on astronomical meteor-shower nights!
+        if (moonInfo.isMeteorShowerNight && tick % 24 < 6) {
+          const prog = tick % 6;
+          p(10 + prog * 3, 2 + prog, 3, 1, 'rgba(186, 230, 253, 0.8)');
+          p(12 + prog * 3, 2 + prog, 1, 1, '#ffffff');
+        }
       } else {
         p(40, 3, 5, 5, '#fef08a');
         p(41, 4, 3, 3, '#ffffff');
@@ -131,23 +158,39 @@ export const ExplorerSpriteCanvas: React.FC<ExplorerSpriteCanvasProps> = ({
         p(8, 5, 4, 1, 'rgba(255, 255, 255, 0.9)');
       }
 
-      // Distant 16-bit evergreen hills & village silhouette
-      p(0, 18, 20, 4, '#14532d');
-      p(15, 16, 22, 6, '#166534');
-      p(33, 18, vw - 33, 4, '#14532d');
+      // Distant 16-bit seasonal hills silhouette
+      p(0, 18, 20, 4, isNight ? '#111827' : seasonVis.hillDark);
+      p(15, 16, 22, 6, isNight ? '#1e293b' : seasonVis.hillMid);
+      p(33, 18, vw - 33, 4, isNight ? '#111827' : seasonVis.hillDark);
 
-      // Lush meadow + cobbled explorer road
-      p(0, 22, vw, vh - 22, isNight ? '#14532d' : '#228b3b');
-      p(0, 22, vw, 1.5, isNight ? '#166534' : '#4ade80');
+      // Seasonal meadow + cobbled explorer road
+      p(0, 22, vw, vh - 22, isNight ? '#14532d' : seasonVis.meadowBase);
+      p(0, 22, vw, 1.5, isNight ? '#166534' : seasonVis.meadowRim);
       p(7, 28, vw - 14, 10, '#6b4f32');
       p(8, 29, vw - 16, 8, '#d6c3a3');
       for (let bx = 9; bx < vw - 10; bx += 5) {
         p(bx, 30, 3.5, 2, '#fbf6ea');
         p(bx + 1.5, 33, 3.5, 2, '#e7d8be');
       }
-      // Wildflowers along verge
-      p(3, 26, 1, 1, '#fde047');
-      p(vw - 5, 27, 1, 1, '#fb7185');
+      // Seasonal verge details (spring blossoms / autumn amber leaves / winter frost)
+      const vergeLeftCol =
+        seasonVis.season === 'printemps'
+          ? '#f9a8d4'
+          : seasonVis.season === 'automne'
+          ? '#ea580c'
+          : seasonVis.season === 'hiver'
+          ? '#e2e8f0'
+          : '#fde047';
+      const vergeRightCol =
+        seasonVis.season === 'printemps'
+          ? '#fef08a'
+          : seasonVis.season === 'automne'
+          ? '#f59e0b'
+          : seasonVis.season === 'hiver'
+          ? '#bae6fd'
+          : '#fb7185';
+      p(3, 26, 1, 1, vergeLeftCol);
+      p(vw - 5, 27, 1, 1, vergeRightCol);
     }
 
     drawExplorerSprite16Bit(ctx, {
@@ -160,8 +203,22 @@ export const ExplorerSpriteCanvas: React.FC<ExplorerSpriteCanvasProps> = ({
       appearance,
       drawAura: stageBackdrop,
       isNight,
+      familiarAura,
+      coldBreath: stageBackdrop && seasonVis.season === 'hiver',
     });
-  }, [appearance, facingDir, isWalking, tick, renderScale, stageBackdrop, timeMode, vw, vh]);
+  }, [
+    appearance,
+    facingDir,
+    isWalking,
+    tick,
+    renderScale,
+    stageBackdrop,
+    timeMode,
+    familiarAura,
+    refDateMs,
+    vw,
+    vh,
+  ]);
 
   return (
     <canvas

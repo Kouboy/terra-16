@@ -105,6 +105,7 @@ export interface OutfitDefinition {
   requiredLevel: number;
   minClaimedAlmanac?: number;
   minCompletedHunts?: number;
+  minCompletedNarratives?: number;
   lockRequirementLabel?: string;
   palette: {
     coatDark: string;
@@ -286,6 +287,28 @@ export const OUTFITS_CATALOG: OutfitDefinition[] = [
       lanternAuraRgba: 'rgba(251, 191, 36, 0.24)',
     },
   },
+  {
+    id: 'conteuse_legende',
+    name: 'Manteau Enluminé des Récits',
+    subtitle: 'Quêtes Narratives (2 trilogies) · Brocart outremer enluminé d’or & écharpe ivoire',
+    requiredCategory: null,
+    requiredLevel: 1,
+    minCompletedNarratives: 2,
+    lockRequirementLabel: '2 quêtes narratives',
+    palette: {
+      coatDark: '#172554',
+      coatMid: '#1d4ed8',
+      coatLight: '#60a5fa',
+      scarfDark: '#b45309',
+      scarfLight: '#fef3c7',
+      hatBrim: '#1e1b4b',
+      hatMid: '#312e81',
+      hatLight: '#fbbf24',
+      pauldron: '#fde047',
+      lanternCore: '#fef08a',
+      lanternAuraRgba: 'rgba(253, 224, 71, 0.26)',
+    },
+  },
 ];
 
 export function getOutfitById(id?: ExplorerOutfitId): OutfitDefinition {
@@ -298,6 +321,9 @@ export function isOutfitUnlocked(outfit: OutfitDefinition, progress: ExplorerPro
   }
   if (outfit.minCompletedHunts) {
     return (progress.completedHuntsCount || 0) >= outfit.minCompletedHunts;
+  }
+  if (outfit.minCompletedNarratives) {
+    return (progress.completedNarrativesCount || 0) >= outfit.minCompletedNarratives;
   }
   if (!outfit.requiredCategory) return true;
   const globalLvl = computeLevelFromXp(progress.totalXp).level;

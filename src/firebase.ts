@@ -53,6 +53,14 @@ import type {
   UnlockedEntry,
 } from './types';
 import { VALID_TROPHY_IDS } from './types';
+import type {
+  ChallengeCadence,
+  CommunityChallengeLeaderboardRow,
+} from './communityChallenges';
+import type {
+  PantheonLeaderboardRow,
+  PantheonMetrics,
+} from './pantheonAndLiveEvents';
 
 interface FirebaseAppletConfig {
   projectId: string;
@@ -319,6 +327,8 @@ const VALID_HEADGEAR: ExplorerHeadgearId[] = [
   'monocle_erudit',
   'tricorne_reliquaire',
   'couronne_saisons',
+  'couronne_chroniqueur',
+  'bandeau_guilde_unie',
 ];
 const VALID_OUTFITS: ExplorerOutfitId[] = [
   'arpenteur',
@@ -329,6 +339,7 @@ const VALID_OUTFITS: ExplorerOutfitId[] = [
   'barde',
   'almanach_solaire',
   'chasseur_reliques',
+  'conteuse_legende',
 ];
 const VALID_TOOLS: ExplorerToolId[] = [
   'lanterne_laiton',
@@ -339,6 +350,7 @@ const VALID_TOOLS: ExplorerToolId[] = [
   'loupe_sceau_or',
   'clef_coffres_anciens',
   'sablier_ephemeride',
+  'plume_trois_actes',
 ];
 const VALID_PACKS: ExplorerPackId[] = [
   'besace_cuir',
@@ -358,6 +370,8 @@ const VALID_FAMILIARS: ExplorerFamiliarId[] = [
   'corbeau_cartographe',
   'feu_follet_astral',
   'hermine_royale',
+  'cerf_brumes',
+  'loutre_riviere',
 ];
 const VALID_CAIRN_TAGS: CairnTag[] = [
   'architecture',
@@ -521,6 +535,21 @@ export async function ensureExplorerProfileInCloud(
           0,
           100000
         ),
+        completedNarrativesCount: clampNum(
+          Math.round(localProgress.completedNarrativesCount || 0),
+          0,
+          100000
+        ),
+        claimedCommunityChallengesCount: clampNum(
+          Math.round(localProgress.claimedCommunityChallengesCount || 0),
+          0,
+          100000
+        ),
+        claimedLiveEventsCount: clampNum(
+          Math.round(localProgress.claimedLiveEventsCount || 0),
+          0,
+          100000
+        ),
         discoveriesCount: clampNum(Math.round(localProgress.discoveriesCount), 0, 100000),
         completedMissions: sanitizeStringArray(localProgress.completedMissions, 50),
         createdAt: serverTimestamp(),
@@ -564,6 +593,18 @@ export async function ensureExplorerProfileInCloud(
       Number(cloud.claimedAlmanacCount || 0),
       Math.round(localProgress.claimedAlmanacCount || 0)
     );
+    const mergedNarratives = Math.max(
+      Number(cloud.completedNarrativesCount || 0),
+      Math.round(localProgress.completedNarrativesCount || 0)
+    );
+    const mergedCommunityChallenges = Math.max(
+      Number(cloud.claimedCommunityChallengesCount || 0),
+      Math.round(localProgress.claimedCommunityChallengesCount || 0)
+    );
+    const mergedLiveEvents = Math.max(
+      Number(cloud.claimedLiveEventsCount || 0),
+      Math.round(localProgress.claimedLiveEventsCount || 0)
+    );
     if (
       mergedTotalXp > Number(cloud.totalXp || 0) ||
       mergedDiscoveriesCount > Number(cloud.discoveriesCount || 0) ||
@@ -573,7 +614,10 @@ export async function ensureExplorerProfileInCloud(
       mergedContracts > Number(cloud.completedContractsCount || 0) ||
       mergedRiddles > Number(cloud.solvedRiddlesCount || 0) ||
       mergedHunts > Number(cloud.completedHuntsCount || 0) ||
-      mergedAlmanac > Number(cloud.claimedAlmanacCount || 0)
+      mergedAlmanac > Number(cloud.claimedAlmanacCount || 0) ||
+      mergedNarratives > Number(cloud.completedNarrativesCount || 0) ||
+      mergedCommunityChallenges > Number(cloud.claimedCommunityChallengesCount || 0) ||
+      mergedLiveEvents > Number(cloud.claimedLiveEventsCount || 0)
     ) {
       const mergedMissions = Array.from(
         new Set([
@@ -633,6 +677,9 @@ export async function ensureExplorerProfileInCloud(
           solvedRiddlesCount: clampNum(mergedRiddles, 0, 100000),
           completedHuntsCount: clampNum(mergedHunts, 0, 100000),
           claimedAlmanacCount: clampNum(mergedAlmanac, 0, 100000),
+          completedNarrativesCount: clampNum(mergedNarratives, 0, 100000),
+          claimedCommunityChallengesCount: clampNum(mergedCommunityChallenges, 0, 100000),
+          claimedLiveEventsCount: clampNum(mergedLiveEvents, 0, 100000),
           discoveriesCount: clampNum(mergedDiscoveriesCount, 0, 100000),
           completedMissions: sanitizeStringArray(mergedMissions, 50),
           updatedAt: serverTimestamp(),
@@ -689,6 +736,21 @@ export async function syncProgressToCloud(
       ),
       claimedAlmanacCount: clampNum(
         Math.round(progress.claimedAlmanacCount || 0),
+        0,
+        100000
+      ),
+      completedNarrativesCount: clampNum(
+        Math.round(progress.completedNarrativesCount || 0),
+        0,
+        100000
+      ),
+      claimedCommunityChallengesCount: clampNum(
+        Math.round(progress.claimedCommunityChallengesCount || 0),
+        0,
+        100000
+      ),
+      claimedLiveEventsCount: clampNum(
+        Math.round(progress.claimedLiveEventsCount || 0),
         0,
         100000
       ),
@@ -1111,6 +1173,9 @@ export function subscribeToCloudExplorer(
         solvedRiddlesCount: Number(d.solvedRiddlesCount || 0),
         completedHuntsCount: Number(d.completedHuntsCount || 0),
         claimedAlmanacCount: Number(d.claimedAlmanacCount || 0),
+        completedNarrativesCount: Number(d.completedNarrativesCount || 0),
+        claimedCommunityChallengesCount: Number(d.claimedCommunityChallengesCount || 0),
+        claimedLiveEventsCount: Number(d.claimedLiveEventsCount || 0),
         discoveriesCount: Number(d.discoveriesCount || 0),
         completedMissions: Array.isArray(d.completedMissions)
           ? (d.completedMissions as string[])
@@ -1914,6 +1979,48 @@ export async function resetExplorerCharacterInCloud(
     handleFirestoreError(error, OperationType.LIST, 'geocaches');
   }
 
+  // 2e. Delete all public Community Challenge leaderboard entries authored by this explorer
+  try {
+    const chQuery = query(
+      collection(db, 'challengeEntries'),
+      where('explorerId', '==', uid),
+      where('visibility', '==', 'public')
+    );
+    const chSnap = await getDocs(chQuery);
+    const BATCH = 10;
+    for (let i = 0; i < chSnap.docs.length; i += BATCH) {
+      const slice = chSnap.docs.slice(i, i + BATCH);
+      await Promise.all(
+        slice.map(async (d) => {
+          try {
+            await deleteDoc(d.ref);
+          } catch (err) {
+            handleFirestoreError(err, OperationType.DELETE, `challengeEntries/${d.id}`);
+          }
+        })
+      );
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'challengeEntries');
+  }
+
+  // 2f. Delete public Pantheon leaderboard entry for this explorer before resetting master profile
+  const pantheonPath = `pantheonEntries/${uid}`;
+  const pantheonRef = doc(db, 'pantheonEntries', uid);
+  let pantheonSnap;
+  try {
+    pantheonSnap = await getDoc(pantheonRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, pantheonPath);
+  }
+  if (pantheonSnap && pantheonSnap.exists()) {
+    try {
+      await deleteDoc(pantheonRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, pantheonPath);
+    }
+  }
+
   // 3. Reset master /explorers/{uid} profile to Level 1 / zero progression (Action 3)
   let snap;
   try {
@@ -1946,6 +2053,9 @@ export async function resetExplorerCharacterInCloud(
     solvedRiddlesCount: 0,
     completedHuntsCount: 0,
     claimedAlmanacCount: 0,
+    completedNarrativesCount: 0,
+    claimedCommunityChallengesCount: 0,
+    claimedLiveEventsCount: 0,
     discoveriesCount: 0,
     completedMissions: [] as string[],
     updatedAt: serverTimestamp(),
@@ -1969,4 +2079,379 @@ export async function resetExplorerCharacterInCloud(
     }
   }
 }
+
+// ============================================================================
+// DÉFIS COMMUNAUTAIRES & CLASSEMENTS (/challengeEntries/{entryId})
+// ============================================================================
+
+const VALID_CHALLENGE_CADENCES: ChallengeCadence[] = ['quotidien', 'hebdomadaire', 'mensuel'];
+
+function sanitizeChallengeCadence(raw?: string): ChallengeCadence {
+  return VALID_CHALLENGE_CADENCES.includes(raw as ChallengeCadence)
+    ? (raw as ChallengeCadence)
+    : 'quotidien';
+}
+
+function sanitizePeriodKey(raw?: string): string {
+  const cleaned = String(raw || '').trim();
+  if (/^[0-9]{4}-[0-9]{2}$/.test(cleaned)) return cleaned;
+  const now = new Date();
+  const m = now.getUTCMonth() + 1;
+  return `${now.getUTCFullYear()}-${m < 10 ? `0${m}` : m}`;
+}
+
+export async function upsertCommunityChallengeEntryInCloud(params: {
+  uidRaw: string;
+  challengeId: string;
+  cadence: ChallengeCadence;
+  periodKey: string;
+  contributionCount: number;
+  points: number;
+  regionLabel: string;
+  progress: ExplorerProgress;
+}): Promise<void> {
+  if (!isFirebaseConfigured || !db) return;
+  if (params.contributionCount < 1 || params.points < 1) return;
+  await assertCloudSessionHealthy();
+
+  const uid = sanitizeFirestoreId(params.uidRaw);
+  const safeChallengeId = sanitizeFirestoreId(params.challengeId).slice(0, 60);
+  const entryId = sanitizeFirestoreId(`${safeChallengeId}_${uid.slice(0, 64)}`);
+  const entryPath = `challengeEntries/${entryId}`;
+  const entryRef = doc(db, 'challengeEntries', entryId);
+
+  let existingSnap;
+  try {
+    existingSnap = await getDoc(entryRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, entryPath);
+  }
+
+  const safeCallsign = clampStr(params.progress.displayName || 'Explorateur', 1, 60, 'Explorateur');
+  const safeRegion = clampStr(params.regionLabel || 'Secteur exploré', 1, 100, 'Secteur exploré');
+  const safeCount = clampNum(Math.round(params.contributionCount), 1, 10000);
+  const safePoints = clampNum(Math.round(params.points), 1, 1000000);
+
+  if (!existingSnap.exists()) {
+    try {
+      await setDoc(entryRef, {
+        challengeId: safeChallengeId,
+        cadence: sanitizeChallengeCadence(params.cadence),
+        periodKey: sanitizePeriodKey(params.periodKey),
+        explorerId: uid,
+        explorerCallsign: safeCallsign,
+        explorerGender: sanitizeGender(params.progress.gender),
+        explorerAvatarPreset: sanitizeAvatarPreset(params.progress.avatarPreset),
+        explorerSkinTone: sanitizeSkinTone(params.progress.skinTone),
+        explorerHeadgearId: sanitizeHeadgear(params.progress.headgearId),
+        explorerOutfitId: sanitizeOutfit(params.progress.outfitId),
+        explorerFamiliarId: sanitizeFamiliar(params.progress.familiarId),
+        explorerPinnedTrophyId: sanitizePinnedTrophyId(params.progress.pinnedTrophyId),
+        contributionCount: safeCount,
+        points: safePoints,
+        regionLabel: safeRegion,
+        visibility: 'public',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, entryPath);
+    }
+  } else {
+    const prev = existingSnap.data();
+    const prevCount = Number(prev.contributionCount || 0);
+    const prevPoints = Number(prev.points || 0);
+    const nextCount = Math.max(prevCount, safeCount);
+    const nextPoints = Math.max(prevPoints, safePoints);
+    const sameCallsign = String(prev.explorerCallsign || '') === safeCallsign;
+    const sameOutfit = String(prev.explorerOutfitId || '') === sanitizeOutfit(params.progress.outfitId);
+    const sameHeadgear = String(prev.explorerHeadgearId || '') === sanitizeHeadgear(params.progress.headgearId);
+    const sameFamiliar = String(prev.explorerFamiliarId || '') === sanitizeFamiliar(params.progress.familiarId);
+    if (
+      nextCount <= prevCount &&
+      nextPoints <= prevPoints &&
+      sameCallsign &&
+      sameOutfit &&
+      sameHeadgear &&
+      sameFamiliar
+    ) {
+      return;
+    }
+    try {
+      await updateDoc(entryRef, {
+        explorerCallsign: safeCallsign,
+        explorerGender: sanitizeGender(params.progress.gender),
+        explorerAvatarPreset: sanitizeAvatarPreset(params.progress.avatarPreset),
+        explorerSkinTone: sanitizeSkinTone(params.progress.skinTone),
+        explorerHeadgearId: sanitizeHeadgear(params.progress.headgearId),
+        explorerOutfitId: sanitizeOutfit(params.progress.outfitId),
+        explorerFamiliarId: sanitizeFamiliar(params.progress.familiarId),
+        explorerPinnedTrophyId: sanitizePinnedTrophyId(params.progress.pinnedTrophyId),
+        contributionCount: nextCount,
+        points: nextPoints,
+        regionLabel: safeRegion,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, entryPath);
+    }
+  }
+}
+
+function mapDocToChallengeRow(id: string, d: Record<string, unknown>): CommunityChallengeLeaderboardRow {
+  return {
+    entryId: id,
+    challengeId: String(d.challengeId || ''),
+    cadence: sanitizeChallengeCadence(String(d.cadence || 'quotidien')),
+    periodKey: sanitizePeriodKey(String(d.periodKey || '')),
+    explorerId: String(d.explorerId || ''),
+    explorerCallsign: clampStr(String(d.explorerCallsign || 'Éclaireur'), 1, 60, 'Éclaireur'),
+    contributionCount: Math.max(0, Number(d.contributionCount || 0)),
+    points: Math.max(0, Number(d.points || 0)),
+    regionLabel: clampStr(String(d.regionLabel || 'Secteur exploré'), 1, 100, 'Secteur exploré'),
+    explorerGender: sanitizeGender(String(d.explorerGender || 'masculin')),
+    explorerAvatarPreset: sanitizeAvatarPreset(String(d.explorerAvatarPreset || 'cartographe')),
+    explorerSkinTone: sanitizeSkinTone(String(d.explorerSkinTone || 'hale')),
+    explorerHeadgearId: sanitizeHeadgear(String(d.explorerHeadgearId || 'tricorne_fauve')),
+    explorerOutfitId: sanitizeOutfit(String(d.explorerOutfitId || 'arpenteur')),
+    explorerFamiliarId: sanitizeFamiliar(String(d.explorerFamiliarId || 'aucun')),
+    explorerPinnedTrophyId: sanitizePinnedTrophyId(String(d.explorerPinnedTrophyId || '')),
+  };
+}
+
+export function subscribeToChallengeLeaderboard(
+  challengeIdRaw: string,
+  onRows: (rows: CommunityChallengeLeaderboardRow[]) => void
+): Unsubscribe {
+  if (!isFirebaseConfigured || !db) return () => {};
+  const safeChallengeId = sanitizeFirestoreId(challengeIdRaw).slice(0, 60);
+  const q = query(
+    collection(db, 'challengeEntries'),
+    where('challengeId', '==', safeChallengeId),
+    where('visibility', '==', 'public'),
+    limit(80)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      onRows(snap.docs.map((docSnap) => mapDocToChallengeRow(docSnap.id, docSnap.data())));
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'challengeEntries');
+    }
+  );
+}
+
+export function subscribeToPeriodChallengeLeaderboard(
+  periodKeyRaw: string,
+  onRows: (rows: CommunityChallengeLeaderboardRow[]) => void
+): Unsubscribe {
+  if (!isFirebaseConfigured || !db) return () => {};
+  const safePeriodKey = sanitizePeriodKey(periodKeyRaw);
+  const q = query(
+    collection(db, 'challengeEntries'),
+    where('periodKey', '==', safePeriodKey),
+    where('visibility', '==', 'public'),
+    limit(150)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      onRows(snap.docs.map((docSnap) => mapDocToChallengeRow(docSnap.id, docSnap.data())));
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'challengeEntries');
+    }
+  );
+}
+
+// ============================================================================
+// PANTHÉON MULTIJOUEUR GLOBAL (/pantheonEntries/{explorerId})
+// ============================================================================
+
+export async function upsertPantheonEntryInCloud(params: {
+  uidRaw: string;
+  regionLabel: string;
+  progress: ExplorerProgress;
+  metrics: PantheonMetrics;
+}): Promise<void> {
+  if (!isFirebaseConfigured || !db) return;
+  if (params.metrics.pantheonScore <= 0 && params.metrics.discoveriesCount <= 0) return;
+  await assertCloudSessionHealthy();
+
+  const uid = sanitizeFirestoreId(params.uidRaw);
+  const entryPath = `pantheonEntries/${uid}`;
+  const entryRef = doc(db, 'pantheonEntries', uid);
+
+  let existingSnap;
+  try {
+    existingSnap = await getDoc(entryRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, entryPath);
+  }
+
+  const safeCallsign = clampStr(params.progress.displayName || 'Explorateur', 1, 60, 'Explorateur');
+  const safeRegion = clampStr(params.regionLabel || 'Secteur exploré', 1, 100, 'Secteur exploré');
+  const safeGender = sanitizeGender(params.progress.gender);
+  const safeAvatar = sanitizeAvatarPreset(params.progress.avatarPreset);
+  const safeSkin = sanitizeSkinTone(params.progress.skinTone);
+  const safeHeadgear = sanitizeHeadgear(params.progress.headgearId);
+  const safeOutfit = sanitizeOutfit(params.progress.outfitId);
+  const safeFamiliar = sanitizeFamiliar(params.progress.familiarId);
+  const safeTrophy = sanitizePinnedTrophyId(params.progress.pinnedTrophyId);
+
+  const safePantheonScore = clampNum(Math.round(params.metrics.pantheonScore), 0, 50000000);
+  const safeTotalXp = clampNum(Math.round(params.metrics.totalXp), 0, 10000000);
+  const safeDiversityScore = clampNum(Math.round(params.metrics.diversityScore), 0, 1000000);
+  const safeRarityScore = clampNum(Math.round(params.metrics.rarityScore), 0, 5000000);
+  const safeDiscoveriesCount = clampNum(Math.round(params.metrics.discoveriesCount), 0, 100000);
+  const safeCategoriesCount = clampNum(Math.round(params.metrics.categoriesCount), 0, 5);
+  const safeStrataCount = clampNum(Math.round(params.metrics.strataCount), 0, 7);
+  const safeSourcesCount = clampNum(Math.round(params.metrics.sourcesCount), 0, 50);
+  const safeSecretCount = clampNum(Math.round(params.metrics.secretArchivesCount), 0, 10000);
+  const safeOfficialCount = clampNum(Math.round(params.metrics.officialHeritageCount), 0, 100000);
+  const safeLiveEventsCount = clampNum(Math.round(params.metrics.liveEventsCount), 0, 100000);
+
+  if (!existingSnap || !existingSnap.exists()) {
+    try {
+      await setDoc(entryRef, {
+        explorerId: uid,
+        explorerCallsign: safeCallsign,
+        regionLabel: safeRegion,
+        explorerGender: safeGender,
+        explorerAvatarPreset: safeAvatar,
+        explorerSkinTone: safeSkin,
+        explorerHeadgearId: safeHeadgear,
+        explorerOutfitId: safeOutfit,
+        explorerFamiliarId: safeFamiliar,
+        explorerPinnedTrophyId: safeTrophy,
+        pantheonScore: safePantheonScore,
+        totalXp: safeTotalXp,
+        diversityScore: safeDiversityScore,
+        rarityScore: safeRarityScore,
+        discoveriesCount: safeDiscoveriesCount,
+        categoriesCount: safeCategoriesCount,
+        strataCount: safeStrataCount,
+        sourcesCount: safeSourcesCount,
+        secretArchivesCount: safeSecretCount,
+        officialHeritageCount: safeOfficialCount,
+        liveEventsCount: safeLiveEventsCount,
+        visibility: 'public',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, entryPath);
+    }
+  } else {
+    const prev = existingSnap.data();
+    const prevPantheon = Number(prev.pantheonScore || 0);
+    const prevXp = Number(prev.totalXp || 0);
+    const prevDisc = Number(prev.discoveriesCount || 0);
+
+    const nextPantheon = Math.max(prevPantheon, safePantheonScore);
+    const nextXp = Math.max(prevXp, safeTotalXp);
+    const nextDisc = Math.max(prevDisc, safeDiscoveriesCount);
+    const nextDiversity = Math.max(Number(prev.diversityScore || 0), safeDiversityScore);
+    const nextRarity = Math.max(Number(prev.rarityScore || 0), safeRarityScore);
+    const nextCategories = clampNum(Math.max(Number(prev.categoriesCount || 0), safeCategoriesCount), 0, 5);
+    const nextStrata = clampNum(Math.max(Number(prev.strataCount || 0), safeStrataCount), 0, 7);
+    const nextSources = clampNum(Math.max(Number(prev.sourcesCount || 0), safeSourcesCount), 0, 50);
+    const nextSecrets = clampNum(Math.max(Number(prev.secretArchivesCount || 0), safeSecretCount), 0, 10000);
+    const nextOfficial = clampNum(Math.max(Number(prev.officialHeritageCount || 0), safeOfficialCount), 0, 100000);
+    const nextLiveEvents = clampNum(Math.max(Number(prev.liveEventsCount || 0), safeLiveEventsCount), 0, 100000);
+
+    const unchanged =
+      nextPantheon <= prevPantheon &&
+      nextXp <= prevXp &&
+      nextDisc <= prevDisc &&
+      nextDiversity <= Number(prev.diversityScore || 0) &&
+      nextRarity <= Number(prev.rarityScore || 0) &&
+      nextLiveEvents <= Number(prev.liveEventsCount || 0) &&
+      String(prev.explorerCallsign || '') === safeCallsign &&
+      String(prev.regionLabel || '') === safeRegion &&
+      String(prev.explorerOutfitId || '') === safeOutfit &&
+      String(prev.explorerHeadgearId || '') === safeHeadgear &&
+      String(prev.explorerFamiliarId || '') === safeFamiliar &&
+      String(prev.explorerPinnedTrophyId || '') === safeTrophy;
+
+    if (unchanged) return;
+
+    try {
+      await updateDoc(entryRef, {
+        explorerCallsign: safeCallsign,
+        regionLabel: safeRegion,
+        explorerGender: safeGender,
+        explorerAvatarPreset: safeAvatar,
+        explorerSkinTone: safeSkin,
+        explorerHeadgearId: safeHeadgear,
+        explorerOutfitId: safeOutfit,
+        explorerFamiliarId: safeFamiliar,
+        explorerPinnedTrophyId: safeTrophy,
+        pantheonScore: nextPantheon,
+        totalXp: nextXp,
+        diversityScore: nextDiversity,
+        rarityScore: nextRarity,
+        discoveriesCount: nextDisc,
+        categoriesCount: nextCategories,
+        strataCount: nextStrata,
+        sourcesCount: nextSources,
+        secretArchivesCount: nextSecrets,
+        officialHeritageCount: nextOfficial,
+        liveEventsCount: nextLiveEvents,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, entryPath);
+    }
+  }
+}
+
+function mapDocToPantheonRow(id: string, d: Record<string, unknown>): PantheonLeaderboardRow {
+  return {
+    explorerId: String(d.explorerId || id),
+    explorerCallsign: clampStr(String(d.explorerCallsign || 'Éclaireur'), 1, 60, 'Éclaireur'),
+    regionLabel: clampStr(String(d.regionLabel || 'Secteur exploré'), 1, 100, 'Secteur exploré'),
+    pantheonScore: Math.max(0, Number(d.pantheonScore || 0)),
+    totalXp: Math.max(0, Number(d.totalXp || 0)),
+    diversityScore: Math.max(0, Number(d.diversityScore || 0)),
+    rarityScore: Math.max(0, Number(d.rarityScore || 0)),
+    discoveriesCount: Math.max(0, Number(d.discoveriesCount || 0)),
+    categoriesCount: clampNum(Number(d.categoriesCount || 0), 0, 5),
+    strataCount: clampNum(Number(d.strataCount || 0), 0, 7),
+    sourcesCount: clampNum(Number(d.sourcesCount || 0), 0, 50),
+    secretArchivesCount: Math.max(0, Number(d.secretArchivesCount || 0)),
+    officialHeritageCount: Math.max(0, Number(d.officialHeritageCount || 0)),
+    liveEventsCount: Math.max(0, Number(d.liveEventsCount || 0)),
+    explorerGender: sanitizeGender(String(d.explorerGender || 'masculin')),
+    explorerAvatarPreset: sanitizeAvatarPreset(String(d.explorerAvatarPreset || 'cartographe')),
+    explorerSkinTone: sanitizeSkinTone(String(d.explorerSkinTone || 'hale')),
+    explorerHeadgearId: sanitizeHeadgear(String(d.explorerHeadgearId || 'tricorne_fauve')),
+    explorerOutfitId: sanitizeOutfit(String(d.explorerOutfitId || 'arpenteur')),
+    explorerFamiliarId: sanitizeFamiliar(String(d.explorerFamiliarId || 'aucun')),
+    explorerPinnedTrophyId: sanitizePinnedTrophyId(String(d.explorerPinnedTrophyId || '')),
+  };
+}
+
+export function subscribeToPantheonLeaderboard(
+  onRows: (rows: PantheonLeaderboardRow[]) => void
+): Unsubscribe {
+  if (!isFirebaseConfigured || !db) return () => {};
+  const q = query(
+    collection(db, 'pantheonEntries'),
+    where('visibility', '==', 'public'),
+    limit(120)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      onRows(snap.docs.map((docSnap) => mapDocToPantheonRow(docSnap.id, docSnap.data())));
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'pantheonEntries');
+    }
+  );
+}
+
+
 

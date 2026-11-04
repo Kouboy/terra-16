@@ -14,11 +14,22 @@ import {
   PixelUiIcon,
   UiPixelIconName,
 } from './components/PixelIcons';
+import {
+  deriveSectorOrientationTables,
+  PanoramicLandmarkPin,
+} from './cartography16Bit';
+import { OrientationTableModal } from './components/OrientationTableModal';
 import { PixelMapCanvas } from './components/PixelMapCanvas';
 import { ResilientPixelImage } from './components/ResilientPixelImage';
+import { TitleScreenView } from './components/TitleScreenView';
 import {
+  FAMILIAR_CATALOG,
+  HEADGEAR_CATALOG,
+  OUTFIT_COSMETICS_CATALOG,
+  computeExplorerHonorificTitle,
   getCosmeticRewardsForMission,
   getNewlyUnlockedCosmetics,
+  isCosmeticUnlocked,
   resolveExplorerAppearance,
 } from './explorerAvatar';
 import {
@@ -39,6 +50,8 @@ import {
   syncProgressToCloud,
   updateDiscoveryJournalInCloud,
   updateExplorerIdentityInCloud,
+  upsertCommunityChallengeEntryInCloud,
+  upsertPantheonEntryInCloud,
   upsertSpecimenInCloud,
   validateExplorerAuthSession,
 } from './firebase';
@@ -127,6 +140,43 @@ import {
   ClueTreasureHuntPanel,
   ContextualRiddleModal,
 } from './components/AlmanacAndHuntsView';
+import { CommunityChallengesView } from './components/CommunityChallengesView';
+import {
+  ActiveNarrativeMapBanner,
+  NarrativeQuestsView,
+} from './components/NarrativeQuestsView';
+import {
+  ChallengePersonalTier,
+  ChallengeTierKey,
+  CommunityChallengeDefinition,
+  evaluatePersonalChallengeProgress,
+  getActiveCommunityChallenges,
+  loadClaimedCommunityTiers,
+  makeClaimedTierId,
+  saveClaimedCommunityTiers,
+} from './communityChallenges';
+import {
+  generateSectorNarrativeQuests,
+  getSealedActsCount,
+  loadNarrativeProgress,
+  NarrativeProgressState,
+  NarrativeQuest,
+  NarrativeQuestStage,
+  saveNarrativeProgress,
+} from './narrativeQuests';
+import { PantheonAndLiveEventsView } from './components/PantheonAndLiveEventsView';
+import {
+  buildLiveEventJournalEntry,
+  computeExplorerPantheonMetrics,
+  deriveLiveWorldEvents,
+  EvaluatedLiveWorldEvent,
+  evaluateLiveWorldEvents,
+  isEntryFromLiveEvent,
+  LiveEventsPersistenceState,
+  LiveEventMedallionId,
+  loadLiveEventsState,
+  saveLiveEventsState,
+} from './pantheonAndLiveEvents';
 import {
   AlmanacQuestEvalContext,
   ContextualRiddle,
@@ -144,10 +194,36 @@ import {
   SEASON_META,
   SectorAlmanacPayload,
 } from './almanacAndQuests';
+import {
+  AlchemyRecipe,
+  buildOrUpdatePassportStamp,
+  computeAlchemyFieldBonuses,
+  FamiliarAuraId,
+  loadActiveFamiliarAura,
+  loadCraftedAlchemyIds,
+  loadPassportStamps,
+  RegionalPassportStamp,
+  saveActiveFamiliarAura,
+  saveCraftedAlchemyIds,
+  savePassportStamps,
+} from './alchemyAndPassport';
+import {
+  computeRealMoonPhase,
+  resolveCalendarSeasonVisuals,
+  resolveReferenceCalendarDate,
+} from './astronomyAndSeasons';
 import type { ProfileSectionTab, WorkshopSlotTab } from './components/ExplorerProfileView';
+import type { HerbariumSectionTab } from './components/HerbariumLithothequeView';
 import { TelluricDetectorCard } from './components/TreasuresAndGeocachesView';
 import { isMissionUnlocked, MISSIONS_CATALOG } from './missions';
 import { resolveRegionalTheme } from './regionalBiomes';
+import {
+  buildRoadSnappedPoiLoop,
+  generatePresetWalkingLoop,
+  LOOP_DURATION_PRESETS,
+  LoopDurationPresetId,
+  PlannedRoadLoop,
+} from './roadLoopPlanner';
 import {
   computeGuildPerks,
   DynamicContractStep,
@@ -167,14 +243,39 @@ import {
   playDiscoveryFanfare,
   playJournalOpenSfx,
   playMissionFanfare,
+  playOrientationTableSfx,
   playProximityChimeSfx,
   playRumorResolvedSfx,
+  playSecretArchiveSealBreakSfx,
+  playSecretClueChimeSfx,
   playSpecimenHarvestSfx,
   playStampSfx,
   playStepSfx,
   syncBiomeSoundscape,
 } from './sound';
-import { SPECIMENS_CATALOG, WorldSpecimenNode } from './specimens';
+import {
+  deriveSectorSecretSites,
+  DiscoveredSecretEntryRecord,
+  findSecretClueHostedOnPoi,
+  getSecretCollectibleById,
+  isEntryFromSecretArchive,
+  isSecretSiteRevealedOnMap,
+  loadSecretArchivesState,
+  saveSecretArchivesState,
+  SecretArchivesState,
+  SecretHiddenSite,
+} from './secretArchives';
+import {
+  SecretArchivesCarnetView,
+  SecretRiddleDecipherModal,
+  SympatheticInkClueBanner,
+} from './components/SecretArchivesView';
+import {
+  classifySectorLithology,
+  SPECIMENS_CATALOG,
+  translateLithologyLabelFr,
+  WorldSpecimenNode,
+} from './specimens';
 import {
   computeGeocacheSectorKey,
   getNearbyGeocacheSectorKeys,
@@ -213,9 +314,13 @@ import {
   haversineMeters,
   HERO_BANNER_SRC,
   HistoricalStratum,
+  inferOfficialStateLabel,
+  LieuDitBanner,
   minDistancePointToSegmentMeters,
   NpcEncounterRecord,
+  OFFICIAL_STATE_LABEL_META,
   OpenedArchivistChestRecord,
+  OrientationTableNode,
   partitionSurfaceAndSubterraneanPois,
   PoiItem,
   PostcardSubject,
@@ -261,6 +366,9 @@ const INITIAL_PROGRESS: ExplorerProgress = {
   solvedRiddlesCount: 0,
   completedHuntsCount: 0,
   claimedAlmanacCount: 0,
+  completedNarrativesCount: 0,
+  claimedCommunityChallengesCount: 0,
+  claimedLiveEventsCount: 0,
   completedMissions: [],
 };
 
@@ -285,6 +393,7 @@ interface CutInAlert {
   unlockedCosmeticSlot?: WorkshopSlotTab;
   unlockedTrophyId?: TrophyId;
   openReliquary?: boolean;
+  openSecretArchives?: boolean;
 }
 
 type MobileDrawerMode = 'none' | 'filters' | 'travel' | 'signals' | 'install-app';
@@ -480,6 +589,41 @@ export default function App() {
     console.warn('Synchronisation Cloud interrompue :', err);
   }, []);
 
+  // 16-Bit Title Screen (« Seuil d’Expédition ») & Fast-Resume Preference
+  const [skipTitleNextTime, setSkipTitleNextTime] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('terra16_skip_title_v1') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [showTitleScreen, setShowTitleScreen] = useState<boolean>(() => {
+    try {
+      if (localStorage.getItem('terra16_skip_title_v1') === '1') return false;
+      return sessionStorage.getItem('terra16_session_started_v1') !== '1';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleSkipTitleNextTime = useCallback((next: boolean) => {
+    setSkipTitleNextTime(next);
+    try {
+      localStorage.setItem('terra16_skip_title_v1', next ? '1' : '0');
+    } catch {
+      // Ignore storage quota restrictions
+    }
+  }, []);
+
+  const handleEnterFromTitleScreen = useCallback(() => {
+    try {
+      sessionStorage.setItem('terra16_session_started_v1', '1');
+    } catch {
+      // Ignore storage restrictions
+    }
+    setShowTitleScreen(false);
+  }, []);
+
   // Fullscreen, Collapsible UI ("Replier / Déplier l’UI"), Mobile Ergonomics & PWA Install
   const [isFullscreenMap, setIsFullscreenMap] = useState(false);
   const [uiCollapsed, setUiCollapsed] = useState(false);
@@ -494,9 +638,9 @@ export default function App() {
       return true;
     }
   });
-  const [desktopToolbarPanel, setDesktopToolbarPanel] = useState<'none' | 'filters' | 'travel'>(
-    'none'
-  );
+  const [desktopToolbarPanel, setDesktopToolbarPanel] = useState<
+    'none' | 'filters' | 'travel' | 'loops'
+  >('none');
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('terra16_desktop_sidebar_collapsed_v1') === '1';
@@ -533,6 +677,9 @@ export default function App() {
   const [gpsStatus, setGpsStatus] = useState<string>('Marche Simulée active');
   const [walkQueue, setWalkQueue] = useState<Array<{ lat: number; lng: number }>>([]);
   const [expeditionStops, setExpeditionStops] = useState<PoiItem[]>([]);
+  const [closeCustomLoop, setCloseCustomLoop] = useState<boolean>(true);
+  const [selectedLoopPreset, setSelectedLoopPreset] = useState<LoopDurationPresetId>('35min');
+  const [activeRoadLoop, setActiveRoadLoop] = useState<PlannedRoadLoop | null>(null);
   const [routeRequest, setRouteRequest] = useState<{
     id: number;
     lat: number;
@@ -557,10 +704,19 @@ export default function App() {
     }
   });
   const [pocketCompassMode, setPocketCompassMode] = useState<boolean>(false);
+  const [nightInkMode, setNightInkMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('terra16_night_ink_v1') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [carnetView, setCarnetView] = useState<CarnetViewMode>('liste');
   const [bestiaryInitialSubTab, setBestiaryInitialSubTab] = useState<
     'bestiaire' | 'habitants' | 'rumeurs'
   >('bestiaire');
+  const [herbariumInitialSection, setHerbariumInitialSection] =
+    useState<HerbariumSectionTab>('planches');
 
   // Session Trail, Distance & Elevation Gain + Surface Audio Ref
   const [breadcrumbTrail, setBreadcrumbTrail] = useState<Array<{ lat: number; lng: number }>>([
@@ -589,6 +745,7 @@ export default function App() {
   const [pois, setPois] = useState<PoiItem[]>([]);
   const [terrain, setTerrain] = useState<TerrainFeature[]>([]);
   const [subterranean, setSubterranean] = useState<SubterraneanFeature[]>([]);
+  const [lieuxDits, setLieuxDits] = useState<LieuDitBanner[]>([]);
   const [elevation, setElevation] = useState<ElevationGrid | null>(null);
   const [bedrock, setBedrock] = useState<BedrockInfo | null>(null);
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
@@ -676,8 +833,20 @@ export default function App() {
   >(null);
   const [postcardSubject, setPostcardSubject] = useState<PostcardSubject | null>(null);
   const [missionsSubTab, setMissionsSubTab] = useState<
-    'almanach' | 'chasse' | 'contrats' | 'guildes'
+    'almanach' | 'pantheon' | 'narratives' | 'defis' | 'chasse' | 'contrats' | 'guildes'
   >('almanach');
+  const [liveEventsState, setLiveEventsState] = useState<LiveEventsPersistenceState>(() =>
+    loadLiveEventsState()
+  );
+  const [claimedCommunityTiers, setClaimedCommunityTiers] = useState<Set<string>>(
+    () => new Set(loadClaimedCommunityTiers())
+  );
+  const [narrativeState, setNarrativeState] = useState<NarrativeProgressState>(() =>
+    loadNarrativeProgress()
+  );
+  const [challengeClockMinute, setChallengeClockMinute] = useState<number>(() =>
+    Math.floor(Date.now() / 60000)
+  );
   const [almanacData, setAlmanacData] = useState<SectorAlmanacPayload | null>(null);
   const [loadingAlmanac, setLoadingAlmanac] = useState<boolean>(false);
   const [almanacPreviewDate, setAlmanacPreviewDate] = useState<{
@@ -696,7 +865,47 @@ export default function App() {
   );
   const [trackingHuntOnMap, setTrackingHuntOnMap] = useState<boolean>(false);
   const [activeRiddleEntry, setActiveRiddleEntry] = useState<UnlockedEntry | null>(null);
+  const [trailsVisible, setTrailsVisible] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('terra16_trails_visible_v1') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [lieuxDitsVisible, setLieuxDitsVisible] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('terra16_lieux_dits_visible_v1') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [inspectedTableIds, setInspectedTableIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('terra16_inspected_tables_v1');
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [activeOrientationTable, setActiveOrientationTable] = useState<{
+    table: OrientationTableNode;
+    xpAwarded: number;
+  } | null>(null);
+  const [secretState, setSecretState] = useState<SecretArchivesState>(() =>
+    loadSecretArchivesState()
+  );
+  const [activeSecretDecipherSite, setActiveSecretDecipherSite] =
+    useState<SecretHiddenSite | null>(null);
   const hapticHuntStageRef = useRef<Map<string, 'warm' | 'hot'>>(new Map());
+  const [craftedAlchemyIds, setCraftedAlchemyIds] = useState<Set<string>>(() =>
+    loadCraftedAlchemyIds()
+  );
+  const [activeFamiliarAura, setActiveFamiliarAura] = useState<FamiliarAuraId>(() =>
+    loadActiveFamiliarAura()
+  );
+  const [passportStamps, setPassportStamps] = useState<RegionalPassportStamp[]>(() =>
+    loadPassportStamps()
+  );
   const [soundscapeEnabled, setSoundscapeEnabled] = useState<boolean>(() => {
     try {
       return localStorage.getItem('terra16_soundscape_v1') !== '0';
@@ -805,7 +1014,11 @@ export default function App() {
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (activeRiddleEntry) {
+        if (activeSecretDecipherSite) {
+          setActiveSecretDecipherSite(null);
+        } else if (activeOrientationTable) {
+          setActiveOrientationTable(null);
+        } else if (activeRiddleEntry) {
           setActiveRiddleEntry(null);
         } else if (geocacheModal) {
           setGeocacheModal(null);
@@ -829,6 +1042,8 @@ export default function App() {
     window.addEventListener('keydown', onEsc);
     return () => window.removeEventListener('keydown', onEsc);
   }, [
+    activeSecretDecipherSite,
+    activeOrientationTable,
     activeRiddleEntry,
     geocacheModal,
     postcardSubject,
@@ -888,6 +1103,33 @@ export default function App() {
   }, [dashedTracesEnabled]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem('terra16_trails_visible_v1', trailsVisible ? '1' : '0');
+    } catch {
+      // Ignore quota
+    }
+  }, [trailsVisible]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('terra16_lieux_dits_visible_v1', lieuxDitsVisible ? '1' : '0');
+    } catch {
+      // Ignore quota
+    }
+  }, [lieuxDitsVisible]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'terra16_inspected_tables_v1',
+        JSON.stringify(Array.from(inspectedTableIds).slice(-300))
+      );
+    } catch {
+      // Ignore quota
+    }
+  }, [inspectedTableIds]);
+
+  useEffect(() => {
     saveEncountersToStorage(encounters);
   }, [encounters]);
 
@@ -932,12 +1174,56 @@ export default function App() {
   }, [huntStepMap]);
 
   useEffect(() => {
+    saveClaimedCommunityTiers(Array.from(claimedCommunityTiers));
+  }, [claimedCommunityTiers]);
+
+  useEffect(() => {
+    saveNarrativeProgress(narrativeState);
+  }, [narrativeState]);
+
+  useEffect(() => {
+    saveSecretArchivesState(secretState);
+  }, [secretState]);
+
+  useEffect(() => {
+    saveLiveEventsState(liveEventsState);
+  }, [liveEventsState]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setChallengeClockMinute(Math.floor(Date.now() / 60000));
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     try {
       localStorage.setItem('terra16_soundscape_v1', soundscapeEnabled ? '1' : '0');
     } catch {
       // Ignore quota
     }
   }, [soundscapeEnabled]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('grimoire-nocturne', nightInkMode);
+    try {
+      localStorage.setItem('terra16_night_ink_v1', nightInkMode ? '1' : '0');
+    } catch {
+      // Ignore quota
+    }
+  }, [nightInkMode]);
+
+  useEffect(() => {
+    saveCraftedAlchemyIds(craftedAlchemyIds);
+  }, [craftedAlchemyIds]);
+
+  useEffect(() => {
+    saveActiveFamiliarAura(activeFamiliarAura);
+  }, [activeFamiliarAura]);
+
+  useEffect(() => {
+    savePassportStamps(passportStamps);
+  }, [passportStamps]);
 
   useEffect(() => {
     saveHapticsPreference(hapticsEnabled);
@@ -1024,6 +1310,18 @@ export default function App() {
                 cloudProfile.claimedAlmanacCount || 0,
                 prev.claimedAlmanacCount || 0
               ),
+              completedNarrativesCount: Math.max(
+                cloudProfile.completedNarrativesCount || 0,
+                prev.completedNarrativesCount || 0
+              ),
+              claimedCommunityChallengesCount: Math.max(
+                cloudProfile.claimedCommunityChallengesCount || 0,
+                prev.claimedCommunityChallengesCount || 0
+              ),
+              claimedLiveEventsCount: Math.max(
+                cloudProfile.claimedLiveEventsCount || 0,
+                prev.claimedLiveEventsCount || 0
+              ),
             })),
           (cloudEntries) => setEntries(cloudEntries),
           (cloudSpecimens) => setSpecimens(cloudSpecimens),
@@ -1076,22 +1374,58 @@ export default function App() {
 
   const guildPerks = useMemo(() => computeGuildPerks(progress), [progress]);
   const explorerAppearance = useMemo(() => resolveExplorerAppearance(progress), [progress]);
+  const alchemyBonuses = useMemo(
+    () => computeAlchemyFieldBonuses(craftedAlchemyIds),
+    [craftedAlchemyIds]
+  );
+  const referenceCalendarDate = useMemo(
+    () => resolveReferenceCalendarDate(almanacPreviewDate),
+    [almanacPreviewDate]
+  );
+  const moonPhaseInfo = useMemo(
+    () => computeRealMoonPhase(referenceCalendarDate),
+    [referenceCalendarDate]
+  );
+  const seasonVisuals = useMemo(
+    () => resolveCalendarSeasonVisuals(referenceCalendarDate.getMonth()),
+    [referenceCalendarDate]
+  );
 
   // Keep progress counters reconciled with local sets for existing saves
   useEffect(() => {
     const targetRiddles = Math.max(progress.solvedRiddlesCount || 0, solvedRiddleIds.size);
     const targetHunts = Math.max(progress.completedHuntsCount || 0, completedHuntIds.size);
     const targetAlmanac = Math.max(progress.claimedAlmanacCount || 0, claimedAlmanacQuests.size);
+    const targetNarratives = Math.max(
+      progress.completedNarrativesCount || 0,
+      narrativeState.completedQuestIds.length
+    );
+    const targetCommunity = Math.max(
+      progress.claimedCommunityChallengesCount || 0,
+      claimedCommunityTiers.size
+    );
+    const liveJournalEntriesCount = entries.filter((e) => isEntryFromLiveEvent(e)).length;
+    const targetLiveEvents = Math.max(
+      progress.claimedLiveEventsCount || 0,
+      liveEventsState.claimedEventIds.length,
+      liveJournalEntriesCount
+    );
     if (
       targetRiddles !== (progress.solvedRiddlesCount || 0) ||
       targetHunts !== (progress.completedHuntsCount || 0) ||
-      targetAlmanac !== (progress.claimedAlmanacCount || 0)
+      targetAlmanac !== (progress.claimedAlmanacCount || 0) ||
+      targetNarratives !== (progress.completedNarrativesCount || 0) ||
+      targetCommunity !== (progress.claimedCommunityChallengesCount || 0) ||
+      targetLiveEvents !== (progress.claimedLiveEventsCount || 0)
     ) {
       const synced: ExplorerProgress = {
         ...progress,
         solvedRiddlesCount: targetRiddles,
         completedHuntsCount: targetHunts,
         claimedAlmanacCount: targetAlmanac,
+        completedNarrativesCount: targetNarratives,
+        claimedCommunityChallengesCount: targetCommunity,
+        claimedLiveEventsCount: targetLiveEvents,
       };
       setProgress(synced);
       if (user && cloudOnline) {
@@ -1103,6 +1437,10 @@ export default function App() {
     solvedRiddleIds.size,
     completedHuntIds.size,
     claimedAlmanacQuests.size,
+    narrativeState.completedQuestIds.length,
+    claimedCommunityTiers.size,
+    liveEventsState.claimedEventIds.length,
+    entries,
     user,
     cloudOnline,
     handleCloudSyncError,
@@ -1119,14 +1457,19 @@ export default function App() {
       const updated = revealFogAroundPlayer(
         playerPos.lat,
         playerPos.lng,
-        95 + guildPerks.fogVisionBonusMeters,
+        95 + guildPerks.fogVisionBonusMeters + alchemyBonuses.fogBonusMeters,
         prev
       );
       if (!updated) return prev;
       scheduleSaveRevealedFogSet(updated);
       return updated;
     });
-  }, [playerPos.lat, playerPos.lng, guildPerks.fogVisionBonusMeters]);
+  }, [
+    playerPos.lat,
+    playerPos.lng,
+    guildPerks.fogVisionBonusMeters,
+    alchemyBonuses.fogBonusMeters,
+  ]);
 
   const localExplorationPct = useMemo(
     () => computeLocalSectorExplorationPct(playerPos.lat, playerPos.lng, fogSet),
@@ -1230,6 +1573,7 @@ export default function App() {
         setPois(payload.pois);
         setTerrain(payload.terrain);
         setSubterranean(payload.subterranean || []);
+        setLieuxDits(payload.lieuxDits || []);
         setSourceFilter('all');
       } else {
         // Additive local merge with gentle upper bounds for multi-kilometer treks:
@@ -1301,6 +1645,28 @@ export default function App() {
           }
           return merged;
         });
+
+        setLieuxDits((prev) => {
+          const incomingLd = payload.lieuxDits || [];
+          const kept = prev.filter((ld) => haversineMeters(lat, lng, ld.lat, ld.lng) <= 3800);
+          const seenNorm = new Set(kept.map((ld) => ld.name.trim().toLowerCase()));
+          const merged = [...kept];
+          for (const ld of incomingLd) {
+            const norm = ld.name.trim().toLowerCase();
+            if (!norm || seenNorm.has(norm)) continue;
+            if (merged.some((ex) => haversineMeters(ex.lat, ex.lng, ld.lat, ld.lng) < 85)) continue;
+            seenNorm.add(norm);
+            merged.push(ld);
+          }
+          if (merged.length > 42) {
+            merged.sort(
+              (a, b) =>
+                haversineMeters(lat, lng, a.lat, a.lng) - haversineMeters(lat, lng, b.lat, b.lng)
+            );
+            return merged.slice(0, 42);
+          }
+          return merged;
+        });
       }
 
       setBedrock((prev) => payload.bedrock || prev);
@@ -1359,6 +1725,8 @@ export default function App() {
               (wideData.subterranean?.length || 0) > 0
                 ? wideData.subterranean
                 : data.subterranean || [],
+            lieuxDits:
+              (wideData.lieuxDits?.length || 0) > 0 ? wideData.lieuxDits : data.lieuxDits || [],
             bedrock: wideData.bedrock || data.bedrock,
             elevation: wideData.elevation || data.elevation || null,
             weather: wideData.weather || data.weather || null,
@@ -1377,6 +1745,7 @@ export default function App() {
         pois: data.pois,
         terrain: data.terrain,
         subterranean: data.subterranean || [],
+        lieuxDits: data.lieuxDits || [],
         bedrock: data.bedrock,
         elevation: data.elevation || null,
         weather: data.weather || null,
@@ -1651,7 +2020,7 @@ export default function App() {
   // Strictly separate Surface POIs vs Sous-sol POIs so the two world layers never show duplicate markers!
   const sectorAnchorLat = Math.round(playerPos.lat * 100) / 100;
   const sectorAnchorLng = Math.round(playerPos.lng * 100) / 100;
-  const { surfacePois, subterraneanPois } = useMemo(
+  const { surfacePois: rawSurfacePois, subterraneanPois } = useMemo(
     () =>
       partitionSurfaceAndSubterraneanPois({
         rawPois: pois,
@@ -1664,7 +2033,134 @@ export default function App() {
     [pois, subterranean, terrain, bedrock, sectorAnchorLat, sectorAnchorLng]
   );
 
+  // Pack « Patrimoine d’État & Archives Secrètes » :
+  // Deterministically select up to 2 Hidden Secret POIs per sector + Sympathetic-Ink Clue Anchors.
+  // Unrevealed Hidden POIs remain strictly invisible on the map and signal lists until deciphered,
+  // triangulated via both clues, or approached within <= 55 m!
+  const sectorSecrets = useMemo(
+    () =>
+      deriveSectorSecretSites({
+        allPois: rawSurfacePois,
+        elevation,
+      }),
+    [rawSurfacePois, elevation]
+  );
+
+  const secretSiteById = useMemo(() => {
+    const map = new Map<string, SecretHiddenSite>();
+    for (const s of sectorSecrets) {
+      map.set(s.secretPoiId, s);
+    }
+    return map;
+  }, [sectorSecrets]);
+
+  const {
+    revealedSecretPoiIds,
+    unrevealedSecretIdSet,
+    unrevealedSecretCoords,
+    clueCarrierPoiIds,
+  } = useMemo(() => {
+    const revealed = new Set<string>();
+    const unrevealed = new Set<string>();
+    const coords: Array<{ id: string; lat: number; lng: number }> = [];
+    const carriers = new Set<string>();
+
+    for (const site of sectorSecrets) {
+      for (const c of site.clues) {
+        carriers.add(c.anchorPoiId);
+      }
+      if (isSecretSiteRevealedOnMap(site, secretState, unlockedIds)) {
+        revealed.add(site.secretPoiId);
+      } else {
+        unrevealed.add(site.secretPoiId);
+        coords.push({ id: site.secretPoiId, lat: site.poi.lat, lng: site.poi.lng });
+      }
+    }
+
+    return {
+      revealedSecretPoiIds: revealed,
+      unrevealedSecretIdSet: unrevealed,
+      unrevealedSecretCoords: coords,
+      clueCarrierPoiIds: carriers,
+    };
+  }, [sectorSecrets, secretState, unlockedIds]);
+
+  const surfacePois = useMemo(
+    () => rawSurfacePois.filter((p) => !unrevealedSecretIdSet.has(p.id)),
+    [rawSurfacePois, unrevealedSecretIdSet]
+  );
+
   const activeLayerPois = subterraneanMode ? subterraneanPois : surfacePois;
+
+  // Close-range Resonance Auto-Reveal: walking within <= 55 m of an unrevealed Secret POI materializes its wax seal!
+  useEffect(() => {
+    if (subterraneanMode || sectorSecrets.length === 0) return;
+    const newlyProximate: SecretHiddenSite[] = [];
+    for (const site of sectorSecrets) {
+      if (isSecretSiteRevealedOnMap(site, secretState, unlockedIds)) continue;
+      const dist = haversineMeters(playerPos.lat, playerPos.lng, site.poi.lat, site.poi.lng);
+      if (dist <= 55) {
+        newlyProximate.push(site);
+      }
+    }
+    if (newlyProximate.length === 0) return;
+
+    playSecretClueChimeSfx(muted);
+    vibrateMysterySealNearby(hapticsEnabled);
+    setSecretState((prev) => ({
+      ...prev,
+      proximityRevealedSecretIds: Array.from(
+        new Set([...prev.proximityRevealedSecretIds, ...newlyProximate.map((s) => s.secretPoiId)])
+      ),
+    }));
+
+    const first = newlyProximate[0];
+    setCutIn({
+      id: `secret_prox_${first.secretPoiId}_${Date.now()}`,
+      kind: 'mission',
+      kicker: `✦ Résonance Secrète · Cote ${first.archiveCote}`,
+      title: `« ${first.codenameFr} » se matérialise sur la carte !`,
+      subtitle: `Votre lanterne révèle un sceau caché à quelques pas (+${first.bonusXpTotal} XP & collectible rare à la clé).`,
+      openSecretArchives: true,
+    });
+  }, [
+    playerPos.lat,
+    playerPos.lng,
+    subterraneanMode,
+    sectorSecrets,
+    secretState,
+    unlockedIds,
+    muted,
+    hapticsEnabled,
+  ]);
+
+  const handleDecipherSecretSite = useCallback(
+    (site: SecretHiddenSite) => {
+      if (secretState.decipheredSecretIds.includes(site.secretPoiId)) return;
+      const decipherXp = 40;
+      setSecretState((prev) => ({
+        ...prev,
+        decipheredSecretIds: prev.decipheredSecretIds.includes(site.secretPoiId)
+          ? prev.decipheredSecretIds
+          : [...prev.decipheredSecretIds, site.secretPoiId],
+      }));
+      const cat = site.poi.category;
+      const nextProgress: ExplorerProgress = {
+        ...progress,
+        totalXp: progress.totalXp + decipherXp,
+        xpHistoire: progress.xpHistoire + (cat === 'histoire' ? decipherXp : 0),
+        xpGeographie: progress.xpGeographie + (cat === 'geographie' ? decipherXp : 0),
+        xpEcosysteme: progress.xpEcosysteme + (cat === 'ecosysteme' ? decipherXp : 0),
+        xpEtrange: progress.xpEtrange + (cat === 'etrange' ? decipherXp : 0),
+        xpLegende: (progress.xpLegende || 0) + (cat === 'legende' ? decipherXp : 0),
+      };
+      setProgress(nextProgress);
+      if (user && cloudOnline) {
+        syncProgressToCloud(user.uid, nextProgress).catch(handleCloudSyncError);
+      }
+    },
+    [secretState.decipheredSecretIds, progress, user, cloudOnline, handleCloudSyncError]
+  );
 
   // Clear active walk path when switching between Surface and Sous-sol layers
   useEffect(() => {
@@ -1804,17 +2300,69 @@ export default function App() {
     const applyAtmosphereBonus = isNocturnalOrDusk || isInclementWeather;
 
     const nowIso = new Date().toISOString();
+    const totalBonusPct =
+      (applyAtmosphereBonus ? guildPerks.atmosphereXpBonusPct : 0) + alchemyBonuses.xpBonusPct;
+
+    const newlyCollectedClues: Array<{
+      site: SecretHiddenSite;
+      clueKey: string;
+      titleFr: string;
+    }> = [];
+    const newlyDiscoveredSecrets: Array<{
+      site: SecretHiddenSite;
+      record: DiscoveredSecretEntryRecord;
+    }> = [];
+
     const newEntries: UnlockedEntry[] = newlyUnlockedPois.map((poi) => {
-      const awardedXp = applyAtmosphereBonus
-        ? Math.round(poi.xpReward * (1 + guildPerks.atmosphereXpBonusPct / 100))
+      const secretSite = secretSiteById.get(poi.id) || null;
+      const baseReward = secretSite
+        ? Math.max(poi.xpReward, secretSite.bonusXpTotal)
         : poi.xpReward;
+      const awardedXp =
+        totalBonusPct > 0 ? Math.round(baseReward * (1 + totalBonusPct / 100)) : baseReward;
+
+      const hostedClue = findSecretClueHostedOnPoi(poi.id, sectorSecrets);
+      if (hostedClue && !secretState.collectedClueKeys.includes(hostedClue.clue.clueKey)) {
+        newlyCollectedClues.push({
+          site: hostedClue.site,
+          clueKey: hostedClue.clue.clueKey,
+          titleFr: hostedClue.clue.titleFr,
+        });
+      }
+
+      if (secretSite) {
+        newlyDiscoveredSecrets.push({
+          site: secretSite,
+          record: {
+            secretPoiId: poi.id,
+            name: poi.name,
+            codenameFr: secretSite.codenameFr,
+            archiveCote: secretSite.archiveCote,
+            category: poi.category,
+            eraLabel: poi.eraLabel || 'Strate locale',
+            source: poi.source,
+            lat: poi.lat,
+            lng: poi.lng,
+            bonusXpAwarded: awardedXp,
+            collectibleId: secretSite.collectibleId,
+            decipherLoreFr: secretSite.decipherLoreFr,
+            summary: poi.summary,
+            discoveredAtIso: nowIso,
+          },
+        });
+      }
+
+      const resolvedSubType = secretSite
+        ? `✦ Lieu Caché · ${poi.subType}`.slice(0, 78)
+        : poi.subType.slice(0, 78);
+
       return {
         poiId: poi.id,
         name: poi.name,
         category: poi.category,
-        subType: poi.subType,
+        subType: resolvedSubType,
         eraLabel: poi.eraLabel || 'Strate locale',
-        source: poi.source,
+        source: poi.source.slice(0, 78),
         lat: poi.lat,
         lng: poi.lng,
         summary: poi.summary,
@@ -1831,7 +2379,41 @@ export default function App() {
       };
     });
 
-    playDiscoveryFanfare(muted);
+    if (newlyDiscoveredSecrets.length > 0 || newlyCollectedClues.length > 0) {
+      setSecretState((prev) => {
+        const nextClues = Array.from(
+          new Set([...prev.collectedClueKeys, ...newlyCollectedClues.map((c) => c.clueKey)])
+        );
+        const existingRecordIds = new Set(prev.discoveredSecretRecords.map((r) => r.secretPoiId));
+        const nextRecords = [
+          ...newlyDiscoveredSecrets
+            .map((d) => d.record)
+            .filter((r) => !existingRecordIds.has(r.secretPoiId)),
+          ...prev.discoveredSecretRecords,
+        ];
+        const nextCollectibles = Array.from(
+          new Set([
+            ...prev.unlockedCollectibleIds,
+            ...newlyDiscoveredSecrets.map((d) => d.site.collectibleId),
+          ])
+        );
+        return {
+          ...prev,
+          collectedClueKeys: nextClues,
+          discoveredSecretRecords: nextRecords,
+          unlockedCollectibleIds: nextCollectibles,
+        };
+      });
+    }
+
+    if (newlyDiscoveredSecrets.length > 0) {
+      playSecretArchiveSealBreakSfx(muted);
+    } else {
+      playDiscoveryFanfare(muted);
+      if (newlyCollectedClues.length > 0) {
+        playSecretClueChimeSfx(muted);
+      }
+    }
     vibrateUnlockCelebration(hapticsEnabled);
 
     const combinedEntries = [...newEntries, ...entries];
@@ -1861,17 +2443,46 @@ export default function App() {
     const catMeta = CATEGORY_META[primary.category];
     setSelectedPoiId(primary.poiId);
     setSelectedJournalPoiId(primary.poiId);
-    setCutIn({
-      id: `disc_${primary.poiId}`,
-      kind: 'discovery',
-      kicker: `Nouveau feuillet enluminé · ${primary.eraLabel}`,
-      title: primary.name,
-      subtitle: `${catMeta.label} · +${primary.xpAwarded} XP${
-        applyAtmosphereBonus ? ` (Bonus d’ambiance +${guildPerks.atmosphereXpBonusPct}%)` : ''
-      }`,
-      emblemSrc: catMeta.emblemSrc,
-      poiId: primary.poiId,
-    });
+
+    const primarySecret = newlyDiscoveredSecrets.find((d) => d.record.secretPoiId === primary.poiId);
+    const primaryClue = newlyCollectedClues[0] || null;
+
+    if (primarySecret) {
+      const rareCollectible = getSecretCollectibleById(primarySecret.site.collectibleId);
+      setCutIn({
+        id: `disc_secret_${primary.poiId}`,
+        kind: 'discovery',
+        kicker: `✦ Lieu d’Intérêt Caché Dévoilé · Cote ${primarySecret.site.archiveCote}`,
+        title: primary.name,
+        subtitle: `+${primary.xpAwarded} XP · Collectible rare débloqué : « ${rareCollectible.name} » !`,
+        emblemSrc: catMeta.emblemSrc,
+        poiId: primary.poiId,
+        openSecretArchives: true,
+      });
+    } else if (primaryClue) {
+      setCutIn({
+        id: `disc_${primary.poiId}`,
+        kind: 'discovery',
+        kicker: `Feuillet + Note à l’Encre Sympathique · ${primaryClue.site.archiveCote}`,
+        title: primary.name,
+        subtitle: `+${primary.xpAwarded} XP · ${primaryClue.titleFr} vers « ${primaryClue.site.codenameFr} » découvert !`,
+        emblemSrc: catMeta.emblemSrc,
+        poiId: primary.poiId,
+        openSecretArchives: true,
+      });
+    } else {
+      setCutIn({
+        id: `disc_${primary.poiId}`,
+        kind: 'discovery',
+        kicker: `Nouveau feuillet enluminé · ${primary.eraLabel}`,
+        title: primary.name,
+        subtitle: `${catMeta.label} · +${primary.xpAwarded} XP${
+          totalBonusPct > 0 ? ` (Bonus +${totalBonusPct}%)` : ''
+        }`,
+        emblemSrc: catMeta.emblemSrc,
+        poiId: primary.poiId,
+      });
+    }
 
     if (user && cloudOnline) {
       Promise.all([
@@ -1892,8 +2503,12 @@ export default function App() {
     cloudOnline,
     handleCloudSyncError,
     guildPerks,
+    alchemyBonuses.xpBonusPct,
     timeMode,
     weather,
+    secretSiteById,
+    sectorSecrets,
+    secretState.collectedClueKeys,
   ]);
 
   const handleSaveJournalAnnotation = async (poiId: string, note: string, photoCount: number) => {
@@ -1957,6 +2572,7 @@ export default function App() {
     setSimulationMode(true);
     setWalkQueue([]);
     setExpeditionStops([]);
+    setActiveRoadLoop(null);
     setSelectedPoiId(null);
     setSearchResults([]);
     setMobileDrawer('none');
@@ -2047,7 +2663,7 @@ export default function App() {
   const handleResetCharacter = useCallback(async () => {
     // Suppress immediate auto-unlock on POIs currently overlapping playerPos until player steps >= 8m
     const overlapping = new Set<string>();
-    for (const poi of [...surfacePois, ...subterraneanPois]) {
+    for (const poi of [...rawSurfacePois, ...subterraneanPois]) {
       const dist = haversineMeters(playerPos.lat, playerPos.lng, poi.lat, poi.lng);
       if (dist <= poi.unlockRadiusMeters + 60) {
         overlapping.add(poi.id);
@@ -2059,6 +2675,7 @@ export default function App() {
     // Stop active movement & reset transient guards
     setWalkQueue([]);
     setExpeditionStops([]);
+    setActiveRoadLoop(null);
     unlockingGuardRef.current.clear();
     hapticSealIdsRef.current.clear();
     hapticRumorIdsRef.current.clear();
@@ -2107,6 +2724,39 @@ export default function App() {
     saveHuntVisitedStepMap({});
     setTrackingHuntOnMap(false);
     setActiveRiddleEntry(null);
+    const emptyCommunityTiers = new Set<string>();
+    setClaimedCommunityTiers(emptyCommunityTiers);
+    saveClaimedCommunityTiers([]);
+    const emptyNarrative: NarrativeProgressState = {
+      actsSealedByQuestId: {},
+      completedQuestIds: [],
+      activeQuestId: null,
+    };
+    setNarrativeState(emptyNarrative);
+    saveNarrativeProgress(emptyNarrative);
+    const emptySecrets: SecretArchivesState = {
+      collectedClueKeys: [],
+      decipheredSecretIds: [],
+      proximityRevealedSecretIds: [],
+      discoveredSecretRecords: [],
+      unlockedCollectibleIds: [],
+    };
+    setSecretState(emptySecrets);
+    saveSecretArchivesState(emptySecrets);
+    setActiveSecretDecipherSite(null);
+    const emptyLiveEvents: LiveEventsPersistenceState = {
+      claimedEventIds: [],
+      unlockedMedallionIds: [],
+    };
+    setLiveEventsState(emptyLiveEvents);
+    saveLiveEventsState(emptyLiveEvents);
+    const emptyAlchemy = new Set<string>();
+    setCraftedAlchemyIds(emptyAlchemy);
+    saveCraftedAlchemyIds(emptyAlchemy);
+    setActiveFamiliarAura('aucune');
+    saveActiveFamiliarAura('aucune');
+    setPassportStamps([]);
+    savePassportStamps([]);
     hapticHuntStageRef.current.clear();
     setSessionMeters(0);
     setSessionElevGainM(0);
@@ -2137,7 +2787,7 @@ export default function App() {
       }
     }
   }, [
-    surfacePois,
+    rawSurfacePois,
     subterraneanPois,
     playerPos.lat,
     playerPos.lng,
@@ -2227,6 +2877,25 @@ export default function App() {
   };
 
   const globalLevelInfo = useMemo(() => computeLevelFromXp(progress.totalXp), [progress.totalXp]);
+  const explorerHonorificTitle = useMemo(
+    () => computeExplorerHonorificTitle(progress),
+    [progress]
+  );
+  const unlockedCosmeticSets = useMemo(() => {
+    const headgear = new Set<string>();
+    const outfits = new Set<string>();
+    const familiars = new Set<string>();
+    for (const h of HEADGEAR_CATALOG) {
+      if (isCosmeticUnlocked(h, progress, entries)) headgear.add(h.id);
+    }
+    for (const o of OUTFIT_COSMETICS_CATALOG) {
+      if (isCosmeticUnlocked(o, progress, entries)) outfits.add(o.id);
+    }
+    for (const f of FAMILIAR_CATALOG) {
+      if (isCosmeticUnlocked(f, progress, entries)) familiars.add(f.id);
+    }
+    return { headgear, outfits, familiars };
+  }, [progress, entries]);
   const daytimeMood = useMemo(() => getDaytimeMood(timeMode, weather), [timeMode, weather]);
 
   // Filter active-layer POIs (Surface OR Sous-sol) by optional Archive Bookmark as well
@@ -2351,49 +3020,128 @@ export default function App() {
     });
   }, []);
 
+  const customRoadLoop = useMemo(() => {
+    if (expeditionStops.length === 0) return null;
+    return buildRoadSnappedPoiLoop({
+      originLat: playerPos.lat,
+      originLng: playerPos.lng,
+      stops: expeditionStops,
+      unlockedIds,
+      terrain,
+      elevation,
+      closeLoop: closeCustomLoop,
+      presetId: 'custom',
+      titleFr: closeCustomLoop
+        ? `Boucle sur mesure (${expeditionStops.length} étapes ↺)`
+        : `Parcours sur mesure (${expeditionStops.length} étapes)`,
+    });
+  }, [expeditionStops, playerPos.lat, playerPos.lng, unlockedIds, terrain, elevation, closeCustomLoop]);
+
   const expeditionSummary = useMemo(() => {
-    if (expeditionStops.length === 0) {
-      return { totalMeters: 0, estMinutes: 0, elevGainM: 0 };
+    if (!customRoadLoop) {
+      return { totalMeters: 0, estMinutes: 0, elevGainM: 0, trailSharePct: 0 };
     }
-    let totalDirect = 0;
-    let elevGain = 0;
-    let curLat = playerPos.lat;
-    let curLng = playerPos.lng;
-    let prevAlt = sampleElevationMeters(elevation, curLat, curLng);
-
-    for (const stop of expeditionStops) {
-      totalDirect += haversineMeters(curLat, curLng, stop.lat, stop.lng);
-      const nextAlt = sampleElevationMeters(elevation, stop.lat, stop.lng);
-      if (prevAlt !== null && nextAlt !== null && nextAlt > prevAlt) {
-        elevGain += nextAlt - prevAlt;
-      }
-      if (nextAlt !== null) prevAlt = nextAlt;
-      curLat = stop.lat;
-      curLng = stop.lng;
-    }
-
-    const totalMeters = Math.max(15, Math.round(totalDirect * 1.26));
-    const estMinutes = Math.max(1, Math.round(totalMeters / 74));
     return {
-      totalMeters,
-      estMinutes,
-      elevGainM: Math.round(elevGain),
+      totalMeters: customRoadLoop.totalMeters,
+      estMinutes: customRoadLoop.estMinutes,
+      elevGainM: customRoadLoop.elevGainM,
+      trailSharePct: customRoadLoop.trailSharePct,
     };
-  }, [expeditionStops, playerPos.lat, playerPos.lng, elevation]);
+  }, [customRoadLoop]);
+
+  const presetRoadLoopPreview = useMemo(() => {
+    if (surfacePois.length === 0) return null;
+    return generatePresetWalkingLoop({
+      presetId: selectedLoopPreset,
+      originLat: playerPos.lat,
+      originLng: playerPos.lng,
+      pois: surfacePois,
+      unlockedIds,
+      terrain,
+      elevation,
+    });
+  }, [selectedLoopPreset, playerPos.lat, playerPos.lng, surfacePois, unlockedIds, terrain, elevation]);
+
+  const handleShowRoadLoopOnMap = useCallback((loop: PlannedRoadLoop | null) => {
+    if (!loop) return;
+    setSubterraneanMode(false);
+    setActiveRoadLoop(loop);
+    setDashedTracesEnabled(true);
+    setMobileDrawer('none');
+    setDesktopToolbarPanel('none');
+    setActiveTab('carte');
+  }, []);
+
+  const handleWalkRoadLoop = useCallback((loop: PlannedRoadLoop | null) => {
+    if (!loop || loop.waypoints.length === 0) return;
+    setSubterraneanMode(false);
+    setSimulationMode(true);
+    setActiveRoadLoop(loop);
+    setDashedTracesEnabled(true);
+    setWalkQueue(loop.waypoints);
+    setMobileDrawer('none');
+    setDesktopToolbarPanel('none');
+    setActiveTab('carte');
+  }, []);
 
   const launchExpeditionLoop = useCallback(() => {
-    if (expeditionStops.length === 0) return;
-    const stops = expeditionStops.map((s) => ({ lat: s.lat, lng: s.lng }));
-    setSimulationMode(true);
+    if (!customRoadLoop) return;
+    setActiveRoadLoop(customRoadLoop);
     setDashedTracesEnabled(true);
-    setRouteRequest({
-      id: Date.now(),
-      lat: stops[0].lat,
-      lng: stops[0].lng,
-      stops,
-    });
+    if (simulationMode) {
+      setWalkQueue(customRoadLoop.waypoints);
+    }
     setMobileDrawer('none');
-  }, [expeditionStops]);
+    setDesktopToolbarPanel('none');
+  }, [customRoadLoop, simulationMode]);
+
+  const handleCraftAlchemyRecipe = useCallback(
+    (recipe: AlchemyRecipe) => {
+      if (craftedAlchemyIds.has(recipe.id)) return;
+      const craftXp = 45;
+      playDiscoveryFanfare(muted);
+      vibrateUnlockCelebration(hapticsEnabled);
+      setCraftedAlchemyIds((prev) => {
+        const next = new Set(prev);
+        next.add(recipe.id);
+        return next;
+      });
+      if (recipe.unlocksFamiliarAura) {
+        setActiveFamiliarAura(recipe.unlocksFamiliarAura);
+      }
+      setProgress((prev) => {
+        const next: ExplorerProgress = {
+          ...prev,
+          totalXp: prev.totalXp + craftXp,
+          xpEcosysteme: prev.xpEcosysteme + 25,
+          xpGeographie: prev.xpGeographie + 20,
+        };
+        if (user && cloudOnline) {
+          syncProgressToCloud(user.uid, next).catch(handleCloudSyncError);
+        }
+        return next;
+      });
+      setCutIn({
+        id: `alchemy_${recipe.id}_${Date.now()}`,
+        kind: 'mission',
+        kicker:
+          recipe.category === 'encre_carte'
+            ? 'Atelier d’Alchimie · Nouvelle Encre d’Enluminure !'
+            : 'Atelier d’Alchimie · Talisman & Aura de Familier forgés !',
+        title: recipe.nameFr,
+        subtitle: `+${craftXp} XP · ${recipe.effectSummaryFr}`,
+      });
+    },
+    [craftedAlchemyIds, muted, hapticsEnabled, user, cloudOnline, handleCloudSyncError]
+  );
+
+  const handleSelectFamiliarAura = useCallback(
+    (aura: FamiliarAuraId) => {
+      playStampSfx(muted);
+      setActiveFamiliarAura(aura);
+    },
+    [muted]
+  );
 
   // Target for the live Brass Compass Rose: selected POI if any, else nearest undiscovered mystery
   const compassTarget = useMemo(() => {
@@ -3248,6 +3996,49 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [almanacGeoKey, almanacDateKey]);
 
+  // Auto-stamp visited localities/communes in the Explorer's 16-bit Regional Stamp Passport
+  useEffect(() => {
+    const communeName = almanacData?.locality.commune?.trim();
+    if (!communeName || loadingSector) return;
+    const affinity = classifySectorLithology(bedrock, terrain);
+    const lithoLabel = translateLithologyLabelFr(bedrock, affinity);
+    const altM = sampleElevationMeters(elevation, playerPos.lat, playerPos.lng);
+    const nearbyDiscoveries = entries.filter(
+      (e) => haversineMeters(playerPos.lat, playerPos.lng, e.lat, e.lng) <= 4500
+    ).length;
+    const regionSubtitle =
+      [almanacData?.locality.departement, almanacData?.locality.region]
+        .filter(Boolean)
+        .join(' · ') || localAtmosphereLabel;
+
+    setPassportStamps((prev) => {
+      const { stamps, newlyStamped } = buildOrUpdatePassportStamp(prev, {
+        localityName: communeName,
+        regionSubtitle,
+        affinity,
+        lithologyLabelFr: lithoLabel,
+        altitudeMeters: altM,
+        season: seasonVisuals.season,
+        lat: playerPos.lat,
+        lng: playerPos.lng,
+        discoveriesHere: nearbyDiscoveries,
+      });
+      if (newlyStamped && prev.length > 0) {
+        playStampSfx(muted);
+      }
+      return stamps;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    almanacData?.locality.commune,
+    almanacData?.locality.departement,
+    almanacData?.locality.region,
+    bedrock,
+    entries.length,
+    loadingSector,
+    seasonVisuals.season,
+  ]);
+
   const almanacEvalContext = useMemo<AlmanacQuestEvalContext>(() => {
     const hour = new Date().getHours();
     const isNightOrDusk =
@@ -3407,6 +4198,567 @@ export default function App() {
     : 0;
   const isCurrentHuntCompleted = Boolean(
     currentSectorHunt && completedHuntIds.has(currentSectorHunt.huntId)
+  );
+
+  // ==========================================================================
+  // PACK F : DÉFIS COMMUNAUTAIRES TEMPORISÉS & CLASSEMENTS + QUÊTES NARRATIVES EN 3 ACTES
+  // ==========================================================================
+  const activeCommunityChallenges = useMemo(
+    () => getActiveCommunityChallenges(Date.now()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [challengeClockMinute, entries.length]
+  );
+
+  const claimableCommunityTiersCount = useMemo(() => {
+    let count = 0;
+    for (const ch of activeCommunityChallenges) {
+      const ev = evaluatePersonalChallengeProgress(ch, entries);
+      for (const tier of ev.unlockedTiers) {
+        if (!claimedCommunityTiers.has(makeClaimedTierId(ch.id, tier.key as ChallengeTierKey))) {
+          count += 1;
+        }
+      }
+    }
+    return count;
+  }, [activeCommunityChallenges, entries, claimedCommunityTiers]);
+
+  // Automatically sync explorer's real-time contribution to Firestore leaderboards (/challengeEntries)
+  useEffect(() => {
+    if (!authReady || !user || !cloudOnline) return;
+    const regionLabel =
+      almanacData?.locality.commune || localAtmosphereLabel || regionalTheme.shortLabel;
+    for (const ch of activeCommunityChallenges) {
+      const ev = evaluatePersonalChallengeProgress(ch, entries);
+      if (ev.count >= 1 && ev.points >= 1) {
+        upsertCommunityChallengeEntryInCloud({
+          uidRaw: user.uid,
+          challengeId: ch.id,
+          cadence: ch.cadence,
+          periodKey: ch.periodKey,
+          contributionCount: ev.count,
+          points: ev.points,
+          regionLabel,
+          progress,
+        }).catch(handleCloudSyncError);
+      }
+    }
+  }, [
+    authReady,
+    user,
+    cloudOnline,
+    activeCommunityChallenges,
+    entries,
+    claimedCommunityTiers.size,
+    almanacData?.locality.commune,
+    localAtmosphereLabel,
+    regionalTheme.shortLabel,
+    progress,
+    handleCloudSyncError,
+  ]);
+
+  // ==========================================================================
+  // PACK 2 : PANTHÉON MULTIJOUEUR (XP + DIVERSITÉ + RARETÉ) & ÉVÉNEMENTS VIVANTS
+  // ==========================================================================
+  const claimedLiveEventIdsSet = useMemo(
+    () => new Set(liveEventsState.claimedEventIds),
+    [liveEventsState.claimedEventIds]
+  );
+
+  const unlockedMedallionIdsSet = useMemo(
+    () => new Set<LiveEventMedallionId>(liveEventsState.unlockedMedallionIds),
+    [liveEventsState.unlockedMedallionIds]
+  );
+
+  const liveWorldEvents = useMemo(
+    () =>
+      deriveLiveWorldEvents({
+        nowMs: Date.now(),
+        weather,
+        effectiveTimeOfDay: resolveEffectiveTimeOfDay(timeMode, weather),
+        moonInfo: moonPhaseInfo,
+        localFestivals: almanacData?.localFestivals,
+        communeName: almanacData?.locality.commune,
+        departementName: almanacData?.locality.departement,
+        localAtmosphereLabel,
+        sectorPois: pois,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      challengeClockMinute,
+      weather,
+      timeMode,
+      moonPhaseInfo,
+      almanacData?.localFestivals,
+      almanacData?.locality.commune,
+      almanacData?.locality.departement,
+      localAtmosphereLabel,
+      pois.length,
+    ]
+  );
+
+  const evaluatedLiveEvents = useMemo(
+    () => evaluateLiveWorldEvents(liveWorldEvents, entries, claimedLiveEventIdsSet),
+    [liveWorldEvents, entries, claimedLiveEventIdsSet]
+  );
+
+  const claimableLiveEventsCount = useMemo(
+    () => evaluatedLiveEvents.filter((ev) => ev.isCompleted && !ev.isClaimed).length,
+    [evaluatedLiveEvents]
+  );
+
+  const localPantheonMetrics = useMemo(
+    () =>
+      computeExplorerPantheonMetrics({
+        progress,
+        entries,
+        specimens,
+        openedChests,
+        secretState,
+        solvedRiddleIds,
+        claimedLiveEventIds: claimedLiveEventIdsSet,
+      }),
+    [
+      progress,
+      entries,
+      specimens,
+      openedChests,
+      secretState,
+      solvedRiddleIds,
+      claimedLiveEventIdsSet,
+    ]
+  );
+
+  // Sync verified explorer's Pantheon metrics to Firestore (/pantheonEntries/{uid})
+  useEffect(() => {
+    if (!authReady || !user || !user.emailVerified || !cloudOnline) return;
+    if (localPantheonMetrics.pantheonScore <= 0 && localPantheonMetrics.discoveriesCount <= 0) {
+      return;
+    }
+    const regionLabel =
+      almanacData?.locality.commune || localAtmosphereLabel || regionalTheme.shortLabel;
+    upsertPantheonEntryInCloud({
+      uidRaw: user.uid,
+      regionLabel,
+      progress,
+      metrics: localPantheonMetrics,
+    }).catch(handleCloudSyncError);
+  }, [
+    authReady,
+    user,
+    cloudOnline,
+    localPantheonMetrics,
+    almanacData?.locality.commune,
+    localAtmosphereLabel,
+    regionalTheme.shortLabel,
+    progress,
+    handleCloudSyncError,
+  ]);
+
+  const handleFocusLiveEventOnMap = useCallback(
+    (params: {
+      focusCoords?: { lat: number; lng: number; label: string } | null;
+      categoryFilter?: ExplorationCategory | 'all';
+    }) => {
+      setSubterraneanMode(false);
+      if (params.categoryFilter) {
+        setCategoryFilter(params.categoryFilter);
+      }
+      if (params.focusCoords) {
+        teleportToLocation(params.focusCoords.lat, params.focusCoords.lng);
+      }
+      setActiveTab('carte');
+      setMobileDrawer('none');
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  const handleClaimLiveEvent = useCallback(
+    (ev: EvaluatedLiveWorldEvent) => {
+      if (!ev.isCompleted || claimedLiveEventIdsSet.has(ev.event.id)) return;
+
+      const localityLabel =
+        almanacData?.locality.commune || localAtmosphereLabel || regionalTheme.shortLabel;
+      const journalEntry = buildLiveEventJournalEntry({
+        event: ev.event,
+        qualifyingEntries: ev.qualifyingEntries,
+        playerLat: playerPos.lat,
+        playerLng: playerPos.lng,
+        localityLabel,
+      });
+
+      const nextClaimedIds = Array.from(
+        new Set([...liveEventsState.claimedEventIds, ev.event.id])
+      );
+      const nextMedallions = Array.from(
+        new Set([...liveEventsState.unlockedMedallionIds, ev.event.medallionId])
+      );
+      setLiveEventsState({
+        claimedEventIds: nextClaimedIds,
+        unlockedMedallionIds: nextMedallions,
+      });
+
+      const alreadyInJournal = entries.some((item) => item.poiId === journalEntry.poiId);
+      const nextEntries = alreadyInJournal ? entries : [journalEntry, ...entries];
+      if (!alreadyInJournal) {
+        setEntries(nextEntries);
+      }
+
+      const xpBonus = ev.event.xpReward;
+      const cat = ev.event.rewardCategory;
+      const nextLiveCount = Math.max(
+        (progress.claimedLiveEventsCount || 0) + 1,
+        nextClaimedIds.length
+      );
+      const nextProgress: ExplorerProgress = {
+        ...progress,
+        totalXp: progress.totalXp + xpBonus,
+        xpHistoire: progress.xpHistoire + (cat === 'histoire' ? xpBonus : 0),
+        xpGeographie: progress.xpGeographie + (cat === 'geographie' ? xpBonus : 0),
+        xpEcosysteme: progress.xpEcosysteme + (cat === 'ecosysteme' ? xpBonus : 0),
+        xpEtrange: progress.xpEtrange + (cat === 'etrange' ? xpBonus : 0),
+        xpLegende: (progress.xpLegende || 0) + (cat === 'legende' ? xpBonus : 0),
+        claimedLiveEventsCount: nextLiveCount,
+      };
+      setProgress(nextProgress);
+
+      playMissionFanfare(muted);
+      vibrateUnlockCelebration(hapticsEnabled);
+      setCutIn({
+        id: `live_evt_claim_${ev.event.id}_${Date.now()}`,
+        kind: 'mission',
+        kicker: 'Événement Vivant scellé · Chronique spéciale ajoutée au Carnet !',
+        title: ev.event.titleFr,
+        subtitle: `+${xpBonus} XP · Feuillet « ${journalEntry.name} » consigné`,
+        poiId: journalEntry.poiId,
+      });
+
+      if (user && cloudOnline) {
+        if (!alreadyInJournal) {
+          createDiscoveryInCloud(user.uid, journalEntry).catch(handleCloudSyncError);
+        }
+        syncProgressToCloud(user.uid, nextProgress).catch(handleCloudSyncError);
+      }
+    },
+    [
+      claimedLiveEventIdsSet,
+      almanacData?.locality.commune,
+      localAtmosphereLabel,
+      regionalTheme.shortLabel,
+      playerPos.lat,
+      playerPos.lng,
+      liveEventsState,
+      entries,
+      progress,
+      muted,
+      hapticsEnabled,
+      user,
+      cloudOnline,
+      handleCloudSyncError,
+    ]
+  );
+
+  const handleClaimCommunityTier = useCallback(
+    (challenge: CommunityChallengeDefinition, tier: ChallengePersonalTier) => {
+      const claimId = makeClaimedTierId(challenge.id, tier.key as ChallengeTierKey);
+      if (claimedCommunityTiers.has(claimId)) return;
+
+      const nextSetSize = claimedCommunityTiers.size + 1;
+      setClaimedCommunityTiers((prev) => {
+        const next = new Set(prev);
+        next.add(claimId);
+        return next;
+      });
+      vibrateUnlockCelebration(hapticsEnabled);
+
+      const nextClaimedCount = Math.max(
+        (progress.claimedCommunityChallengesCount || 0) + 1,
+        nextSetSize
+      );
+      const xpBonus = tier.xpReward;
+      const cat = challenge.focusCategory;
+      const nextProgress: ExplorerProgress = {
+        ...progress,
+        totalXp: progress.totalXp + xpBonus,
+        xpHistoire: progress.xpHistoire + (cat === 'histoire' ? xpBonus : 0),
+        xpGeographie: progress.xpGeographie + (cat === 'geographie' ? xpBonus : 0),
+        xpEcosysteme: progress.xpEcosysteme + (cat === 'ecosysteme' ? xpBonus : 0),
+        xpEtrange: progress.xpEtrange + (cat === 'etrange' ? xpBonus : 0),
+        xpLegende: (progress.xpLegende || 0) + (cat === 'legende' ? xpBonus : 0),
+        claimedCommunityChallengesCount: nextClaimedCount,
+      };
+      const newlyUnlocked = getNewlyUnlockedCosmetics(progress, nextProgress, entries, entries);
+      setProgress(nextProgress);
+
+      if (user && cloudOnline) {
+        syncProgressToCloud(user.uid, nextProgress).catch(handleCloudSyncError);
+        const ev = evaluatePersonalChallengeProgress(challenge, entries);
+        if (ev.count >= 1) {
+          upsertCommunityChallengeEntryInCloud({
+            uidRaw: user.uid,
+            challengeId: challenge.id,
+            cadence: challenge.cadence,
+            periodKey: challenge.periodKey,
+            contributionCount: ev.count,
+            points: ev.points,
+            regionLabel:
+              almanacData?.locality.commune || localAtmosphereLabel || regionalTheme.shortLabel,
+            progress: nextProgress,
+          }).catch(handleCloudSyncError);
+        }
+      }
+
+      const hasFamiliar = newlyUnlocked.some((item) => item.slot === 'familiar');
+      const rewardNames = newlyUnlocked.map((item) => item.name).join(' & ');
+      const primarySlot: WorkshopSlotTab | undefined =
+        newlyUnlocked.find((item) => item.slot === 'familiar')?.slot || newlyUnlocked[0]?.slot;
+
+      setCutIn({
+        id: `community_tier_${claimId}_${Date.now()}`,
+        kind: 'mission',
+        kicker: rewardNames
+          ? hasFamiliar
+            ? 'Défi Communautaire · Familier & Cosmétique débloqués !'
+            : 'Défi Communautaire · Cosmétique débloqué !'
+          : `Défi Communautaire · ${tier.labelFr} validé !`,
+        title: `${challenge.title} (${tier.labelFr})`,
+        subtitle: rewardNames
+          ? `+${xpBonus} XP · Récompense : « ${rewardNames} »`
+          : `+${xpBonus} XP ${CATEGORY_META[cat].shortLabel} · +${tier.bonusPoints} pts classement`,
+        unlockedCosmeticName: rewardNames || undefined,
+        unlockedCosmeticSlot: primarySlot,
+      });
+    },
+    [
+      claimedCommunityTiers,
+      hapticsEnabled,
+      progress,
+      entries,
+      user,
+      cloudOnline,
+      handleCloudSyncError,
+      almanacData?.locality.commune,
+      localAtmosphereLabel,
+      regionalTheme.shortLabel,
+    ]
+  );
+
+  const handleFocusChallengeOnMap = useCallback((challenge: CommunityChallengeDefinition) => {
+    if (challenge.filterKind === 'subterranean_or_etrange') {
+      setSubterraneanMode(true);
+      setCategoryFilter('all');
+    } else {
+      setSubterraneanMode(false);
+      if (
+        challenge.filterKind === 'histoire' ||
+        challenge.filterKind === 'geographie' ||
+        challenge.filterKind === 'ecosysteme' ||
+        challenge.filterKind === 'legende' ||
+        challenge.filterKind === 'etrange'
+      ) {
+        setCategoryFilter(challenge.filterKind);
+      } else {
+        setCategoryFilter('all');
+      }
+    }
+    setActiveTab('carte');
+    setMobileDrawer('none');
+  }, []);
+
+  const sectorNarrativeQuests = useMemo(
+    () =>
+      generateSectorNarrativeQuests({
+        sectorCenter: { lat: sectorAnchorLat, lng: sectorAnchorLng },
+        surfacePois,
+        subterraneanPois,
+        bedrock,
+        elevation,
+        localityLabel: almanacData?.locality.commune || regionalTheme.shortLabel,
+      }),
+    [
+      sectorAnchorLat,
+      sectorAnchorLng,
+      surfacePois,
+      subterraneanPois,
+      bedrock,
+      elevation,
+      almanacData?.locality.commune,
+      regionalTheme.shortLabel,
+    ]
+  );
+
+  const trackedNarrativeQuest = useMemo(() => {
+    if (!narrativeState.activeQuestId) return null;
+    return sectorNarrativeQuests.find((q) => q.id === narrativeState.activeQuestId) || null;
+  }, [narrativeState.activeQuestId, sectorNarrativeQuests]);
+
+  const handleSealNarrativeStage = useCallback(
+    (quest: NarrativeQuest, stage: NarrativeQuestStage) => {
+      const currentSealed = getSealedActsCount(narrativeState, quest.id);
+      // Enforce strict sequential order (Beginning -> Middle -> End)
+      if (currentSealed !== stage.actNumber - 1) return;
+
+      const isFinalAct = stage.actNumber === 3;
+      if (isFinalAct) {
+        playMissionFanfare(muted);
+      } else {
+        playDiscoveryFanfare(muted);
+      }
+      vibrateUnlockCelebration(hapticsEnabled);
+
+      const nextCompletedIds =
+        isFinalAct && !narrativeState.completedQuestIds.includes(quest.id)
+          ? [...narrativeState.completedQuestIds, quest.id]
+          : narrativeState.completedQuestIds;
+
+      setNarrativeState((prev) => ({
+        actsSealedByQuestId: {
+          ...prev.actsSealedByQuestId,
+          [quest.id]: stage.actNumber,
+        },
+        completedQuestIds:
+          isFinalAct && !prev.completedQuestIds.includes(quest.id)
+            ? [...prev.completedQuestIds, quest.id]
+            : prev.completedQuestIds,
+        activeQuestId: isFinalAct && prev.activeQuestId === quest.id ? null : prev.activeQuestId,
+      }));
+
+      const xpEarned =
+        stage.xpStageReward + (isFinalAct ? quest.rewardPreview.xpFinaleBonus : 0);
+      const nextNarrativesCount = isFinalAct
+        ? Math.max((progress.completedNarrativesCount || 0) + 1, nextCompletedIds.length)
+        : progress.completedNarrativesCount || 0;
+
+      const nextProgress: ExplorerProgress = {
+        ...progress,
+        totalXp: progress.totalXp + xpEarned,
+        xpHistoire: progress.xpHistoire + (stage.category === 'histoire' ? xpEarned : 0),
+        xpGeographie: progress.xpGeographie + (stage.category === 'geographie' ? xpEarned : 0),
+        xpEcosysteme: progress.xpEcosysteme + (stage.category === 'ecosysteme' ? xpEarned : 0),
+        xpEtrange: progress.xpEtrange + (stage.category === 'etrange' ? xpEarned : 0),
+        xpLegende: (progress.xpLegende || 0) + (stage.category === 'legende' ? xpEarned : 0),
+        completedNarrativesCount: nextNarrativesCount,
+      };
+      const newlyUnlocked = getNewlyUnlockedCosmetics(progress, nextProgress, entries, entries);
+      setProgress(nextProgress);
+
+      if (user && cloudOnline) {
+        syncProgressToCloud(user.uid, nextProgress).catch(handleCloudSyncError);
+      }
+
+      const hasFamiliar = newlyUnlocked.some((item) => item.slot === 'familiar');
+      const rewardNames = newlyUnlocked.map((item) => item.name).join(' & ');
+      const primarySlot: WorkshopSlotTab | undefined =
+        newlyUnlocked.find((item) => item.slot === 'familiar')?.slot || newlyUnlocked[0]?.slot;
+
+      setCutIn({
+        id: `narrative_${quest.id}_act_${stage.actNumber}_${Date.now()}`,
+        kind: isFinalAct ? 'mission' : 'discovery',
+        kicker: isFinalAct
+          ? rewardNames
+            ? hasFamiliar
+              ? 'Dénouement Narratif · Familier & Cosmétiques débloqués !'
+              : 'Dénouement Narratif · Cosmétiques débloqués !'
+            : 'Quête Narrative accomplie · Épilogue révélé !'
+          : `${quest.title} · ${stage.phaseLabelFr} scellé`,
+        title: isFinalAct ? quest.title : stage.loreChapterTitleFr,
+        subtitle: isFinalAct
+          ? rewardNames
+            ? `+${xpEarned} XP · Récompenses : « ${rewardNames} »`
+            : `+${xpEarned} XP · Les 3 Actes du récit sont inscrits au Grimoire`
+          : `+${xpEarned} XP · L’indice de l’Acte ${stage.actNumber + 1} est désormais révélé !`,
+        emblemSrc: CATEGORY_META[stage.category].emblemSrc,
+        unlockedCosmeticName: rewardNames || undefined,
+        unlockedCosmeticSlot: primarySlot,
+      });
+    },
+    [
+      narrativeState,
+      muted,
+      hapticsEnabled,
+      progress,
+      entries,
+      user,
+      cloudOnline,
+      handleCloudSyncError,
+    ]
+  );
+
+  // Automatically advance the active/matching sequential Narrative Act when the explorer physically unlocks its exact next POI!
+  const prevEntriesCountForNarrativeRef = useRef<number>(entries.length);
+  useEffect(() => {
+    if (entries.length <= prevEntriesCountForNarrativeRef.current) {
+      prevEntriesCountForNarrativeRef.current = entries.length;
+      return;
+    }
+    const latestEntry = entries[0];
+    prevEntriesCountForNarrativeRef.current = entries.length;
+    if (!latestEntry || sectorNarrativeQuests.length === 0) return;
+
+    // Prioritize tracked quest first, then any sector narrative quest whose exact next sequential stage matches latestEntry.poiId
+    const orderedQuests = trackedNarrativeQuest
+      ? [
+          trackedNarrativeQuest,
+          ...sectorNarrativeQuests.filter((q) => q.id !== trackedNarrativeQuest.id),
+        ]
+      : sectorNarrativeQuests;
+
+    for (const quest of orderedQuests) {
+      const sealed = getSealedActsCount(narrativeState, quest.id);
+      if (sealed === 3) continue;
+      const expectedStage = quest.stages[sealed];
+      if (expectedStage.poiId === latestEntry.poiId) {
+        handleSealNarrativeStage(quest, expectedStage);
+        return;
+      }
+      const outOfOrderStage = quest.stages
+        .slice(sealed + 1)
+        .find((st) => st.poiId === latestEntry.poiId);
+      if (outOfOrderStage && trackedNarrativeQuest?.id === quest.id) {
+        setCutIn({
+          id: `narrative_order_hint_${quest.id}_${outOfOrderStage.actNumber}_${Date.now()}`,
+          kind: 'discovery',
+          kicker: `Ordre du récit · ${quest.title}`,
+          title: latestEntry.name,
+          subtitle: `Ce lieu correspond à l’Acte ${outOfOrderStage.actNumber} : accomplissez d’abord l’Acte ${
+            sealed + 1
+          } dans l’ordre de l’histoire !`,
+          emblemSrc: CATEGORY_META[latestEntry.category].emblemSrc,
+          poiId: latestEntry.poiId,
+        });
+        return;
+      }
+    }
+  }, [entries, sectorNarrativeQuests, trackedNarrativeQuest, narrativeState, handleSealNarrativeStage]);
+
+  const handleSelectActiveNarrativeQuest = useCallback(
+    (questId: string | null, focusStage?: NarrativeQuestStage) => {
+      setNarrativeState((prev) => ({
+        ...prev,
+        activeQuestId: questId,
+      }));
+      if (focusStage) {
+        setSubterraneanMode(focusStage.isSubterranean);
+        setCategoryFilter('all');
+        setSelectedPoiId(focusStage.poiId);
+        setDashedTracesEnabled(true);
+        const dist = haversineMeters(
+          playerPos.lat,
+          playerPos.lng,
+          focusStage.lat,
+          focusStage.lng
+        );
+        if (simulationMode && dist <= 2600) {
+          setRouteRequest({ id: Date.now(), lat: focusStage.lat, lng: focusStage.lng });
+        } else if (simulationMode && dist > 2600) {
+          teleportToLocation(focusStage.lat, focusStage.lng);
+        }
+        setActiveTab('carte');
+        setMobileDrawer('none');
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [playerPos.lat, playerPos.lng, simulationMode]
   );
 
   const handleAdvanceCurrentHuntStep = useCallback(() => {
@@ -3817,6 +5169,92 @@ export default function App() {
     [sourcesActive]
   );
 
+  const orientationTables = useMemo(
+    () =>
+      deriveSectorOrientationTables({
+        centerLat: playerPos.lat,
+        centerLng: playerPos.lng,
+        pois: surfacePois,
+        terrain,
+        elevation,
+        lieuxDits,
+      }),
+    [playerPos.lat, playerPos.lng, surfacePois, terrain, elevation, lieuxDits]
+  );
+
+  const handleOpenOrientationTable = useCallback(
+    (table: OrientationTableNode) => {
+      playOrientationTableSfx(muted);
+      const alreadyInspected = inspectedTableIds.has(table.id);
+      if (!alreadyInspected) {
+        const xpGain = 45;
+        setInspectedTableIds((prev) => {
+          const next = new Set(prev);
+          next.add(table.id);
+          return next;
+        });
+        setProgress((prev) => {
+          const nextProg: ExplorerProgress = {
+            ...prev,
+            totalXp: (prev.totalXp || 0) + xpGain,
+            xpGeographie: (prev.xpGeographie || 0) + xpGain,
+          };
+          if (user && cloudOnline) {
+            syncProgressToCloud(user.uid, nextProg).catch(handleCloudSyncError);
+          }
+          return nextProg;
+        });
+        setActiveOrientationTable({ table, xpAwarded: xpGain });
+      } else {
+        setActiveOrientationTable({ table, xpAwarded: 0 });
+      }
+    },
+    [muted, inspectedTableIds, user, cloudOnline, handleCloudSyncError]
+  );
+
+  const handleFocusPanoramicLandmark = useCallback(
+    (pin: PanoramicLandmarkPin) => {
+      setActiveOrientationTable(null);
+      if (pin.poi) {
+        setSelectedPoiId(pin.poi.id);
+      }
+      if (simulationMode) {
+        setRouteRequest({
+          id: Date.now(),
+          lat: pin.lat,
+          lng: pin.lng,
+        });
+      }
+    },
+    [simulationMode]
+  );
+
+  const handleFocusSecretOnMap = useCallback(
+    (lat: number, lng: number, isSubterranean: boolean) => {
+      setSubterraneanMode(isSubterranean);
+      setCategoryFilter('all');
+      setStratumFilter('all');
+      setSourceFilter('all');
+      const matchingPoi = [...rawSurfacePois, ...subterraneanPois].find(
+        (p) => haversineMeters(p.lat, p.lng, lat, lng) < 12
+      );
+      if (matchingPoi) {
+        setSelectedPoiId(matchingPoi.id);
+      }
+      const dist = haversineMeters(playerPos.lat, playerPos.lng, lat, lng);
+      if (simulationMode && dist <= 2400) {
+        setDashedTracesEnabled(true);
+        setRouteRequest({ id: Date.now(), lat, lng });
+      } else if (dist > 2400) {
+        teleportToLocation(lat, lng);
+      }
+      setFullscreenModalPoiId(null);
+      setActiveTab('carte');
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawSurfacePois, subterraneanPois, playerPos.lat, playerPos.lng, simulationMode]
+  );
+
   const activeFilterCount =
     (categoryFilter !== 'all' ? 1 : 0) +
     (stratumFilter !== 'all' ? 1 : 0) +
@@ -3824,6 +5262,8 @@ export default function App() {
     (subtleBuildings ? 1 : 0) +
     (!reliefEnabled ? 1 : 0) +
     (!fogEnabled ? 1 : 0) +
+    (!trailsVisible ? 1 : 0) +
+    (!lieuxDitsVisible ? 1 : 0) +
     (timeMode !== 'auto' ? 1 : 0);
 
   // Reusable Selected POI Card Content (used in Desktop Right Folio, Mobile Bottom Sheet & Fullscreen Overlay)
@@ -3840,6 +5280,27 @@ export default function App() {
 
     const expeditionStopIndex = expeditionStops.findIndex((s) => s.id === selectedMapPoi.id);
     const isExpeditionStop = expeditionStopIndex !== -1;
+
+    const poiHay = `${selectedMapPoi.name} ${selectedMapPoi.subType}`.toLowerCase();
+    const matchedTable =
+      !selectedMapPoi.isSubterranean
+        ? orientationTables.find((t) => t.poiId === selectedMapPoi.id) ||
+          (/table d['’]orientation|belvédère|belvedere|panorama|point de vue|vue panoramique/.test(
+            poiHay
+          )
+            ? {
+                id: `ot_poi_${selectedMapPoi.id}`,
+                name: selectedMapPoi.name,
+                lat: selectedMapPoi.lat,
+                lng: selectedMapPoi.lng,
+                altitudeMeters: Math.round(
+                  sampleElevationMeters(elevation, selectedMapPoi.lat, selectedMapPoi.lng) ?? 120
+                ),
+                sourceLabel: selectedMapPoi.source,
+                poiId: selectedMapPoi.id,
+              }
+            : null)
+        : null;
 
     return (
       <div
@@ -3858,6 +5319,54 @@ export default function App() {
         >
           <PixelUiIcon name="close" className="w-3.5 h-3.5" />
         </button>
+
+        {(() => {
+          const officialKey = inferOfficialStateLabel(
+            selectedMapPoi.source,
+            selectedMapPoi.subType,
+            selectedMapPoi.officialLabel
+          );
+          const officialMeta = officialKey ? OFFICIAL_STATE_LABEL_META[officialKey] : null;
+          const secretSiteMatch = secretSiteById.get(selectedMapPoi.id) || null;
+          const hostedClueMatch = selectedMapPoiEntry
+            ? findSecretClueHostedOnPoi(selectedMapPoi.id, sectorSecrets)
+            : null;
+
+          return (
+            <>
+              {(officialMeta || secretSiteMatch) && (
+                <div className="flex flex-wrap items-center gap-1.5 pr-10">
+                  {officialMeta && (
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${officialMeta.badgeClass}`}
+                    >
+                      <span>★ {officialMeta.fullTitle}</span>
+                    </span>
+                  )}
+                  {secretSiteMatch && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#3b0764] text-amber-300 border border-[#fde047]">
+                      <span>
+                        ✦ {selectedMapPoiEntry ? 'Archive Secrète Dévoilée' : `Lieu Caché Révélé · +${secretSiteMatch.bonusXpTotal} XP`}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {selectedMapPoiEntry && hostedClueMatch && (
+                <SympatheticInkClueBanner
+                  site={hostedClueMatch.site}
+                  clue={hostedClueMatch.clue}
+                  secretState={secretState}
+                  unlockedIds={unlockedIds}
+                  onOpenDecipherModal={(site) => setActiveSecretDecipherSite(site)}
+                  onFocusSecretOnMap={handleFocusSecretOnMap}
+                  compact
+                />
+              )}
+            </>
+          );
+        })()}
 
         {selectedMapPoiEntry ? (
           <>
@@ -3885,6 +5394,7 @@ export default function App() {
                 </h2>
                 <div className="text-[11px] text-[#6b4928] font-semibold break-words">
                   Archive : {selectedMapPoi.source}
+                  {selectedMapPoi.officialRef ? ` · Réf. ${selectedMapPoi.officialRef}` : ''}
                 </div>
               </div>
             </div>
@@ -3946,6 +5456,16 @@ export default function App() {
                     : '+ Étape parcours'}
                 </span>
               </button>
+              {matchedTable && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenOrientationTable(matchedTable)}
+                  className="min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold bg-[#0c4a6e] text-amber-200 border-2 border-[#fbbf24] jrpg-shadow hover:bg-[#075985] transition-colors text-center whitespace-nowrap"
+                >
+                  <PixelUiIcon name="mountain" className="w-3.5 h-3.5 shrink-0" />
+                  <span>Panorama 360°</span>
+                </button>
+              )}
             </div>
           </>
         ) : (
@@ -4012,7 +5532,13 @@ export default function App() {
                     : `${selectedPoiDeltaAlt} m ▼`}
                 </span>
               )}
-              <span className="text-emerald-800 font-bold">+{selectedMapPoi.xpReward} XP</span>
+              <span className="text-emerald-800 font-bold">
+                +
+                {secretSiteById.get(selectedMapPoi.id)
+                  ? secretSiteById.get(selectedMapPoi.id)!.bonusXpTotal
+                  : selectedMapPoi.xpReward}{' '}
+                XP
+              </span>
             </div>
 
             <div className="flex flex-col sm:flex-row items-stretch gap-2">
@@ -4053,8 +5579,124 @@ export default function App() {
                     : '+ Étape parcours'}
                 </span>
               </button>
+              {matchedTable && distNow <= 120 && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenOrientationTable(matchedTable)}
+                  className="min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold bg-[#0c4a6e] text-amber-200 border-2 border-[#fbbf24] jrpg-shadow hover:bg-[#075985] transition-colors text-center whitespace-nowrap"
+                >
+                  <PixelUiIcon name="mountain" className="w-3.5 h-3.5 shrink-0" />
+                  <span>Panorama 360°</span>
+                </button>
+              )}
             </div>
           </>
+        )}
+      </div>
+    );
+  };
+
+  const renderPresetRoadLoopsCard = () => {
+    const loop = presetRoadLoopPreview;
+    const distLabel = loop
+      ? loop.totalMeters >= 1000
+        ? `${(loop.totalMeters / 1000).toFixed(1)} km`
+        : `${loop.totalMeters} m`
+      : '—';
+
+    return (
+      <div className="relative grimoire-folio p-3.5 space-y-2.5 text-[#24160c]">
+        <PixelCornerRivets className="bg-[#f59e0b]" />
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-bold font-display inline-flex items-center gap-1.5 min-w-0">
+            <PixelUiIcon name="boot" className="w-4 h-4 shrink-0" />
+            <span className="truncate">Boucles sur chemins & rues (↺ sans hors-piste)</span>
+          </div>
+          {activeRoadLoop && (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveRoadLoop(null);
+                setWalkQueue([]);
+              }}
+              className="min-h-[30px] px-2 py-0.5 text-[11px] font-bold bg-[#28160d] text-amber-300 border border-[#d97706] shrink-0"
+            >
+              Masquer ↺
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-1.5">
+          {LOOP_DURATION_PRESETS.map((preset) => {
+            const isSel = selectedLoopPreset === preset.id;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => setSelectedLoopPreset(preset.id)}
+                className={`min-h-[40px] px-2 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow transition-colors ${
+                  isSel
+                    ? 'bg-[#991b1b] text-[#fffbeb]'
+                    : 'bg-[#ecd8b1] text-[#24160c] hover:bg-amber-200'
+                }`}
+              >
+                ↺ {preset.shortLabel}
+              </button>
+            );
+          })}
+        </div>
+
+        {loop ? (
+          <>
+            <div className="text-[11px] font-mono tabular-nums text-[#54361d] leading-snug">
+              <strong className="font-sans text-[#24160c]">{loop.titleFr}</strong> · {distLabel} · ~
+              {loop.estMinutes} min
+              {loop.elevGainM > 0 ? ` · D+ ${loop.elevGainM} m` : ''} · {loop.trailSharePct}% sentiers
+              {loop.undiscoveredCount > 0 ? ` · ${loop.undiscoveredCount} sceau(x) inédit(s)` : ''}
+            </div>
+
+            <ol className="space-y-1 text-[11px] text-[#3b2312]">
+              {loop.stops.map((st, idx) => (
+                <li key={st.poi.id} className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPoiId(st.poi.id)}
+                    className="text-left font-semibold hover:text-[#991b1b] truncate min-w-0"
+                  >
+                    {idx + 1}. {st.unlocked ? st.poi.name : `? ${st.poi.mysteryTitle}`}
+                  </button>
+                  <span className="font-mono text-[10px] text-[#6b4928] shrink-0">
+                    {st.cumulativeMeters >= 1000
+                      ? `${(st.cumulativeMeters / 1000).toFixed(1)} km`
+                      : `${st.cumulativeMeters} m`}
+                  </span>
+                </li>
+              ))}
+            </ol>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleShowRoadLoopOnMap(loop)}
+                className="min-h-[42px] px-3 py-2 text-xs font-bold bg-[#ecd8b1] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight"
+              >
+                <PixelUiIcon name="gps" className="w-3.5 h-3.5 shrink-0" />
+                <span>Tracer sur carte (GPS)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleWalkRoadLoop(loop)}
+                className="min-h-[42px] px-3 py-2 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight"
+              >
+                <PixelUiIcon name="boot" className="w-3.5 h-3.5 shrink-0" />
+                <span>Marcher la boucle</span>
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-[#6b4928]">
+            Sondez le secteur de surface pour tracer une boucle piétonne sur les chemins locaux.
+          </p>
         )}
       </div>
     );
@@ -4073,7 +5715,7 @@ export default function App() {
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs font-bold font-display inline-flex items-center gap-1.5 min-w-0">
             <PixelUiIcon name="constellation" className="w-4 h-4 shrink-0" />
-            <span className="truncate">Parcours multi-étapes ({expeditionStops.length}/5)</span>
+            <span className="truncate">Parcours sur rues & chemins ({expeditionStops.length}/5)</span>
           </div>
           <span className="text-[11px] font-mono tabular-nums text-[#54361d] shrink-0">
             {distLabel} · ~{expeditionSummary.estMinutes} min
@@ -4106,18 +5748,36 @@ export default function App() {
           })}
         </ol>
 
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          <button
+            type="button"
+            onClick={() => setCloseCustomLoop((c) => !c)}
+            className={`min-h-[34px] px-2.5 py-1 font-bold border border-[#6b4928] ${
+              closeCustomLoop ? 'bg-[#28160d] text-amber-300' : 'bg-[#ecd8b1] text-[#54361d]'
+            }`}
+          >
+            {closeCustomLoop ? '↺ Boucle fermée (retour départ)' : '→ Aller simple'}
+          </button>
+          <span className="font-mono text-[#6b4928]">
+            {expeditionSummary.trailSharePct}% sentiers
+          </span>
+        </div>
+
         <div className="flex items-center gap-2 pt-1">
           <button
             type="button"
             onClick={launchExpeditionLoop}
             className="flex-1 min-h-[42px] px-3 py-2 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
           >
-            <PixelUiIcon name="boot" className="w-3.5 h-3.5" />
-            <span>Lancer le parcours</span>
+            <PixelUiIcon name={simulationMode ? 'boot' : 'gps'} className="w-3.5 h-3.5" />
+            <span>{simulationMode ? 'Marcher la boucle' : 'Tracer sur carte'}</span>
           </button>
           <button
             type="button"
-            onClick={() => setExpeditionStops([])}
+            onClick={() => {
+              setExpeditionStops([]);
+              if (activeRoadLoop?.presetId === 'custom') setActiveRoadLoop(null);
+            }}
             className="min-h-[42px] px-3 py-2 text-xs font-bold bg-[#ecd8b1] hover:bg-[#fffbeb] text-[#24160c] border-2 border-[#6b4928] whitespace-nowrap shrink-0"
           >
             Vider
@@ -4384,6 +6044,30 @@ export default function App() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => setTrailsVisible((v) => !v)}
+                        className={`min-h-[44px] px-2.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight ${
+                          trailsVisible
+                            ? 'bg-amber-300 text-[#24160c]'
+                            : 'bg-[#ecd8b1] text-[#54361d]'
+                        }`}
+                      >
+                        <PixelUiIcon name="boot" className="w-4 h-4 shrink-0" />
+                        <span>Sentiers GR/PR</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLieuxDitsVisible((v) => !v)}
+                        className={`min-h-[44px] px-2.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight ${
+                          lieuxDitsVisible
+                            ? 'bg-amber-300 text-[#24160c]'
+                            : 'bg-[#ecd8b1] text-[#54361d]'
+                        }`}
+                      >
+                        <PixelUiIcon name="archive" className="w-4 h-4 shrink-0" />
+                        <span>Lieux-dits</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setSoundscapeEnabled((s) => !s)}
                         className={`col-span-2 min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-snug ${
                           soundscapeEnabled && !muted
@@ -4399,6 +6083,26 @@ export default function App() {
                           {soundscapeEnabled
                             ? 'Paysage sonore de biome : Activé'
                             : 'Paysage sonore de biome : Coupé'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNightInkMode((n) => !n)}
+                        aria-pressed={nightInkMode}
+                        className={`col-span-2 min-h-[44px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-snug ${
+                          nightInkMode
+                            ? 'bg-[#28160d] text-amber-300'
+                            : 'bg-[#ecd8b1] text-[#54361d]'
+                        }`}
+                      >
+                        <PixelUiIcon
+                          name={nightInkMode ? 'moon-stars' : 'sun-cloud'}
+                          className="w-4 h-4 shrink-0"
+                        />
+                        <span>
+                          {nightInkMode
+                            ? 'Thème de lecture : Encre de Nuit (actif)'
+                            : 'Thème de lecture : Parchemin Clair'}
                         </span>
                       </button>
                     </div>
@@ -4566,6 +6270,8 @@ export default function App() {
                         setSubtleBuildings(false);
                         setReliefEnabled(true);
                         setDashedTracesEnabled(false);
+                        setTrailsVisible(true);
+                        setLieuxDitsVisible(true);
                       }}
                       className="min-h-[44px] px-3.5 py-2 text-xs font-bold bg-[#ecd8b1] text-[#24160c] border-2 border-[#6b4928]"
                     >
@@ -4701,6 +6407,7 @@ export default function App() {
                       setActiveTab('carnet');
                     }}
                   />
+                  {renderPresetRoadLoopsCard()}
                   {renderExpeditionLoopCard()}
                   {sortedNearbyPois.length === 0 ? (
                     <p className="text-xs text-[#6b4928] py-6 text-center">
@@ -4912,6 +6619,9 @@ export default function App() {
           weather={weather}
           muted={muted}
           unlockedTrophyIds={unlockedTrophyIds}
+          unlockedInkThemes={alchemyBonuses.unlockedPostcardInks}
+          familiarAura={activeFamiliarAura}
+          calendarDate={referenceCalendarDate}
           onPinTrophy={handlePinTrophy}
           onClose={() => setPostcardSubject(null)}
         />
@@ -4980,6 +6690,38 @@ export default function App() {
     </AnimatePresence>
   );
 
+  const renderOrientationTableModal = () =>
+    activeOrientationTable ? (
+      <OrientationTableModal
+        table={activeOrientationTable.table}
+        pois={surfacePois}
+        unlockedIds={unlockedIds}
+        lieuxDits={lieuxDits}
+        terrain={terrain}
+        elevation={elevation}
+        weather={weather}
+        effectiveTime={resolveEffectiveTimeOfDay(timeMode, weather)}
+        calendarMonth={referenceCalendarDate.getMonth()}
+        muted={muted}
+        firstInspectionXpAwarded={activeOrientationTable.xpAwarded}
+        onFocusLandmark={handleFocusPanoramicLandmark}
+        onClose={() => setActiveOrientationTable(null)}
+      />
+    ) : null;
+
+  const renderSecretDecipherModal = () =>
+    activeSecretDecipherSite ? (
+      <SecretRiddleDecipherModal
+        site={activeSecretDecipherSite}
+        secretState={secretState}
+        unlockedIds={unlockedIds}
+        muted={muted}
+        onClose={() => setActiveSecretDecipherSite(null)}
+        onDecipherSuccess={handleDecipherSecretSite}
+        onFocusSecretOnMap={handleFocusSecretOnMap}
+      />
+    ) : null;
+
   // ==========================================================================
   // IMMERSIVE 100dvh FULLSCREEN MAP MODE (Desktop, Smartphone & AI Studio Iframe)
   // ==========================================================================
@@ -5016,12 +6758,20 @@ export default function App() {
             timeMode={timeMode}
             fogEnabled={fogEnabled}
             fogSet={fogSet}
-            fogVisionMeters={95 + guildPerks.fogVisionBonusMeters}
+            fogVisionMeters={
+              95 + guildPerks.fogVisionBonusMeters + alchemyBonuses.fogBonusMeters
+            }
             outfitId={progress.outfitId || 'arpenteur'}
             explorerAppearance={explorerAppearance}
             chroniqueurThreads={guildPerks.chroniqueurThreads}
             dashedTracesEnabled={dashedTracesEnabled}
-            spectralLanternMeters={guildPerks.spectralLanternMeters}
+            spectralLanternMeters={
+              guildPerks.spectralLanternMeters + alchemyBonuses.lanternSenseBonusMeters
+            }
+            activeCalendarMonth={referenceCalendarDate.getMonth()}
+            calendarDate={referenceCalendarDate}
+            activeLoop={activeRoadLoop}
+            familiarAura={activeFamiliarAura}
             breadcrumbTrail={breadcrumbTrail}
             plannedRoute={walkQueue}
             routeRequest={routeRequest}
@@ -5045,6 +6795,15 @@ export default function App() {
             foundGeocacheIds={foundGeocacheIds}
             currentUserId={user ? user.uid : null}
             onInspectGeocache={(cache) => setGeocacheModal({ mode: 'inspect', cache })}
+            lieuxDits={lieuxDits}
+            trailsVisible={trailsVisible}
+            lieuxDitsVisible={lieuxDitsVisible}
+            orientationTables={orientationTables}
+            inspectedTableIds={inspectedTableIds}
+            onOpenOrientationTable={handleOpenOrientationTable}
+            revealedSecretPoiIds={revealedSecretPoiIds}
+            clueCarrierPoiIds={clueCarrierPoiIds}
+            unrevealedSecretCoords={subterraneanMode ? [] : unrevealedSecretCoords}
           />
 
           {/* Discovery Cut-In Banner inside Fullscreen */}
@@ -5129,6 +6888,20 @@ export default function App() {
                       className="min-h-[40px] px-3 py-1.5 text-xs font-bold bg-amber-300 text-[#24160c] border-2 border-[#2b1a0e] whitespace-nowrap"
                     >
                       Reliquaire
+                    </button>
+                  )}
+                  {cutIn.openSecretArchives && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCutIn(null);
+                        exitFullscreenMap();
+                        setCarnetView('secrets');
+                        setActiveTab('carnet');
+                      }}
+                      className="min-h-[40px] px-3 py-1.5 text-xs font-bold bg-[#581c87] text-amber-200 border-2 border-[#fde047] whitespace-nowrap"
+                    >
+                      Archives Secrètes
                     </button>
                   )}
                   <button
@@ -5387,6 +7160,10 @@ export default function App() {
                     onOpenRiddle={(entry) => setActiveRiddleEntry(entry)}
                     onBackToList={() => setFullscreenModalPoiId(null)}
                     backLabel="Retour à la carte plein écran"
+                    sectorSecrets={sectorSecrets}
+                    secretState={secretState}
+                    onOpenSecretDecipherModal={(site) => setActiveSecretDecipherSite(site)}
+                    onFocusSecretOnMap={handleFocusSecretOnMap}
                   />
                 </Suspense>
               </div>
@@ -5398,6 +7175,8 @@ export default function App() {
         {renderPostcardModal()}
         {renderGeocacheModal()}
         {renderRiddleModal()}
+        {renderOrientationTableModal()}
+        {renderSecretDecipherModal()}
       </div>
     );
   }
@@ -5414,14 +7193,36 @@ export default function App() {
       {!isMapUiFolded && (
         <>
           <header className="grimoire-spine sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-6 px-2.5 sm:px-6 py-2 sm:py-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setActiveTab('carte')}
-              className="inline-flex items-center gap-1.5 sm:gap-2 text-base sm:text-2xl font-bold font-display tracking-wide text-amber-300 hover:text-amber-200 transition-colors whitespace-nowrap shrink-0"
-            >
-              <PixelUiIcon name="lantern" className="w-5 h-5 lantern-breathe shrink-0" />
-              <span>Terra 16</span>
-            </button>
+            <div className="inline-flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeTab === 'carte') {
+                    setShowTitleScreen(true);
+                  } else {
+                    setActiveTab('carte');
+                  }
+                }}
+                title={
+                  activeTab === 'carte'
+                    ? 'Rouvrir l’Écran-Titre 16-Bit (Seuil d’Expédition)'
+                    : 'Revenir à la Carte'
+                }
+                className="inline-flex items-center gap-1.5 sm:gap-2 text-base sm:text-2xl font-bold font-display tracking-wide text-amber-300 hover:text-amber-200 transition-colors whitespace-nowrap shrink-0"
+              >
+                <PixelUiIcon name="lantern" className="w-5 h-5 lantern-breathe shrink-0" />
+                <span>Terra 16</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTitleScreen(true)}
+                title="Ouvrir l’Écran-Titre & le campement 16-Bit"
+                aria-label="Ouvrir l’Écran-Titre 16-Bit"
+                className="hidden sm:inline-flex min-h-[28px] px-2 py-0.5 text-[11px] font-bold bg-[#3f2416] hover:bg-[#54301d] text-amber-200 border border-[#d97706] items-center gap-1 shrink-0"
+              >
+                <span>Écran-Titre</span>
+              </button>
+            </div>
 
             {/* Desktop 5-Tab Navigation */}
             <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-[#f3dfc1]">
@@ -5499,6 +7300,31 @@ export default function App() {
                   <PixelUiIcon name={muted ? 'sound-off' : 'sound-on'} className="w-4 h-4" />
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setNightInkMode((n) => !n)}
+                aria-pressed={nightInkMode}
+                title={
+                  nightInkMode
+                    ? 'Thème Encre de Nuit actif — cliquer pour revenir au Parchemin Clair'
+                    : 'Activer le thème de lecture Encre de Nuit (confort nocturne)'
+                }
+                aria-label="Basculer le thème Encre de Nuit"
+                className={`min-h-[36px] min-w-[36px] sm:min-h-[38px] sm:min-w-[38px] px-2 sm:px-2.5 py-1.5 text-xs font-bold border-2 border-[#d97706] inline-flex items-center justify-center gap-1.5 jrpg-shadow whitespace-nowrap shrink-0 transition-colors ${
+                  nightInkMode
+                    ? 'bg-[#1c120b] text-amber-200 hover:bg-[#2c1d13]'
+                    : 'bg-[#3f2416] text-amber-300/85 hover:bg-[#54301d] hover:text-amber-200'
+                }`}
+              >
+                <PixelUiIcon
+                  name={nightInkMode ? 'moon-stars' : 'sun-cloud'}
+                  className="w-4 h-4"
+                />
+                <span className="hidden 2xl:inline">
+                  {nightInkMode ? 'Encre de Nuit' : 'Parchemin'}
+                </span>
+              </button>
 
               <button
                 type="button"
@@ -5605,6 +7431,8 @@ export default function App() {
                     appearance={explorerAppearance}
                     facingDir="down"
                     isWalking={walkQueue.length > 0 || manualWalkPulse}
+                    familiarAura={activeFamiliarAura}
+                    calendarDate={referenceCalendarDate}
                     pixelScale={1.05}
                     className="w-7 h-7 block"
                   />
@@ -5666,6 +7494,11 @@ export default function App() {
                       <span>·</span>
                       <span className="text-rose-900 font-bold">
                         {progress.totalXp}/{globalLevelInfo.nextLevelXp} XP
+                      </span>
+                      <span>·</span>
+                      <span className="font-sans font-bold text-amber-950">
+                        {seasonVisuals.labelFr} · {moonPhaseInfo.shortNameFr} (
+                        {moonPhaseInfo.illuminationPct}%)
                       </span>
                       {weather && (
                         <>
@@ -5754,6 +7587,8 @@ export default function App() {
                         appearance={explorerAppearance}
                         facingDir="down"
                         isWalking={walkQueue.length > 0 || manualWalkPulse}
+                        familiarAura={activeFamiliarAura}
+                        calendarDate={referenceCalendarDate}
                         pixelScale={1.3}
                         className="w-9 h-9 block"
                       />
@@ -5778,6 +7613,10 @@ export default function App() {
                 <span className="text-[#8c653b]">·</span>
                 <span className="font-mono tabular-nums text-emerald-900 font-bold shrink-0">
                   {localExplorationPct}% exploré
+                </span>
+                <span className="text-[#8c653b] hidden 2xl:inline">·</span>
+                <span className="hidden 2xl:inline font-bold text-[#54361d] shrink-0">
+                  {seasonVisuals.labelFr} · {moonPhaseInfo.shortNameFr}
                 </span>
                 {weather && (
                   <>
@@ -5826,6 +7665,8 @@ export default function App() {
                         isWalking={walkQueue.length > 0 || manualWalkPulse}
                         stageBackdrop
                         timeMode={timeMode}
+                        familiarAura={activeFamiliarAura}
+                        calendarDate={referenceCalendarDate}
                         pixelScale={2.15}
                         className="w-16 h-16 block"
                       />
@@ -5865,6 +7706,14 @@ export default function App() {
                         <span className="inline-flex items-center gap-1.5 font-bold text-amber-950">
                           <PixelUiIcon name={daytimeMood.icon} className="w-4 h-4 lantern-breathe" />
                           <span>{daytimeMood.label}</span>
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-bold text-[#54361d]">
+                          {seasonVisuals.labelFr} · {moonPhaseInfo.phaseNameFr} (
+                          {moonPhaseInfo.illuminationPct}%)
+                          {moonPhaseInfo.isMeteorShowerNight && moonPhaseInfo.meteorShowerNameFr
+                            ? ` · ★ ${moonPhaseInfo.meteorShowerNameFr}`
+                            : ''}
                         </span>
                         {weather && (
                           <>
@@ -6029,21 +7878,43 @@ export default function App() {
               <PixelCornerRivets className="bg-[#b91c1c]" />
               <div className="flex items-start gap-3 min-w-0 flex-1">
                 {cutIn.unlockedTrophyId ? (
-                  <div className="p-1.5 bg-[#28160d] border-2 border-[#d97706] shrink-0">
+                  <motion.div
+                    initial={{ scale: 0.55, rotate: -8, opacity: 0 }}
+                    animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 440, damping: 20 }}
+                    className="p-1.5 bg-[#28160d] border-2 border-[#d97706] shrink-0"
+                  >
                     <TrophyBadgeCanvas
                       trophyId={cutIn.unlockedTrophyId}
                       unlocked
                       pixelScale={2}
                     />
-                  </div>
-                ) : (
-                  cutIn.emblemSrc && (
+                  </motion.div>
+                ) : cutIn.emblemSrc ? (
+                  <motion.div
+                    initial={{ scale: 0.55, rotate: -8, opacity: 0 }}
+                    animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 440, damping: 20 }}
+                    className="shrink-0"
+                  >
                     <ResilientPixelImage
                       src={cutIn.emblemSrc}
                       alt={cutIn.title}
                       className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-[#2b1a0e] shrink-0"
                     />
-                  )
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    initial={{ scale: 0.55, rotate: -8, opacity: 0 }}
+                    animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 440, damping: 20 }}
+                    className="w-10 h-10 sm:w-12 sm:h-12 bg-[#28160d] border-2 border-[#d97706] flex items-center justify-center text-amber-300 shrink-0"
+                  >
+                    <PixelUiIcon
+                      name={cutIn.openReliquary ? 'chest' : 'star'}
+                      className="w-5 h-5"
+                    />
+                  </motion.div>
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-bold text-rose-800 flex items-center gap-1.5 min-w-0">
@@ -6121,6 +7992,21 @@ export default function App() {
                   >
                     <PixelUiIcon name="chest" className="w-4 h-4 shrink-0" />
                     <span>Voir au Reliquaire</span>
+                  </button>
+                )}
+                {cutIn.openSecretArchives && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCutIn(null);
+                      setUiCollapsed(false);
+                      setCarnetView('secrets');
+                      setActiveTab('carnet');
+                    }}
+                    className="min-h-[40px] sm:min-h-0 inline-flex items-center gap-2 px-3 py-1.5 sm:py-2 text-xs font-bold bg-[#581c87] text-amber-200 border-2 border-[#fde047] jrpg-shadow hover:bg-[#6b21a8] transition-transform duration-150 active:translate-y-0.5 whitespace-nowrap shrink-0"
+                  >
+                    <PixelUiIcon name="quill" className="w-4 h-4 shrink-0" />
+                    <span>Archives Secrètes</span>
                   </button>
                 )}
                 <button
@@ -6234,6 +8120,25 @@ export default function App() {
                         <span>Voyage & Lieux</span>
                         <PixelUiIcon
                           name={desktopToolbarPanel === 'travel' ? 'chevron-up' : 'chevron-down'}
+                          className="w-3 h-3"
+                        />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDesktopToolbarPanel((cur) => (cur === 'loops' ? 'none' : 'loops'))
+                        }
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow transition-colors whitespace-nowrap shrink-0 ${
+                          desktopToolbarPanel === 'loops' || activeRoadLoop !== null
+                            ? 'bg-amber-300 text-[#24160c]'
+                            : 'bg-[#f8edd6] text-[#24160c] hover:bg-[#ecd8b1]'
+                        }`}
+                      >
+                        <PixelUiIcon name="boot" className="w-3.5 h-3.5" />
+                        <span>Boucles 15/35/60 min</span>
+                        <PixelUiIcon
+                          name={desktopToolbarPanel === 'loops' ? 'chevron-up' : 'chevron-down'}
                           className="w-3 h-3"
                         />
                       </button>
@@ -6410,6 +8315,30 @@ export default function App() {
                             </button>
                             <button
                               type="button"
+                              onClick={() => setTrailsVisible((v) => !v)}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold border-2 border-[#2b1a0e] whitespace-nowrap ${
+                                trailsVisible
+                                  ? 'bg-amber-300 text-[#24160c]'
+                                  : 'bg-[#ecd8b1] text-[#54361d]'
+                              }`}
+                            >
+                              <PixelUiIcon name="boot" className="w-3.5 h-3.5" />
+                              <span>GR/PR</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setLieuxDitsVisible((v) => !v)}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold border-2 border-[#2b1a0e] whitespace-nowrap ${
+                                lieuxDitsVisible
+                                  ? 'bg-amber-300 text-[#24160c]'
+                                  : 'bg-[#ecd8b1] text-[#54361d]'
+                              }`}
+                            >
+                              <PixelUiIcon name="archive" className="w-3.5 h-3.5" />
+                              <span>Lieux-dits</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => setSubtleBuildings((s) => !s)}
                               className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold border-2 border-[#2b1a0e] whitespace-nowrap ${
                                 subtleBuildings
@@ -6472,6 +8401,22 @@ export default function App() {
                             >
                               <PixelUiIcon name="haptic" className="w-3.5 h-3.5" />
                               <span>Haptique</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNightInkMode((n) => !n)}
+                              aria-pressed={nightInkMode}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold border-2 border-[#2b1a0e] whitespace-nowrap ${
+                                nightInkMode
+                                  ? 'bg-[#28160d] text-amber-300'
+                                  : 'bg-[#ecd8b1] text-[#54361d]'
+                              }`}
+                            >
+                              <PixelUiIcon
+                                name={nightInkMode ? 'moon-stars' : 'sun-cloud'}
+                                className="w-3.5 h-3.5"
+                              />
+                              <span>{nightInkMode ? 'Encre de Nuit' : 'Parchemin'}</span>
                             </button>
                           </div>
                         </div>
@@ -6653,6 +8598,18 @@ export default function App() {
                         </div>
                       </motion.div>
                     )}
+
+                    {desktopToolbarPanel === 'loops' && (
+                      <motion.div
+                        key="desktop-panel-loops"
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.14 }}
+                      >
+                        {renderPresetRoadLoopsCard()}
+                      </motion.div>
+                    )}
                   </AnimatePresence>
                 </div>
               )}
@@ -6689,6 +8646,34 @@ export default function App() {
                     onCloseTracker={() => setTrackingHuntOnMap(false)}
                   />
                 )}
+
+              {/* Live 3-Act Sequential Narrative Quest Tracker Strip on Map */}
+              {!uiCollapsed &&
+                trackedNarrativeQuest &&
+                (() => {
+                  const sealed = getSealedActsCount(narrativeState, trackedNarrativeQuest.id);
+                  if (sealed === 3) return null;
+                  const activeStage = trackedNarrativeQuest.stages[sealed];
+                  return (
+                    <ActiveNarrativeMapBanner
+                      quest={trackedNarrativeQuest}
+                      actsSealed={sealed}
+                      explorerPos={playerPos}
+                      alreadyDiscoveredInCarnet={unlockedIds.has(activeStage.poiId)}
+                      onSealCurrentAct={() =>
+                        handleSealNarrativeStage(trackedNarrativeQuest, activeStage)
+                      }
+                      onCenterStageOnMap={(stage) =>
+                        handleSelectActiveNarrativeQuest(trackedNarrativeQuest.id, stage)
+                      }
+                      onOpenNarrativesTab={() => {
+                        setMissionsSubTab('narratives');
+                        setActiveTab('missions');
+                      }}
+                      onStopTracking={() => handleSelectActiveNarrativeQuest(null)}
+                    />
+                  );
+                })()}
 
               {/* Main Map Workspace: Full-Flex Zero-Scroll on Mobile + Expandable 8/12 Cols on Desktop */}
               <div
@@ -6737,12 +8722,20 @@ export default function App() {
                     timeMode={timeMode}
                     fogEnabled={fogEnabled}
                     fogSet={fogSet}
-                    fogVisionMeters={95 + guildPerks.fogVisionBonusMeters}
+                    fogVisionMeters={
+                      95 + guildPerks.fogVisionBonusMeters + alchemyBonuses.fogBonusMeters
+                    }
                     outfitId={progress.outfitId || 'arpenteur'}
                     explorerAppearance={explorerAppearance}
                     chroniqueurThreads={guildPerks.chroniqueurThreads}
                     dashedTracesEnabled={dashedTracesEnabled}
-                    spectralLanternMeters={guildPerks.spectralLanternMeters}
+                    spectralLanternMeters={
+                      guildPerks.spectralLanternMeters + alchemyBonuses.lanternSenseBonusMeters
+                    }
+                    activeCalendarMonth={referenceCalendarDate.getMonth()}
+                    calendarDate={referenceCalendarDate}
+                    activeLoop={activeRoadLoop}
+                    familiarAura={activeFamiliarAura}
                     breadcrumbTrail={breadcrumbTrail}
                     plannedRoute={walkQueue}
                     routeRequest={routeRequest}
@@ -6766,6 +8759,15 @@ export default function App() {
                     foundGeocacheIds={foundGeocacheIds}
                     currentUserId={user ? user.uid : null}
                     onInspectGeocache={(cache) => setGeocacheModal({ mode: 'inspect', cache })}
+                    lieuxDits={lieuxDits}
+                    trailsVisible={trailsVisible}
+                    lieuxDitsVisible={lieuxDitsVisible}
+                    orientationTables={orientationTables}
+                    inspectedTableIds={inspectedTableIds}
+                    onOpenOrientationTable={handleOpenOrientationTable}
+                    revealedSecretPoiIds={revealedSecretPoiIds}
+                    clueCarrierPoiIds={clueCarrierPoiIds}
+                    unrevealedSecretCoords={subterraneanMode ? [] : unrevealedSecretCoords}
                   />
 
                   {/* Desktop Floating Tactile D-Pad (when unfolded via D-Pad toggle) */}
@@ -6959,6 +8961,7 @@ export default function App() {
                       }}
                     />
 
+                    {renderPresetRoadLoopsCard()}
                     {renderExpeditionLoopCard()}
 
                     {selectedMapPoi && (
@@ -7035,12 +9038,28 @@ export default function App() {
                                     )}
                                     <div className="min-w-0">
                                       <div className="text-xs font-bold text-[#24160c] truncate">
+                                        {revealedSecretPoiIds.has(poi.id) ? '✦ ' : ''}
                                         {unlocked ? poi.name : `? ${poi.mysteryTitle}`}
                                       </div>
                                       <div className="text-[11px] text-[#54361d] mt-0.5 flex items-center gap-1.5 truncate">
                                         <span className={`font-bold ${cat.mapTextClass}`}>
                                           {cat.shortLabel}
                                         </span>
+                                        {(() => {
+                                          const offKey = inferOfficialStateLabel(
+                                            poi.source,
+                                            poi.subType,
+                                            poi.officialLabel
+                                          );
+                                          return offKey ? (
+                                            <>
+                                              <span aria-hidden="true">·</span>
+                                              <span className="font-bold text-rose-900">
+                                                ★ {OFFICIAL_STATE_LABEL_META[offKey].shortBadge}
+                                              </span>
+                                            </>
+                                          ) : null;
+                                        })()}
                                         <span aria-hidden="true">·</span>
                                         <span className="truncate">{poi.source}</span>
                                       </div>
@@ -7128,50 +9147,103 @@ export default function App() {
                   </p>
                 </div>
 
-                {/* Unified 6-Bookmark Grimoire Strip (zero jagged multi-row wrapping) */}
+                {/* Unified Grimoire Strip (zero jagged multi-row wrapping) */}
                 <ParchmentScrollStrip fadeColorFrom="vellum" innerClassName="gap-2 py-0.5">
                   {(
                     [
-                      { id: 'liste', label: `Feuillets · ${entries.length}`, icon: 'book' },
                       {
-                        id: 'bestiaire',
+                        key: 'liste',
+                        view: 'liste' as CarnetViewMode,
+                        label: `Feuillets · ${entries.length}`,
+                        icon: 'book' as UiPixelIconName,
+                        active: carnetView === 'liste',
+                      },
+                      {
+                        key: 'secrets',
+                        view: 'secrets' as CarnetViewMode,
+                        label: `Archives Secrètes · ${secretState.discoveredSecretRecords.length} (${secretState.unlockedCollectibleIds.length}/8)`,
+                        icon: 'quill' as UiPixelIconName,
+                        active: carnetView === 'secrets',
+                      },
+                      {
+                        key: 'bestiaire',
+                        view: 'bestiaire' as CarnetViewMode,
                         label:
                           activeRumorsCount > 0
                             ? `Bestiaire & Récits · ${observedBestiaryCount}/${BESTIARY_SPECIES_CATALOG.length} (${activeRumorsCount} piste${activeRumorsCount > 1 ? 's' : ''})`
                             : `Bestiaire & Récits · ${observedBestiaryCount}/${BESTIARY_SPECIES_CATALOG.length}`,
-                        icon: 'paw',
+                        icon: 'paw' as UiPixelIconName,
+                        active: carnetView === 'bestiaire',
                       },
                       {
-                        id: 'herbier',
+                        key: 'herbier',
+                        view: 'herbier' as CarnetViewMode,
+                        herbSection: 'planches' as HerbariumSectionTab,
                         label: `Herbier & Roches · ${specimens.length}/${SPECIMENS_CATALOG.length}`,
-                        icon: 'leaf',
+                        icon: 'leaf' as UiPixelIconName,
+                        active: carnetView === 'herbier' && herbariumInitialSection === 'planches',
                       },
                       {
-                        id: 'tresors',
+                        key: 'alchimie',
+                        view: 'herbier' as CarnetViewMode,
+                        herbSection: 'alchimie' as HerbariumSectionTab,
+                        label: `Alchimie · ${craftedAlchemyIds.size}/6`,
+                        icon: 'star' as UiPixelIconName,
+                        active: carnetView === 'herbier' && herbariumInitialSection === 'alchimie',
+                      },
+                      {
+                        key: 'passeport',
+                        view: 'herbier' as CarnetViewMode,
+                        herbSection: 'passeport' as HerbariumSectionTab,
+                        label: `Passeport · ${passportStamps.length}`,
+                        icon: 'stamp' as UiPixelIconName,
+                        active: carnetView === 'herbier' && herbariumInitialSection === 'passeport',
+                      },
+                      {
+                        key: 'tresors',
+                        view: 'tresors' as CarnetViewMode,
                         label: `Trésors & Caches · ${openedChests.length}`,
-                        icon: 'chest',
+                        icon: 'chest' as UiPixelIconName,
+                        active: carnetView === 'tresors',
                       },
-                      { id: 'frise', label: 'Frise des Strates', icon: 'bedrock' },
-                      { id: 'constellation', label: 'Constellation', icon: 'constellation' },
                       {
-                        id: 'besace',
-                        label: `Besace · ${cachedSectors.length}`,
-                        icon: 'backpack',
+                        key: 'frise',
+                        view: 'frise' as CarnetViewMode,
+                        label: 'Frise des Strates',
+                        icon: 'bedrock' as UiPixelIconName,
+                        active: carnetView === 'frise',
                       },
-                    ] as Array<{ id: CarnetViewMode; label: string; icon: UiPixelIconName }>
+                      {
+                        key: 'constellation',
+                        view: 'constellation' as CarnetViewMode,
+                        label: 'Constellation',
+                        icon: 'constellation' as UiPixelIconName,
+                        active: carnetView === 'constellation',
+                      },
+                      {
+                        key: 'besace',
+                        view: 'besace' as CarnetViewMode,
+                        label: `Besace · ${cachedSectors.length}`,
+                        icon: 'backpack' as UiPixelIconName,
+                        active: carnetView === 'besace',
+                      },
+                    ]
                   ).map((v) => (
                     <button
-                      key={v.id}
+                      key={v.key}
                       type="button"
                       onClick={() => {
-                        if (v.id === 'bestiaire' && carnetView !== 'bestiaire') {
+                        if (v.view === 'bestiaire' && carnetView !== 'bestiaire') {
                           setBestiaryInitialSubTab('bestiaire');
                         }
-                        setCarnetView(v.id);
+                        if (v.herbSection) {
+                          setHerbariumInitialSection(v.herbSection);
+                        }
+                        setCarnetView(v.view);
                         setMobileJournalDetailOpen(false);
                       }}
                       className={`min-h-[40px] px-3.5 py-2 text-xs font-bold border-2 border-[#2b1a0e] inline-flex items-center gap-2 jrpg-shadow whitespace-nowrap shrink-0 transition-colors ${
-                        carnetView === v.id
+                        v.active
                           ? 'bg-[#991b1b] text-[#fffbeb]'
                           : 'bg-[#f8edd6] text-[#24160c] hover:bg-amber-200'
                       }`}
@@ -7183,7 +9255,42 @@ export default function App() {
                 </ParchmentScrollStrip>
               </div>
 
-              {carnetView === 'bestiaire' ? (
+              {carnetView === 'secrets' ? (
+                <SecretArchivesCarnetView
+                  sectorSecrets={sectorSecrets}
+                  secretState={secretState}
+                  entries={entries}
+                  unlockedIds={unlockedIds}
+                  playerLat={playerPos.lat}
+                  playerLng={playerPos.lng}
+                  onOpenDecipherModal={(site) => setActiveSecretDecipherSite(site)}
+                  onFocusLocationOnMap={handleFocusSecretOnMap}
+                  onSelectPoiOnMap={(poiId) => {
+                    setSubterraneanMode(false);
+                    setSelectedPoiId(poiId);
+                    const target = rawSurfacePois.find((p) => p.id === poiId);
+                    if (target && simulationMode) {
+                      const d = haversineMeters(
+                        playerPos.lat,
+                        playerPos.lng,
+                        target.lat,
+                        target.lng
+                      );
+                      if (d <= 2400) {
+                        setDashedTracesEnabled(true);
+                        setRouteRequest({ id: Date.now(), lat: target.lat, lng: target.lng });
+                      }
+                    }
+                    setActiveTab('carte');
+                  }}
+                  onOpenJournalEntry={(poiId) => {
+                    playJournalOpenSfx(muted);
+                    setSelectedJournalPoiId(poiId);
+                    setCarnetView('liste');
+                    setMobileJournalDetailOpen(true);
+                  }}
+                />
+              ) : carnetView === 'bestiaire' ? (
                 <Suspense
                   fallback={
                     <div className="grimoire-folio p-6 text-center text-xs font-bold text-[#24160c]">
@@ -7216,7 +9323,7 @@ export default function App() {
                 <Suspense
                   fallback={
                     <div className="grimoire-folio p-6 text-center text-xs font-bold text-[#24160c]">
-                      Ouverture de l’Herbier & de la Lithothèque…
+                      Ouverture de l’Herbier, de l’Atelier d’Alchimie & du Passeport…
                     </div>
                   }
                 >
@@ -7226,6 +9333,12 @@ export default function App() {
                     terrain={terrain}
                     currentRegionLabel={localAtmosphereLabel}
                     muted={muted}
+                    craftedAlchemyIds={craftedAlchemyIds}
+                    activeFamiliarAura={activeFamiliarAura}
+                    passportStamps={passportStamps}
+                    initialSection={herbariumInitialSection}
+                    onCraftAlchemyRecipe={handleCraftAlchemyRecipe}
+                    onSelectFamiliarAura={handleSelectFamiliarAura}
                     onFocusLocationOnMap={(lat, lng, isSub) => {
                       setSubterraneanMode(isSub);
                       const dist = haversineMeters(playerPos.lat, playerPos.lng, lat, lng);
@@ -7427,6 +9540,29 @@ export default function App() {
                                 <span className="text-rose-800 font-bold">Annoté</span>
                               </>
                             )}
+                            {isEntryFromSecretArchive(item, secretState) && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="text-[#6b21a8] font-bold">✦ Archive Secrète</span>
+                              </>
+                            )}
+                            {isEntryFromLiveEvent(item) && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="text-[#881337] font-bold">✦ Événement Vivant</span>
+                              </>
+                            )}
+                            {(() => {
+                              const offKey = inferOfficialStateLabel(item.source, item.subType);
+                              return offKey ? (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="text-rose-900 font-bold">
+                                    ★ {OFFICIAL_STATE_LABEL_META[offKey].shortBadge}
+                                  </span>
+                                </>
+                              ) : null;
+                            })()}
                             {solvedRiddleIds.has(item.poiId) && (
                               <>
                                 <span aria-hidden="true">·</span>
@@ -7477,6 +9613,10 @@ export default function App() {
                               ? () => setMobileJournalDetailOpen(false)
                               : undefined
                           }
+                          sectorSecrets={sectorSecrets}
+                          secretState={secretState}
+                          onOpenSecretDecipherModal={(site) => setActiveSecretDecipherSite(site)}
+                          onFocusSecretOnMap={handleFocusSecretOnMap}
                         />
                       </Suspense>
                     )}
@@ -7504,22 +9644,44 @@ export default function App() {
                       style={{ textWrap: 'balance' }}
                     >
                       <PixelUiIcon name="scroll" className="w-6 h-6" />
-                      <span>Almanach, Pistes aux Trésors & Quêtes</span>
+                      <span>Récits, Défis Communautaires &amp; Quêtes</span>
                     </h1>
                     <p className="text-xs sm:text-sm text-[#54361d] max-w-3xl">
-                      Saisons astronomiques, fêtes thématiques et anniversaires historiques (globaux
-                      & locaux), chasses aux trésors par indices, contrats de secteur et quêtes des
-                      cinq Guildes.
+                      Quêtes narratives en trois actes ordonnés, défis communautaires chronométrés et
+                      classements, almanach des saisons, pistes aux trésors et quêtes des cinq Guildes.
                     </p>
                   </div>
                   <div className="text-xs font-mono tabular-nums text-[#54361d] shrink-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-bold text-emerald-900">
+                      {Math.max(
+                        progress.completedNarrativesCount || 0,
+                        narrativeState.completedQuestIds.length
+                      )}{' '}
+                      récit
+                      {Math.max(
+                        progress.completedNarrativesCount || 0,
+                        narrativeState.completedQuestIds.length
+                      ) > 1
+                        ? 's'
+                        : ''}
+                    </span>
+                    <span aria-hidden="true">·</span>
                     <span className="font-bold text-amber-950">
-                      {solvedRiddleIds.size} Sceau{solvedRiddleIds.size > 1 ? 'x' : ''} d’Or
+                      {Math.max(
+                        progress.claimedCommunityChallengesCount || 0,
+                        claimedCommunityTiers.size
+                      )}{' '}
+                      défi
+                      {Math.max(
+                        progress.claimedCommunityChallengesCount || 0,
+                        claimedCommunityTiers.size
+                      ) > 1
+                        ? 's'
+                        : ''}
                     </span>
                     <span aria-hidden="true">·</span>
                     <span>
-                      {Math.max(progress.completedContractsCount || 0, claimedContracts.size)}{' '}
-                      contrats
+                      {solvedRiddleIds.size} Sceau{solvedRiddleIds.size > 1 ? 'x' : ''} d’Or
                     </span>
                     <span aria-hidden="true">·</span>
                     <span className="font-bold text-rose-900">
@@ -7528,10 +9690,35 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Clean 4-Bookmark Horizontal Selector (Zero Mobile Wrapping!) */}
+                {/* Clean Horizontal Selector (Zero Mobile Wrapping!) */}
                 <ParchmentScrollStrip fadeColorFrom="vellum" innerClassName="gap-2 py-0.5">
                   {(
                     [
+                      {
+                        id: 'pantheon',
+                        label:
+                          claimableLiveEventsCount > 0
+                            ? `Panthéon & Événements · ${claimableLiveEventsCount} à sceller`
+                            : `Panthéon & Événements · ${localPantheonMetrics.pantheonScore.toLocaleString('fr-FR')} pts`,
+                        icon: 'moon-stars',
+                      },
+                      {
+                        id: 'narratives',
+                        label: `Quêtes Narratives · ${
+                          sectorNarrativeQuests.filter(
+                            (q) => getSealedActsCount(narrativeState, q.id) >= 3
+                          ).length
+                        }/${sectorNarrativeQuests.length}`,
+                        icon: 'quill',
+                      },
+                      {
+                        id: 'defis',
+                        label:
+                          claimableCommunityTiersCount > 0
+                            ? `Défis & Classements · ${claimableCommunityTiersCount} à réclamer`
+                            : 'Défis & Classements',
+                        icon: 'trophy',
+                      },
                       {
                         id: 'almanach',
                         label: `Almanach & Calendrier · ${SEASON_META[resolveSeasonForDate()].nameFr}`,
@@ -7553,11 +9740,18 @@ export default function App() {
                       },
                       {
                         id: 'guildes',
-                        label: `Quêtes & Trophées · ${progress.completedMissions.length}/${MISSIONS_CATALOG.length}`,
-                        icon: 'trophy',
+                        label: `Guildes & Trophées · ${progress.completedMissions.length}/${MISSIONS_CATALOG.length}`,
+                        icon: 'award',
                       },
                     ] as Array<{
-                      id: 'almanach' | 'chasse' | 'contrats' | 'guildes';
+                      id:
+                        | 'almanach'
+                        | 'pantheon'
+                        | 'narratives'
+                        | 'defis'
+                        | 'chasse'
+                        | 'contrats'
+                        | 'guildes';
                       label: string;
                       icon: UiPixelIconName;
                     }>
@@ -7578,6 +9772,86 @@ export default function App() {
                   ))}
                 </ParchmentScrollStrip>
               </div>
+
+              {/* SUB-TAB 0: PANTHÉON MULTIJOUEUR & ÉVÉNEMENTS VIVANTS (PHÉNOMÈNES RÉELS) */}
+              {missionsSubTab === 'pantheon' && (
+                <PantheonAndLiveEventsView
+                  evaluatedEvents={evaluatedLiveEvents}
+                  unlockedMedallionIds={unlockedMedallionIdsSet}
+                  localMetrics={localPantheonMetrics}
+                  progress={progress}
+                  localAppearance={explorerAppearance}
+                  entries={entries}
+                  user={user}
+                  cloudOnline={cloudOnline}
+                  localRegionLabel={
+                    almanacData?.locality.commune ||
+                    localAtmosphereLabel ||
+                    regionalTheme.shortLabel
+                  }
+                  weather={weather}
+                  moonInfo={moonPhaseInfo}
+                  localFestivals={almanacData?.localFestivals}
+                  muted={muted}
+                  onClaimLiveEvent={handleClaimLiveEvent}
+                  onFocusEventOnMap={handleFocusLiveEventOnMap}
+                  onOpenJournalEntry={openJournalEntry}
+                  onAuthAction={handleAuthAction}
+                  onOpenTrophyHall={() => {
+                    setProfileInitialTab('trophees');
+                    setActiveTab('profil');
+                  }}
+                />
+              )}
+
+              {/* SUB-TAB A: QUÊTES NARRATIVES SÉQUENTIELLES EN 3 ACTES */}
+              {missionsSubTab === 'narratives' && (
+                <NarrativeQuestsView
+                  quests={sectorNarrativeQuests}
+                  narrativeState={narrativeState}
+                  entries={entries}
+                  explorerPos={playerPos}
+                  isSubterraneanView={subterraneanMode}
+                  progress={progress}
+                  appearance={explorerAppearance}
+                  muted={muted}
+                  onSelectActiveQuest={handleSelectActiveNarrativeQuest}
+                  onSealStage={handleSealNarrativeStage}
+                  onOpenJournalEntry={openJournalEntry}
+                  onOpenWorkshopCosmetics={() => openWorkshopAtSlot('familiar')}
+                  onOpenTrophyHall={() => {
+                    setProfileInitialTab('trophees');
+                    setActiveTab('profil');
+                  }}
+                />
+              )}
+
+              {/* SUB-TAB B: DÉFIS COMMUNAUTAIRES TEMPORISÉS & CLASSEMENTS */}
+              {missionsSubTab === 'defis' && (
+                <CommunityChallengesView
+                  challenges={activeCommunityChallenges}
+                  entries={entries}
+                  sectorPois={pois}
+                  progress={progress}
+                  localAppearance={explorerAppearance}
+                  user={user}
+                  localRegionLabel={
+                    almanacData?.locality.commune ||
+                    localAtmosphereLabel ||
+                    regionalTheme.shortLabel
+                  }
+                  claimedTierIds={claimedCommunityTiers}
+                  muted={muted}
+                  onClaimTier={handleClaimCommunityTier}
+                  onFocusChallengeOnMap={handleFocusChallengeOnMap}
+                  onAuthAction={handleAuthAction}
+                  onOpenWorkshopCosmetics={() => openWorkshopAtSlot('familiar')}
+                  onOpenTrophyHall={() => {
+                    setProfileInitialTab('trophees');
+                    setActiveTab('profil');
+                  }}
+                />
+              )}
 
               {/* SUB-TAB 1: ALMANACH DES SAISONS, FÊTES & ÉPHÉMÉRIDES (GLOBAL + LOCAL) */}
               {missionsSubTab === 'almanach' && (
@@ -8365,9 +10639,9 @@ export default function App() {
           <footer className="hidden lg:flex py-3 px-6 text-xs text-[#54361d] font-medium flex-wrap items-center justify-between gap-4 max-w-[1440px] w-full mx-auto">
             <span>Terra 16 · Exploration respectueuse du patrimoine, des souterrains et du vivant</span>
             <span>
-              OSM Z15 · IGN BD TOPO & Lieux-Dits · Archéologie INRAP · INPN Géosites INPG & ZNIEFF ·
-              Mérimée, Palissy & Joconde · Friches & Rails · BRGM Hub’Eau · Folklore, Lettres & Cinéma ·
-              Macrostrat, Paleobio DB, iNaturalist & GBIF
+              OSM Z15 · IGN BD TOPO & Lieux-Dits · Ministère de la Culture (Mérimée, Illustres,
+              Jardins Remarquables & Muséofile) · DATAtourisme · Archéologie INRAP · INPN Géosites &
+              ZNIEFF · BRGM Hub’Eau · Macrostrat, Paleobio DB, iNaturalist & GBIF
             </span>
           </footer>
 
@@ -8414,6 +10688,36 @@ export default function App() {
       {renderPostcardModal()}
       {renderGeocacheModal()}
       {renderRiddleModal()}
+      {renderOrientationTableModal()}
+      {renderSecretDecipherModal()}
+
+      {showTitleScreen && (
+        <TitleScreenView
+          user={user}
+          authReady={authReady}
+          cloudOnline={cloudOnline}
+          authError={authError}
+          onClearAuthError={() => setAuthError('')}
+          onGoogleAuth={handleAuthAction}
+          onEnterExpedition={handleEnterFromTitleScreen}
+          skipTitleNextTime={skipTitleNextTime}
+          onToggleSkipTitleNextTime={handleToggleSkipTitleNextTime}
+          muted={muted}
+          onToggleMuted={() => setMuted((m) => !m)}
+          explorerCallsign={progress.displayName}
+          onUpdateCallsign={handleSaveCallsignDirect}
+          appearance={explorerAppearance}
+          onUpdateAppearance={handleUpdateAppearance}
+          unlockedHeadgearIds={unlockedCosmeticSets.headgear}
+          unlockedOutfitIds={unlockedCosmeticSets.outfits}
+          unlockedFamiliarIds={unlockedCosmeticSets.familiars}
+          explorerLevel={globalLevelInfo.level}
+          explorerRankTitle={explorerHonorificTitle}
+          discoveriesCount={entries.length}
+          regionLabel={localAtmosphereLabel}
+          weather={weather}
+        />
+      )}
     </div>
   );
 }

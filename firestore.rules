@@ -32,6 +32,36 @@ service cloud.firestore {
       return arr is list && arr.size() <= maxLen && (arr.size() == 0 || (arr[0] is string && arr[0].size() <= 200));
     }
 
+    function isValidHeadgearEnum(val) {
+      return val is string && val.size() >= 1 && val.size() <= 32
+        && val in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire', 'couronne_saisons', 'couronne_chroniqueur', 'bandeau_guilde_unie'];
+    }
+
+    function isValidOutfitEnum(val) {
+      return val is string && val.size() >= 1 && val.size() <= 32
+        && val in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde', 'almanach_solaire', 'chasseur_reliques', 'conteuse_legende'];
+    }
+
+    function isValidToolEnum(val) {
+      return val is string && val.size() >= 1 && val.size() <= 32
+        && val in ['lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee', 'fiole_spectrale', 'loupe_sceau_or', 'clef_coffres_anciens', 'sablier_ephemeride', 'plume_trois_actes'];
+    }
+
+    function isValidPackEnum(val) {
+      return val is string && val.size() >= 1 && val.size() <= 32
+        && val in ['besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate', 'coffret_piste', 'grimoire_almanach', 'astrolabe_dorsal'];
+    }
+
+    function isValidFamiliarEnum(val) {
+      return val is string && val.size() >= 1 && val.size() <= 32
+        && val in ['aucun', 'chouette_erudite', 'goupil_saisons', 'scarabee_boussole', 'salamandre_cristal', 'corbeau_cartographe', 'feu_follet_astral', 'hermine_royale', 'cerf_brumes', 'loutre_riviere'];
+    }
+
+    function isValidPinnedTrophyEnum(val) {
+      return val is string && val.size() <= 40
+        && val in ['', 'oiseau_de_nuit', 'marcheur_orage', 'speleologue', 'arpenteur_10km', 'grand_randonneur_50km', 'maitre_7_roches', 'chasseur_geodesique', 'gardien_petit_patrimoine', 'ouvreur_reliques', 'leveur_brumes', 'naturaliste_complet', 'champion_contrats', 'tisserand_recits', 'maitre_chroniques', 'heraut_communaute', 'temoin_phenomenes', 'champion_pantheon'];
+    }
+
     // Validation Blueprint: ExplorerProfile (synced verbatim with firebase-blueprint.json)
     function isValidExplorerProfile(data) {
       return data.keys().hasAll([
@@ -72,6 +102,9 @@ service cloud.firestore {
           'solvedRiddlesCount',
           'completedHuntsCount',
           'claimedAlmanacCount',
+          'completedNarrativesCount',
+          'claimedCommunityChallengesCount',
+          'claimedLiveEventsCount',
           'discoveriesCount',
           'completedMissions',
           'createdAt',
@@ -89,12 +122,12 @@ service cloud.firestore {
         && (!('gender' in data) || (data.gender is string && data.gender.size() >= 1 && data.gender.size() <= 16 && data.gender in ['feminin', 'masculin', 'neutre']))
         && (!('avatarPreset' in data) || (data.avatarPreset is string && data.avatarPreset.size() >= 1 && data.avatarPreset.size() <= 32 && data.avatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
         && (!('skinTone' in data) || (data.skinTone is string && data.skinTone.size() >= 1 && data.skinTone.size() <= 32 && data.skinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
-        && (!('headgearId' in data) || (data.headgearId is string && data.headgearId.size() >= 1 && data.headgearId.size() <= 32 && data.headgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire', 'couronne_saisons']))
-        && (!('outfitId' in data) || (data.outfitId is string && data.outfitId.size() <= 32 && data.outfitId.size() >= 1 && data.outfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde', 'almanach_solaire', 'chasseur_reliques']))
-        && (!('toolId' in data) || (data.toolId is string && data.toolId.size() >= 1 && data.toolId.size() <= 32 && data.toolId in ['lanterne_laiton', 'boussole_astrale', 'marteau_geologue', 'plume_enluminee', 'fiole_spectrale', 'loupe_sceau_or', 'clef_coffres_anciens', 'sablier_ephemeride']))
-        && (!('packId' in data) || (data.packId is string && data.packId.size() >= 1 && data.packId.size() <= 32 && data.packId in ['besace_cuir', 'rouleau_cartes', 'hotte_cristaux', 'ailerons_automate', 'coffret_piste', 'grimoire_almanach', 'astrolabe_dorsal']))
-        && (!('familiarId' in data) || (data.familiarId is string && data.familiarId.size() >= 1 && data.familiarId.size() <= 32 && data.familiarId in ['aucun', 'chouette_erudite', 'goupil_saisons', 'scarabee_boussole', 'salamandre_cristal', 'corbeau_cartographe', 'feu_follet_astral', 'hermine_royale']))
-        && (!('pinnedTrophyId' in data) || (data.pinnedTrophyId is string && data.pinnedTrophyId.size() <= 40 && data.pinnedTrophyId in ['', 'oiseau_de_nuit', 'marcheur_orage', 'speleologue', 'arpenteur_10km', 'grand_randonneur_50km', 'maitre_7_roches', 'chasseur_geodesique', 'gardien_petit_patrimoine', 'ouvreur_reliques', 'leveur_brumes', 'naturaliste_complet', 'champion_contrats']))
+        && (!('headgearId' in data) || isValidHeadgearEnum(data.headgearId))
+        && (!('outfitId' in data) || isValidOutfitEnum(data.outfitId))
+        && (!('toolId' in data) || isValidToolEnum(data.toolId))
+        && (!('packId' in data) || isValidPackEnum(data.packId))
+        && (!('familiarId' in data) || isValidFamiliarEnum(data.familiarId))
+        && (!('pinnedTrophyId' in data) || isValidPinnedTrophyEnum(data.pinnedTrophyId))
         && (!('walkedMeters' in data) || (data.walkedMeters is number && data.walkedMeters >= 0 && data.walkedMeters <= 100000000))
         && (!('nightFeatsCount' in data) || (data.nightFeatsCount is number && data.nightFeatsCount >= 0 && data.nightFeatsCount <= 100000))
         && (!('stormFeatsCount' in data) || (data.stormFeatsCount is number && data.stormFeatsCount >= 0 && data.stormFeatsCount <= 100000))
@@ -102,6 +135,9 @@ service cloud.firestore {
         && (!('solvedRiddlesCount' in data) || (data.solvedRiddlesCount is number && data.solvedRiddlesCount >= 0 && data.solvedRiddlesCount <= 100000))
         && (!('completedHuntsCount' in data) || (data.completedHuntsCount is number && data.completedHuntsCount >= 0 && data.completedHuntsCount <= 100000))
         && (!('claimedAlmanacCount' in data) || (data.claimedAlmanacCount is number && data.claimedAlmanacCount >= 0 && data.claimedAlmanacCount <= 100000))
+        && (!('completedNarrativesCount' in data) || (data.completedNarrativesCount is number && data.completedNarrativesCount >= 0 && data.completedNarrativesCount <= 100000))
+        && (!('claimedCommunityChallengesCount' in data) || (data.claimedCommunityChallengesCount is number && data.claimedCommunityChallengesCount >= 0 && data.claimedCommunityChallengesCount <= 100000))
+        && (!('claimedLiveEventsCount' in data) || (data.claimedLiveEventsCount is number && data.claimedLiveEventsCount >= 0 && data.claimedLiveEventsCount <= 100000))
         && data.discoveriesCount is number && data.discoveriesCount >= 0 && data.discoveriesCount <= 100000
         && isBoundedStringArray(data.completedMissions, 50)
         && data.createdAt is timestamp
@@ -215,8 +251,8 @@ service cloud.firestore {
         && (!('authorGender' in data) || (data.authorGender is string && data.authorGender.size() >= 1 && data.authorGender.size() <= 16 && data.authorGender in ['feminin', 'masculin', 'neutre']))
         && (!('authorAvatarPreset' in data) || (data.authorAvatarPreset is string && data.authorAvatarPreset.size() >= 1 && data.authorAvatarPreset.size() <= 32 && data.authorAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
         && (!('authorSkinTone' in data) || (data.authorSkinTone is string && data.authorSkinTone.size() >= 1 && data.authorSkinTone.size() <= 32 && data.authorSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
-        && (!('authorHeadgearId' in data) || (data.authorHeadgearId is string && data.authorHeadgearId.size() >= 1 && data.authorHeadgearId.size() <= 32 && data.authorHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire', 'couronne_saisons']))
-        && (!('authorOutfitId' in data) || (data.authorOutfitId is string && data.authorOutfitId.size() >= 1 && data.authorOutfitId.size() <= 32 && data.authorOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde', 'almanach_solaire', 'chasseur_reliques']))
+        && (!('authorHeadgearId' in data) || isValidHeadgearEnum(data.authorHeadgearId))
+        && (!('authorOutfitId' in data) || isValidOutfitEnum(data.authorOutfitId))
         && isValidId(data.poiId)
         && data.poiName is string && data.poiName.size() >= 1 && data.poiName.size() <= 200
         && data.tag is string && data.tag.size() >= 1 && data.tag.size() <= 32 && data.tag in ['architecture', 'acces', 'point_de_vue', 'conseil_heure', 'secret']
@@ -403,8 +439,8 @@ service cloud.firestore {
         && (!('authorGender' in data) || (data.authorGender is string && data.authorGender.size() >= 1 && data.authorGender.size() <= 16 && data.authorGender in ['feminin', 'masculin', 'neutre']))
         && (!('authorAvatarPreset' in data) || (data.authorAvatarPreset is string && data.authorAvatarPreset.size() >= 1 && data.authorAvatarPreset.size() <= 32 && data.authorAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
         && (!('authorSkinTone' in data) || (data.authorSkinTone is string && data.authorSkinTone.size() >= 1 && data.authorSkinTone.size() <= 32 && data.authorSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
-        && (!('authorHeadgearId' in data) || (data.authorHeadgearId is string && data.authorHeadgearId.size() >= 1 && data.authorHeadgearId.size() <= 32 && data.authorHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire', 'couronne_saisons']))
-        && (!('authorOutfitId' in data) || (data.authorOutfitId is string && data.authorOutfitId.size() >= 1 && data.authorOutfitId.size() <= 32 && data.authorOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde', 'almanach_solaire', 'chasseur_reliques']))
+        && (!('authorHeadgearId' in data) || isValidHeadgearEnum(data.authorHeadgearId))
+        && (!('authorOutfitId' in data) || isValidOutfitEnum(data.authorOutfitId))
         && isValidId(data.sectorKey)
         && data.sectorKey.size() >= 3 && data.sectorKey.size() <= 32
         && data.placementMode is string && data.placementMode.size() >= 8 && data.placementMode.size() <= 16
@@ -461,11 +497,143 @@ service cloud.firestore {
         && (!('finderGender' in data) || (data.finderGender is string && data.finderGender.size() >= 1 && data.finderGender.size() <= 16 && data.finderGender in ['feminin', 'masculin', 'neutre']))
         && (!('finderAvatarPreset' in data) || (data.finderAvatarPreset is string && data.finderAvatarPreset.size() >= 1 && data.finderAvatarPreset.size() <= 32 && data.finderAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
         && (!('finderSkinTone' in data) || (data.finderSkinTone is string && data.finderSkinTone.size() >= 1 && data.finderSkinTone.size() <= 32 && data.finderSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
-        && (!('finderHeadgearId' in data) || (data.finderHeadgearId is string && data.finderHeadgearId.size() >= 1 && data.finderHeadgearId.size() <= 32 && data.finderHeadgearId in ['tricorne_fauve', 'beret_chroniqueur', 'casque_mineur', 'capuche_sylvestre', 'couronne_menhir', 'lunettes_astro', 'monocle_erudit', 'tricorne_reliquaire', 'couronne_saisons']))
-        && (!('finderOutfitId' in data) || (data.finderOutfitId is string && data.finderOutfitId.size() >= 1 && data.finderOutfitId.size() <= 32 && data.finderOutfitId in ['arpenteur', 'chroniqueur', 'geomancien', 'sylvestre', 'ombres', 'barde', 'almanach_solaire', 'chasseur_reliques']))
+        && (!('finderHeadgearId' in data) || isValidHeadgearEnum(data.finderHeadgearId))
+        && (!('finderOutfitId' in data) || isValidOutfitEnum(data.finderOutfitId))
         && data.note is string && data.note.size() >= 3 && data.note.size() <= 240
         && data.visibility is string && data.visibility.size() == 6 && data.visibility == 'public'
         && data.foundAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: CommunityChallengeEntry (synced verbatim with firebase-blueprint.json)
+    function isValidCommunityChallengeEntry(data) {
+      return data.keys().hasAll([
+          'challengeId',
+          'cadence',
+          'periodKey',
+          'explorerId',
+          'explorerCallsign',
+          'contributionCount',
+          'points',
+          'regionLabel',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'challengeId',
+          'cadence',
+          'periodKey',
+          'explorerId',
+          'explorerCallsign',
+          'explorerGender',
+          'explorerAvatarPreset',
+          'explorerSkinTone',
+          'explorerHeadgearId',
+          'explorerOutfitId',
+          'explorerFamiliarId',
+          'explorerPinnedTrophyId',
+          'contributionCount',
+          'points',
+          'regionLabel',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.challengeId)
+        && data.challengeId.size() <= 80
+        && data.cadence is string && data.cadence.size() >= 7 && data.cadence.size() <= 16
+        && data.cadence in ['quotidien', 'hebdomadaire', 'mensuel']
+        && data.periodKey is string && data.periodKey.size() == 7 && data.periodKey.matches('^[0-9]{4}-[0-9]{2}$')
+        && isValidId(data.explorerId)
+        && data.explorerId == request.auth.uid
+        && data.explorerCallsign is string && data.explorerCallsign.size() >= 1 && data.explorerCallsign.size() <= 60
+        && (!('explorerGender' in data) || (data.explorerGender is string && data.explorerGender.size() >= 1 && data.explorerGender.size() <= 16 && data.explorerGender in ['feminin', 'masculin', 'neutre']))
+        && (!('explorerAvatarPreset' in data) || (data.explorerAvatarPreset is string && data.explorerAvatarPreset.size() >= 1 && data.explorerAvatarPreset.size() <= 32 && data.explorerAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
+        && (!('explorerSkinTone' in data) || (data.explorerSkinTone is string && data.explorerSkinTone.size() >= 1 && data.explorerSkinTone.size() <= 32 && data.explorerSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
+        && (!('explorerHeadgearId' in data) || isValidHeadgearEnum(data.explorerHeadgearId))
+        && (!('explorerOutfitId' in data) || isValidOutfitEnum(data.explorerOutfitId))
+        && (!('explorerFamiliarId' in data) || isValidFamiliarEnum(data.explorerFamiliarId))
+        && (!('explorerPinnedTrophyId' in data) || isValidPinnedTrophyEnum(data.explorerPinnedTrophyId))
+        && data.contributionCount is number && data.contributionCount >= 1 && data.contributionCount <= 10000
+        && data.points is number && data.points >= 1 && data.points <= 1000000
+        && data.regionLabel is string && data.regionLabel.size() >= 1 && data.regionLabel.size() <= 100
+        && data.visibility is string && data.visibility.size() == 6 && data.visibility == 'public'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: PantheonLeaderboardEntry (synced verbatim with firebase-blueprint.json)
+    function isValidPantheonLeaderboardEntry(data) {
+      return data.keys().hasAll([
+          'explorerId',
+          'explorerCallsign',
+          'regionLabel',
+          'pantheonScore',
+          'totalXp',
+          'diversityScore',
+          'rarityScore',
+          'discoveriesCount',
+          'categoriesCount',
+          'strataCount',
+          'sourcesCount',
+          'secretArchivesCount',
+          'officialHeritageCount',
+          'liveEventsCount',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'explorerId',
+          'explorerCallsign',
+          'regionLabel',
+          'explorerGender',
+          'explorerAvatarPreset',
+          'explorerSkinTone',
+          'explorerHeadgearId',
+          'explorerOutfitId',
+          'explorerFamiliarId',
+          'explorerPinnedTrophyId',
+          'pantheonScore',
+          'totalXp',
+          'diversityScore',
+          'rarityScore',
+          'discoveriesCount',
+          'categoriesCount',
+          'strataCount',
+          'sourcesCount',
+          'secretArchivesCount',
+          'officialHeritageCount',
+          'liveEventsCount',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.explorerId)
+        && data.explorerId == request.auth.uid
+        && data.explorerCallsign is string && data.explorerCallsign.size() >= 1 && data.explorerCallsign.size() <= 60
+        && data.regionLabel is string && data.regionLabel.size() >= 1 && data.regionLabel.size() <= 100
+        && (!('explorerGender' in data) || (data.explorerGender is string && data.explorerGender.size() >= 1 && data.explorerGender.size() <= 16 && data.explorerGender in ['feminin', 'masculin', 'neutre']))
+        && (!('explorerAvatarPreset' in data) || (data.explorerAvatarPreset is string && data.explorerAvatarPreset.size() >= 1 && data.explorerAvatarPreset.size() <= 32 && data.explorerAvatarPreset in ['cartographe', 'eclaireur', 'archiviste', 'forgeron', 'oracle', 'botaniste']))
+        && (!('explorerSkinTone' in data) || (data.explorerSkinTone is string && data.explorerSkinTone.size() >= 1 && data.explorerSkinTone.size() <= 32 && data.explorerSkinTone in ['clair', 'hale', 'ambre', 'ebene', 'porcelaine']))
+        && (!('explorerHeadgearId' in data) || isValidHeadgearEnum(data.explorerHeadgearId))
+        && (!('explorerOutfitId' in data) || isValidOutfitEnum(data.explorerOutfitId))
+        && (!('explorerFamiliarId' in data) || isValidFamiliarEnum(data.explorerFamiliarId))
+        && (!('explorerPinnedTrophyId' in data) || isValidPinnedTrophyEnum(data.explorerPinnedTrophyId))
+        && data.pantheonScore is number && data.pantheonScore >= 0 && data.pantheonScore <= 50000000
+        && data.totalXp is number && data.totalXp >= 0 && data.totalXp <= 10000000
+        && data.diversityScore is number && data.diversityScore >= 0 && data.diversityScore <= 1000000
+        && data.rarityScore is number && data.rarityScore >= 0 && data.rarityScore <= 5000000
+        && data.discoveriesCount is number && data.discoveriesCount >= 0 && data.discoveriesCount <= 100000
+        && data.categoriesCount is number && data.categoriesCount >= 0 && data.categoriesCount <= 5
+        && data.strataCount is number && data.strataCount >= 0 && data.strataCount <= 7
+        && data.sourcesCount is number && data.sourcesCount >= 0 && data.sourcesCount <= 50
+        && data.secretArchivesCount is number && data.secretArchivesCount >= 0 && data.secretArchivesCount <= 10000
+        && data.officialHeritageCount is number && data.officialHeritageCount >= 0 && data.officialHeritageCount <= 100000
+        && data.liveEventsCount is number && data.liveEventsCount >= 0 && data.liveEventsCount <= 100000
+        && data.visibility is string && data.visibility.size() == 6 && data.visibility == 'public'
+        && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
 
@@ -526,7 +694,7 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          // Action 1: Award XP, increment discoveries/walked distance, complete missions/contracts, or sync cosmetics & pinned trophy
+          // Action 1: Award XP, increment discoveries/walked distance, complete missions/contracts/narratives/challenges/liveEvents, or sync cosmetics & pinned trophy
           (
             incoming().totalXp >= existing().totalXp
             && incoming().discoveriesCount >= existing().discoveriesCount
@@ -537,6 +705,9 @@ service cloud.firestore {
             && (!('solvedRiddlesCount' in existing()) || ('solvedRiddlesCount' in incoming() && incoming().solvedRiddlesCount >= existing().solvedRiddlesCount))
             && (!('completedHuntsCount' in existing()) || ('completedHuntsCount' in incoming() && incoming().completedHuntsCount >= existing().completedHuntsCount))
             && (!('claimedAlmanacCount' in existing()) || ('claimedAlmanacCount' in incoming() && incoming().claimedAlmanacCount >= existing().claimedAlmanacCount))
+            && (!('completedNarrativesCount' in existing()) || ('completedNarrativesCount' in incoming() && incoming().completedNarrativesCount >= existing().completedNarrativesCount))
+            && (!('claimedCommunityChallengesCount' in existing()) || ('claimedCommunityChallengesCount' in incoming() && incoming().claimedCommunityChallengesCount >= existing().claimedCommunityChallengesCount))
+            && (!('claimedLiveEventsCount' in existing()) || ('claimedLiveEventsCount' in incoming() && incoming().claimedLiveEventsCount >= existing().claimedLiveEventsCount))
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'totalXp',
               'xpHistoire',
@@ -560,6 +731,9 @@ service cloud.firestore {
               'solvedRiddlesCount',
               'completedHuntsCount',
               'claimedAlmanacCount',
+              'completedNarrativesCount',
+              'claimedCommunityChallengesCount',
+              'claimedLiveEventsCount',
               'discoveriesCount',
               'completedMissions',
               'updatedAt'
@@ -598,6 +772,9 @@ service cloud.firestore {
             && (!('solvedRiddlesCount' in incoming()) || incoming().solvedRiddlesCount == 0)
             && (!('completedHuntsCount' in incoming()) || incoming().completedHuntsCount == 0)
             && (!('claimedAlmanacCount' in incoming()) || incoming().claimedAlmanacCount == 0)
+            && (!('completedNarrativesCount' in incoming()) || incoming().completedNarrativesCount == 0)
+            && (!('claimedCommunityChallengesCount' in incoming()) || incoming().claimedCommunityChallengesCount == 0)
+            && (!('claimedLiveEventsCount' in incoming()) || incoming().claimedLiveEventsCount == 0)
             && (!('pinnedTrophyId' in incoming()) || incoming().pinnedTrophyId == '')
             && incoming().discoveriesCount == 0
             && incoming().completedMissions.size() == 0
@@ -625,6 +802,9 @@ service cloud.firestore {
               'solvedRiddlesCount',
               'completedHuntsCount',
               'claimedAlmanacCount',
+              'completedNarrativesCount',
+              'claimedCommunityChallengesCount',
+              'claimedLiveEventsCount',
               'discoveriesCount',
               'completedMissions',
               'updatedAt'
@@ -799,8 +979,8 @@ service cloud.firestore {
         && hasUnlockedPoi(request.auth.uid, incoming().poiId);
 
       allow update: if isVerified()
-        && isValidId(cairnId)
         && isValidExplorerCairn(incoming())
+        && isValidId(cairnId)
         && existing().authorId == request.auth.uid
         && incoming().authorId == existing().authorId
         && incoming().poiId == existing().poiId
@@ -949,6 +1129,121 @@ service cloud.firestore {
           && existing().finderId == request.auth.uid
           && hasExistingExplorerParent(request.auth.uid);
       }
+    }
+
+    // Shared Community Challenge Contributions & Leaderboards (/challengeEntries/{entryId})
+    match /challengeEntries/{entryId} {
+      allow get: if isVerified()
+        && isValidId(entryId)
+        && (resource == null || existing().visibility == 'public');
+
+      // Pillar 8: Cost-Optimized Query Enforcer without get()/exists() inside list
+      allow list: if isVerified()
+        && existing().visibility == 'public';
+
+      allow create: if isVerified()
+        && isValidId(entryId)
+        && isValidCommunityChallengeEntry(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasValidExplorerParent(request.auth.uid);
+
+      allow update: if isVerified()
+        && isValidCommunityChallengeEntry(incoming())
+        && isValidId(entryId)
+        && existing().explorerId == request.auth.uid
+        && incoming().explorerId == existing().explorerId
+        && incoming().challengeId == existing().challengeId
+        && incoming().cadence == existing().cadence
+        && incoming().periodKey == existing().periodKey
+        && incoming().visibility == existing().visibility
+        && incoming().createdAt == existing().createdAt
+        && incoming().contributionCount >= existing().contributionCount
+        && incoming().points >= existing().points
+        && incoming().updatedAt == request.time
+        && hasExistingExplorerParent(request.auth.uid)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'explorerCallsign',
+          'explorerGender',
+          'explorerAvatarPreset',
+          'explorerSkinTone',
+          'explorerHeadgearId',
+          'explorerOutfitId',
+          'explorerFamiliarId',
+          'explorerPinnedTrophyId',
+          'contributionCount',
+          'points',
+          'regionLabel',
+          'updatedAt'
+        ]);
+
+      allow delete: if isVerified()
+        && isValidId(entryId)
+        && existing().explorerId == request.auth.uid
+        && hasExistingExplorerParent(request.auth.uid);
+    }
+
+    // Shared Global Multiplayer Pantheon Leaderboard (/pantheonEntries/{explorerId})
+    match /pantheonEntries/{explorerId} {
+      allow get: if isVerified()
+        && isValidId(explorerId)
+        && (resource == null || existing().visibility == 'public');
+
+      // Pillar 8: Cost-Optimized Query Enforcer without get()/exists() inside list
+      allow list: if isVerified()
+        && existing().visibility == 'public';
+
+      allow create: if isVerified()
+        && isValidId(explorerId)
+        && request.auth.uid == explorerId
+        && isValidPantheonLeaderboardEntry(incoming())
+        && incoming().explorerId == explorerId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasValidExplorerParent(request.auth.uid);
+
+      allow update: if isVerified()
+        && isValidPantheonLeaderboardEntry(incoming())
+        && isValidId(explorerId)
+        && request.auth.uid == explorerId
+        && existing().explorerId == request.auth.uid
+        && incoming().explorerId == existing().explorerId
+        && incoming().visibility == existing().visibility
+        && incoming().createdAt == existing().createdAt
+        && incoming().pantheonScore >= existing().pantheonScore
+        && incoming().totalXp >= existing().totalXp
+        && incoming().discoveriesCount >= existing().discoveriesCount
+        && incoming().updatedAt == request.time
+        && hasExistingExplorerParent(request.auth.uid)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'explorerCallsign',
+          'regionLabel',
+          'explorerGender',
+          'explorerAvatarPreset',
+          'explorerSkinTone',
+          'explorerHeadgearId',
+          'explorerOutfitId',
+          'explorerFamiliarId',
+          'explorerPinnedTrophyId',
+          'pantheonScore',
+          'totalXp',
+          'diversityScore',
+          'rarityScore',
+          'discoveriesCount',
+          'categoriesCount',
+          'strataCount',
+          'sourcesCount',
+          'secretArchivesCount',
+          'officialHeritageCount',
+          'liveEventsCount',
+          'updatedAt'
+        ]);
+
+      allow delete: if isVerified()
+        && isValidId(explorerId)
+        && request.auth.uid == explorerId
+        && existing().explorerId == request.auth.uid
+        && hasExistingExplorerParent(request.auth.uid);
     }
   }
 }

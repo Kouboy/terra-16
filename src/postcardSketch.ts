@@ -1,3 +1,13 @@
+import {
+  FamiliarAuraId,
+  POSTCARD_INK_THEMES,
+  PostcardInkThemeId,
+} from './alchemyAndPassport';
+import {
+  computeRealMoonPhase,
+  drawPixelMoon16Bit,
+  resolveCalendarSeasonVisuals,
+} from './astronomyAndSeasons';
 import { drawExplorerSprite16Bit } from './explorerAvatar';
 import { drawNpcSprite16Bit, NpcKind, NpcVoiceKind, WorldNpc } from './npcs';
 import {
@@ -39,6 +49,9 @@ export interface RenderPostcardOptions {
   customNote: string;
   animTick?: number;
   overrideTrophyId?: TrophyId | '';
+  inkThemeId?: PostcardInkThemeId;
+  familiarAura?: FamiliarAuraId;
+  calendarDate?: Date;
 }
 
 function wrapCanvasLines(
@@ -259,11 +272,10 @@ function draw16BitDiorama(
     p.fillStyle = '#cffafe';
     p.fillRect(24, 10, 1, 2);
   } else if (mood === 'night') {
-    // Pixel crescent moon & twinkling stars
-    p.fillStyle = '#fef9c3';
-    p.fillRect(98, 14, 10, 10);
-    p.fillStyle = skyBands[0];
-    p.fillRect(102, 13, 8, 8);
+    // Real astronomical 16-bit moon phase & twinkling stars
+    const refDate = opts.calendarDate || new Date();
+    const moon = computeRealMoonPhase(refDate);
+    drawPixelMoon16Bit(p, 96, 12, 2, moon.phaseIndex, true);
     const stars = [
       [14, 12],
       [34, 20],
@@ -275,6 +287,13 @@ function draw16BitDiorama(
     p.fillStyle = '#ffffff';
     for (const [sx, sy] of stars) {
       p.fillRect(sx, sy, 1, 1);
+    }
+    if (moon.isMeteorShowerNight) {
+      p.fillStyle = 'rgba(186, 230, 253, 0.85)';
+      p.fillRect(36, 14, 10, 1);
+      p.fillRect(44, 15, 6, 1);
+      p.fillStyle = '#ffffff';
+      p.fillRect(49, 15, 2, 2);
     }
   } else if (isDusk) {
     // Setting golden-crimson sun near horizon
@@ -297,7 +316,8 @@ function draw16BitDiorama(
     p.fillRect(66, 14, 48, 9);
   }
 
-  // 2. Distant Regional Hills Silhouette
+  // 2. Distant Regional Hills Silhouette (season-aware!)
+  const seasonVis = resolveCalendarSeasonVisuals((opts.calendarDate || new Date()).getMonth());
   p.fillStyle = isCavern
     ? '#231d19'
     : isNight
@@ -306,7 +326,7 @@ function draw16BitDiorama(
     ? '#4c2646'
     : isRain
     ? '#334e58'
-    : '#2d6a4f';
+    : seasonVis.hillMid;
   for (let x = 0; x < VW; x++) {
     const hillH = Math.round(9 + Math.sin(x * 0.065) * 5 + Math.cos(x * 0.03) * 3);
     p.fillRect(x, horizonY - hillH, 1, hillH);
@@ -321,7 +341,7 @@ function draw16BitDiorama(
     ? '#143829'
     : isDusk
     ? '#3f6212'
-    : '#4da142';
+    : seasonVis.meadowBase;
   p.fillRect(0, groundTop, VW, strataTop - groundTop);
 
   // Subtle path / clearing under explorer and subject
@@ -373,6 +393,8 @@ function draw16BitDiorama(
     appearance,
     drawAura: isNight || isDusk,
     isNight,
+    familiarAura: opts.familiarAura || 'aucune',
+    coldBreath: !isCavern && seasonVis.season === 'hiver',
   });
 
   // 6. Subject Focal Sprite on the right
@@ -439,13 +461,14 @@ function drawPostmarkStamp(
   cy: number,
   locality: string,
   dateStr: string,
-  altLabel: string
+  altLabel: string,
+  inkColor = 'rgba(153, 27, 27, 0.84)'
 ) {
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(-0.16);
 
-  const ink = 'rgba(153, 27, 27, 0.84)';
+  const ink = inkColor;
   ctx.strokeStyle = ink;
   ctx.fillStyle = ink;
 
@@ -521,16 +544,18 @@ export function renderPostcard16BitToCanvas(
       ? subject.specimen.bedrockPeriod
       : translateBedrockPeriodFr(bedrock?.period);
 
-  // 1. Outer Vintage Vellum Postcard Stock + Ornate Double Frame
-  ctx.fillStyle = '#24150b';
+  // 1. Outer Vintage Vellum Postcard Stock + Ornate Double Frame (with Alchemical Ink Theme!)
+  const inkTheme =
+    POSTCARD_INK_THEMES[opts.inkThemeId || 'classique_or'] || POSTCARD_INK_THEMES.classique_or;
+  ctx.fillStyle = inkTheme.outerBorder;
   ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#d97706';
+  ctx.fillStyle = inkTheme.trimAccent;
   ctx.fillRect(8, 8, W - 16, H - 16);
-  ctx.fillStyle = '#f8eed5';
+  ctx.fillStyle = inkTheme.paperFill;
   ctx.fillRect(14, 14, W - 28, H - 28);
 
   // Subtle parchment rules
-  ctx.strokeStyle = '#c89d62';
+  ctx.strokeStyle = inkTheme.ruleStroke;
   ctx.lineWidth = 2;
   ctx.strokeRect(22, 22, W - 44, H - 44);
 
@@ -542,9 +567,9 @@ export function renderPostcard16BitToCanvas(
     [W - 28, H - 28],
   ];
   for (const [rx, ry] of corners) {
-    ctx.fillStyle = '#24150b';
+    ctx.fillStyle = inkTheme.outerBorder;
     ctx.fillRect(rx, ry, 10, 10);
-    ctx.fillStyle = '#fbbf24';
+    ctx.fillStyle = inkTheme.rivetFill;
     ctx.fillRect(rx + 2, ry + 2, 6, 6);
   }
 
@@ -553,7 +578,7 @@ export function renderPostcard16BitToCanvas(
   const dioY = 28;
   const dioW = 520;
   const dioH = 544;
-  ctx.fillStyle = '#1f1209';
+  ctx.fillStyle = inkTheme.outerBorder;
   ctx.fillRect(dioX - 4, dioY - 4, dioW + 8, dioH + 8);
   draw16BitDiorama(ctx, dioX, dioY, dioW, dioH, opts, affinity);
 
@@ -572,7 +597,7 @@ export function renderPostcard16BitToCanvas(
   // 3. Classic Postcard Vertical Divider
   const rightX = 576;
   const rightW = W - rightX - 34;
-  ctx.strokeStyle = '#bfa074';
+  ctx.strokeStyle = inkTheme.ruleStroke;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(564, 38);
@@ -588,15 +613,15 @@ export function renderPostcard16BitToCanvas(
   ctx.setLineDash([4, 3]);
   ctx.strokeRect(stampX - 4, stampY - 4, 68, 80);
   ctx.setLineDash([]);
-  ctx.fillStyle = '#991b1b';
+  ctx.fillStyle = inkTheme.stampBg;
   ctx.fillRect(stampX + 2, stampY + 2, 56, 68);
   ctx.fillStyle = '#fef3c7';
   ctx.font = 'bold 10px "IBM Plex Mono", monospace';
   ctx.textAlign = 'center';
   ctx.fillText('TERRA 16', stampX + 30, stampY + 18);
-  ctx.fillStyle = '#fde047';
+  ctx.fillStyle = inkTheme.rivetFill;
   ctx.fillRect(stampX + 18, stampY + 26, 24, 22);
-  ctx.fillStyle = '#991b1b';
+  ctx.fillStyle = inkTheme.stampBg;
   ctx.fillRect(stampX + 24, stampY + 31, 12, 12);
   ctx.fillStyle = '#fef3c7';
   ctx.fillText('16 BIT', stampX + 30, stampY + 62);
@@ -654,11 +679,19 @@ export function renderPostcard16BitToCanvas(
     altVal !== null && Number.isFinite(altVal) ? `ALT. ${Math.round(altVal)} M` : 'CARNET 16-BIT';
 
   // Inked circular postmark overlapping stamp!
-  drawPostmarkStamp(ctx, stampX - 22, stampY + 48, effectiveLoc, dateFr, altStampStr);
+  drawPostmarkStamp(
+    ctx,
+    stampX - 22,
+    stampY + 48,
+    effectiveLoc,
+    dateFr,
+    altStampStr,
+    inkTheme.postmarkInk
+  );
 
   // 5. Right-Side Cartographic & Literary Content
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#991b1b';
+  ctx.fillStyle = inkTheme.stampBg;
   ctx.font = 'bold 12px "IBM Plex Mono", monospace';
   ctx.fillText('CARTE POSTALE D’EXPLORATION', rightX, 58);
 

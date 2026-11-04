@@ -75,7 +75,9 @@
             "lunettes_astro",
             "monocle_erudit",
             "tricorne_reliquaire",
-            "couronne_saisons"
+            "couronne_saisons",
+            "couronne_chroniqueur",
+            "bandeau_guilde_unie"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -91,7 +93,8 @@
             "ombres",
             "barde",
             "almanach_solaire",
-            "chasseur_reliques"
+            "chasseur_reliques",
+            "conteuse_legende"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -107,7 +110,8 @@
             "fiole_spectrale",
             "loupe_sceau_or",
             "clef_coffres_anciens",
-            "sablier_ephemeride"
+            "sablier_ephemeride",
+            "plume_trois_actes"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -138,7 +142,9 @@
             "salamandre_cristal",
             "corbeau_cartographe",
             "feu_follet_astral",
-            "hermine_royale"
+            "hermine_royale",
+            "cerf_brumes",
+            "loutre_riviere"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -159,7 +165,12 @@
             "ouvreur_reliques",
             "leveur_brumes",
             "naturaliste_complet",
-            "champion_contrats"
+            "champion_contrats",
+            "tisserand_recits",
+            "maitre_chroniques",
+            "heraut_communaute",
+            "temoin_phenomenes",
+            "champion_pantheon"
           ],
           "minLength": 0,
           "maxLength": 40
@@ -191,6 +202,18 @@
         "claimedAlmanacCount": {
           "type": "number",
           "description": "Cumulative count of seasonal and calendar almanac quests claimed."
+        },
+        "completedNarrativesCount": {
+          "type": "number",
+          "description": "Cumulative count of 3-act sequential narrative quests completed."
+        },
+        "claimedCommunityChallengesCount": {
+          "type": "number",
+          "description": "Cumulative count of community challenge personal tiers claimed."
+        },
+        "claimedLiveEventsCount": {
+          "type": "number",
+          "description": "Cumulative count of real-world live phenomenon events completed and claimed."
         },
         "discoveriesCount": {
           "type": "number",
@@ -418,7 +441,9 @@
             "lunettes_astro",
             "monocle_erudit",
             "tricorne_reliquaire",
-            "couronne_saisons"
+            "couronne_saisons",
+            "couronne_chroniqueur",
+            "bandeau_guilde_unie"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -434,7 +459,8 @@
             "ombres",
             "barde",
             "almanach_solaire",
-            "chasseur_reliques"
+            "chasseur_reliques",
+            "conteuse_legende"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -994,7 +1020,9 @@
             "lunettes_astro",
             "monocle_erudit",
             "tricorne_reliquaire",
-            "couronne_saisons"
+            "couronne_saisons",
+            "couronne_chroniqueur",
+            "bandeau_guilde_unie"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -1010,7 +1038,8 @@
             "ombres",
             "barde",
             "almanach_solaire",
-            "chasseur_reliques"
+            "chasseur_reliques",
+            "conteuse_legende"
           ],
           "minLength": 1,
           "maxLength": 32
@@ -1048,6 +1077,399 @@
         "foundAt",
         "updatedAt"
       ]
+    },
+    "CommunityChallengeEntry": {
+      "title": "CommunityChallengeEntry",
+      "description": "Non-PII explorer contribution and ranking entry for a time-limited community exploration challenge.",
+      "type": "object",
+      "properties": {
+        "challengeId": {
+          "type": "string",
+          "description": "Deterministic identifier of the time-windowed community challenge.",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "cadence": {
+          "type": "string",
+          "description": "Cadence of the community challenge.",
+          "enum": ["quotidien", "hebdomadaire", "mensuel"],
+          "minLength": 7,
+          "maxLength": 16
+        },
+        "periodKey": {
+          "type": "string",
+          "description": "Calendar month period key (YYYY-MM) for monthly general rankings.",
+          "minLength": 7,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}$"
+        },
+        "explorerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the participating explorer.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "explorerCallsign": {
+          "type": "string",
+          "description": "Public explorer callsign (non-PII).",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "explorerGender": {
+          "type": "string",
+          "description": "Optional 16-bit silhouette gender.",
+          "enum": ["feminin", "masculin", "neutre"],
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "explorerAvatarPreset": {
+          "type": "string",
+          "description": "Optional 16-bit avatar preset.",
+          "enum": ["cartographe", "eclaireur", "archiviste", "forgeron", "oracle", "botaniste"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerSkinTone": {
+          "type": "string",
+          "description": "Optional 16-bit skin tone.",
+          "enum": ["clair", "hale", "ambre", "ebene", "porcelaine"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerHeadgearId": {
+          "type": "string",
+          "description": "Optional 16-bit headgear identifier.",
+          "enum": [
+            "tricorne_fauve",
+            "beret_chroniqueur",
+            "casque_mineur",
+            "capuche_sylvestre",
+            "couronne_menhir",
+            "lunettes_astro",
+            "monocle_erudit",
+            "tricorne_reliquaire",
+            "couronne_saisons",
+            "couronne_chroniqueur",
+            "bandeau_guilde_unie"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerOutfitId": {
+          "type": "string",
+          "description": "Optional 16-bit outfit identifier.",
+          "enum": [
+            "arpenteur",
+            "chroniqueur",
+            "geomancien",
+            "sylvestre",
+            "ombres",
+            "barde",
+            "almanach_solaire",
+            "chasseur_reliques",
+            "conteuse_legende"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerFamiliarId": {
+          "type": "string",
+          "description": "Optional 16-bit companion familiar identifier.",
+          "enum": [
+            "aucun",
+            "chouette_erudite",
+            "goupil_saisons",
+            "scarabee_boussole",
+            "salamandre_cristal",
+            "corbeau_cartographe",
+            "feu_follet_astral",
+            "hermine_royale",
+            "cerf_brumes",
+            "loutre_riviere"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerPinnedTrophyId": {
+          "type": "string",
+          "description": "Optional pinned trophy identifier.",
+          "enum": [
+            "",
+            "oiseau_de_nuit",
+            "marcheur_orage",
+            "speleologue",
+            "arpenteur_10km",
+            "grand_randonneur_50km",
+            "maitre_7_roches",
+            "chasseur_geodesique",
+            "gardien_petit_patrimoine",
+            "ouvreur_reliques",
+            "leveur_brumes",
+            "naturaliste_complet",
+            "champion_contrats",
+            "tisserand_recits",
+            "maitre_chroniques",
+            "heraut_communaute",
+            "temoin_phenomenes",
+            "champion_pantheon"
+          ],
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "contributionCount": {
+          "type": "number",
+          "description": "Count of qualifying POIs discovered during the challenge window (1..10000)."
+        },
+        "points": {
+          "type": "number",
+          "description": "Challenge points earned by the explorer (1..1000000)."
+        },
+        "regionLabel": {
+          "type": "string",
+          "description": "Locality or regional label (non-PII).",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Visibility scope for query-enforced listing.",
+          "enum": ["public"],
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of initial participation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest score update."
+        }
+      },
+      "required": [
+        "challengeId",
+        "cadence",
+        "periodKey",
+        "explorerId",
+        "explorerCallsign",
+        "contributionCount",
+        "points",
+        "regionLabel",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PantheonLeaderboardEntry": {
+      "title": "PantheonLeaderboardEntry",
+      "description": "Public non-PII multiplayer Pantheon leaderboard profile ranking explorers across Experience Points (XP), Discovery Diversity, and Discovery Rarity.",
+      "type": "object",
+      "properties": {
+        "explorerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the explorer (matches document ID).",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "explorerCallsign": {
+          "type": "string",
+          "description": "Public explorer callsign (non-PII).",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "regionLabel": {
+          "type": "string",
+          "description": "Locality or regional label (non-PII).",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "explorerGender": {
+          "type": "string",
+          "description": "Optional 16-bit silhouette gender.",
+          "enum": ["feminin", "masculin", "neutre"],
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "explorerAvatarPreset": {
+          "type": "string",
+          "description": "Optional 16-bit avatar preset.",
+          "enum": ["cartographe", "eclaireur", "archiviste", "forgeron", "oracle", "botaniste"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerSkinTone": {
+          "type": "string",
+          "description": "Optional 16-bit skin tone.",
+          "enum": ["clair", "hale", "ambre", "ebene", "porcelaine"],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerHeadgearId": {
+          "type": "string",
+          "description": "Optional 16-bit headgear identifier.",
+          "enum": [
+            "tricorne_fauve",
+            "beret_chroniqueur",
+            "casque_mineur",
+            "capuche_sylvestre",
+            "couronne_menhir",
+            "lunettes_astro",
+            "monocle_erudit",
+            "tricorne_reliquaire",
+            "couronne_saisons",
+            "couronne_chroniqueur",
+            "bandeau_guilde_unie"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerOutfitId": {
+          "type": "string",
+          "description": "Optional 16-bit outfit identifier.",
+          "enum": [
+            "arpenteur",
+            "chroniqueur",
+            "geomancien",
+            "sylvestre",
+            "ombres",
+            "barde",
+            "almanach_solaire",
+            "chasseur_reliques",
+            "conteuse_legende"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerFamiliarId": {
+          "type": "string",
+          "description": "Optional 16-bit companion familiar identifier.",
+          "enum": [
+            "aucun",
+            "chouette_erudite",
+            "goupil_saisons",
+            "scarabee_boussole",
+            "salamandre_cristal",
+            "corbeau_cartographe",
+            "feu_follet_astral",
+            "hermine_royale",
+            "cerf_brumes",
+            "loutre_riviere"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "explorerPinnedTrophyId": {
+          "type": "string",
+          "description": "Optional pinned trophy identifier.",
+          "enum": [
+            "",
+            "oiseau_de_nuit",
+            "marcheur_orage",
+            "speleologue",
+            "arpenteur_10km",
+            "grand_randonneur_50km",
+            "maitre_7_roches",
+            "chasseur_geodesique",
+            "gardien_petit_patrimoine",
+            "ouvreur_reliques",
+            "leveur_brumes",
+            "naturaliste_complet",
+            "champion_contrats",
+            "tisserand_recits",
+            "maitre_chroniques",
+            "heraut_communaute",
+            "temoin_phenomenes",
+            "champion_pantheon"
+          ],
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "pantheonScore": {
+          "type": "number",
+          "description": "Composite Pantheon ranking score combining XP, Diversity, and Rarity (0..50000000)."
+        },
+        "totalXp": {
+          "type": "number",
+          "description": "Cumulative XP earned across exploration branches (0..10000000)."
+        },
+        "diversityScore": {
+          "type": "number",
+          "description": "Discovery diversity score across categories, strata, archive sources, and affinities (0..1000000)."
+        },
+        "rarityScore": {
+          "type": "number",
+          "description": "Discovery rarity score across secret archives, State heritage monuments, subterranean features, chests, and live phenomena (0..5000000)."
+        },
+        "discoveriesCount": {
+          "type": "number",
+          "description": "Total count of discovered points of interest (0..100000)."
+        },
+        "categoriesCount": {
+          "type": "number",
+          "description": "Count of distinct exploration categories discovered (0..5)."
+        },
+        "strataCount": {
+          "type": "number",
+          "description": "Count of distinct historical/geological strata discovered (0..7)."
+        },
+        "sourcesCount": {
+          "type": "number",
+          "description": "Count of distinct institutional/open-data archive sources discovered (0..50)."
+        },
+        "secretArchivesCount": {
+          "type": "number",
+          "description": "Count of hidden secret archives deciphered and discovered (0..10000)."
+        },
+        "officialHeritageCount": {
+          "type": "number",
+          "description": "Count of Ministry of Culture / DATAtourisme official heritage sites discovered (0..100000)."
+        },
+        "liveEventsCount": {
+          "type": "number",
+          "description": "Count of real-world live phenomenon challenges completed (0..100000)."
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Visibility scope for query-enforced listing.",
+          "enum": ["public"],
+          "minLength": 6,
+          "maxLength": 6
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of initial Pantheon registration."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest Pantheon score update."
+        }
+      },
+      "required": [
+        "explorerId",
+        "explorerCallsign",
+        "regionLabel",
+        "pantheonScore",
+        "totalXp",
+        "diversityScore",
+        "rarityScore",
+        "discoveriesCount",
+        "categoriesCount",
+        "strataCount",
+        "sourcesCount",
+        "secretArchivesCount",
+        "officialHeritageCount",
+        "liveEventsCount",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -1078,6 +1500,14 @@
     "/geocaches/{cacheId}/logs/{finderId}": {
       "schema": "GeocacheLogEntry",
       "description": "Subcollection of discoverer signatures in a geocache's logbook."
+    },
+    "/challengeEntries/{entryId}": {
+      "schema": "CommunityChallengeEntry",
+      "description": "Shared community challenge contributions and leaderboard entries by verified explorers."
+    },
+    "/pantheonEntries/{explorerId}": {
+      "schema": "PantheonLeaderboardEntry",
+      "description": "Shared global multiplayer Pantheon leaderboard ranking verified explorers by XP, Diversity, and Rarity."
     }
   }
 }
