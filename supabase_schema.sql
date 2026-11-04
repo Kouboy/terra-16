@@ -1,14 +1,13 @@
 -- ============================================================================
 -- TERRA 16 - ARCHITECTURE BASE DE DONNÉES SUPABASE (PostgreSQL + RLS)
 -- ============================================================================
--- Copiez-collez ce script intégral dans Supabase > SQL Editor > New query > Run.
--- Il configure les 9 tables du Grimoire, les index géographiques et temporels,
--- la sécurité Row Level Security (RLS) et la publication Realtime.
+-- Script corrigé : type 'uuid' conforme à auth.users(id) de Supabase.
+-- Vous pouvez l'exécuter dans Supabase > SQL Editor > New query > Run.
 -- ============================================================================
 
 -- 1. PROFIL EXPLORATEUR (Progression, XP 5 branches, cosmétiques 16-bit)
 create table if not exists public.explorers (
-  owner_id text primary key references auth.users(id) on delete cascade,
+  owner_id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null default 'Explorateur',
   total_xp integer not null default 0 check (total_xp >= 0 and total_xp <= 10000000),
   xp_histoire integer not null default 0 check (xp_histoire >= 0 and xp_histoire <= 10000000),
@@ -44,7 +43,7 @@ create table if not exists public.explorers (
 -- 2. DÉCOUVERTES (Lieux débloqués, carnets et notes)
 create table if not exists public.discoveries (
   id text primary key, -- Format: owner_id + '_' + poi_id
-  owner_id text not null references auth.users(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
   poi_id text not null,
   name text not null,
   category text not null,
@@ -71,7 +70,7 @@ create index if not exists idx_discoveries_owner on public.discoveries(owner_id)
 -- 3. SPÉCIMENS NATURELS & MINÉRAUX (Herbier & Lithothèque)
 create table if not exists public.specimens (
   id text primary key, -- Format: owner_id + '_' + specimen_id
-  owner_id text not null references auth.users(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
   specimen_id text not null,
   domain text not null default 'botanique',
   affinity text not null default 'calcaire',
@@ -97,7 +96,7 @@ create index if not exists idx_specimens_owner on public.specimens(owner_id);
 -- 4. COFFRES D'ARCHIVISTE (Coffres cachés & reliques anciennes)
 create table if not exists public.archivist_chests (
   id text primary key, -- Format: owner_id + '_' + chest_id
-  owner_id text not null references auth.users(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
   chest_id text not null,
   archetype text not null,
   title text not null,
@@ -118,7 +117,7 @@ create index if not exists idx_archivist_chests_owner on public.archivist_chests
 -- 5. CAIRNS DE TERRAIN (Marqueurs communautaires partagés)
 create table if not exists public.cairns (
   id text primary key,
-  owner_id text not null references auth.users(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
   creator_name text not null,
   poi_id text not null,
   tag text not null,
@@ -131,7 +130,7 @@ create index if not exists idx_cairns_poi on public.cairns(poi_id);
 -- 6. GÉOCACHES & CAPSULES TEMPORELLES ENFOUIES
 create table if not exists public.geocaches (
   id text primary key,
-  owner_id text not null references auth.users(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
   title text not null,
   clue_hint text not null,
   sector_key text not null,
@@ -151,7 +150,7 @@ create index if not exists idx_geocaches_sector on public.geocaches(sector_key);
 create table if not exists public.geocache_logs (
   id text primary key,
   geocache_id text not null references public.geocaches(id) on delete cascade,
-  owner_id text not null references auth.users(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
   finder_name text not null,
   log_message text not null,
   created_at timestamptz not null default now()
@@ -163,7 +162,7 @@ create table if not exists public.community_challenge_entries (
   id text primary key, -- Format: period_key + '_' + challenge_id + '_' + owner_id
   period_key text not null,
   challenge_id text not null,
-  owner_id text not null references auth.users(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
   display_name text not null,
   avatar_preset text not null,
   score integer not null default 0,
@@ -175,7 +174,7 @@ create index if not exists idx_challenge_period on public.community_challenge_en
 
 -- 9. PANTHÉON MULTIJOUEUR (Classement global XP + Rareté + Diversité)
 create table if not exists public.pantheon_entries (
-  owner_id text primary key references auth.users(id) on delete cascade,
+  owner_id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null,
   avatar_preset text not null,
   total_xp integer not null default 0,
@@ -209,116 +208,139 @@ drop policy if exists "explorers_select_all" on public.explorers;
 create policy "explorers_select_all" on public.explorers for select using (true);
 
 drop policy if exists "explorers_insert_own" on public.explorers;
-create policy "explorers_insert_own" on public.explorers for insert with check (auth.uid()::text = owner_id);
+create policy "explorers_insert_own" on public.explorers for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "explorers_update_own" on public.explorers;
-create policy "explorers_update_own" on public.explorers for update using (auth.uid()::text = owner_id);
+create policy "explorers_update_own" on public.explorers for update using (auth.uid() = owner_id);
 
 drop policy if exists "explorers_delete_own" on public.explorers;
-create policy "explorers_delete_own" on public.explorers for delete using (auth.uid()::text = owner_id);
+create policy "explorers_delete_own" on public.explorers for delete using (auth.uid() = owner_id);
 
 -- Discoveries policies
 drop policy if exists "discoveries_select_own" on public.discoveries;
-create policy "discoveries_select_own" on public.discoveries for select using (auth.uid()::text = owner_id);
+create policy "discoveries_select_own" on public.discoveries for select using (auth.uid() = owner_id);
 
 drop policy if exists "discoveries_insert_own" on public.discoveries;
-create policy "discoveries_insert_own" on public.discoveries for insert with check (auth.uid()::text = owner_id);
+create policy "discoveries_insert_own" on public.discoveries for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "discoveries_update_own" on public.discoveries;
-create policy "discoveries_update_own" on public.discoveries for update using (auth.uid()::text = owner_id);
+create policy "discoveries_update_own" on public.discoveries for update using (auth.uid() = owner_id);
 
 drop policy if exists "discoveries_delete_own" on public.discoveries;
-create policy "discoveries_delete_own" on public.discoveries for delete using (auth.uid()::text = owner_id);
+create policy "discoveries_delete_own" on public.discoveries for delete using (auth.uid() = owner_id);
 
 -- Specimens policies
 drop policy if exists "specimens_select_own" on public.specimens;
-create policy "specimens_select_own" on public.specimens for select using (auth.uid()::text = owner_id);
+create policy "specimens_select_own" on public.specimens for select using (auth.uid() = owner_id);
 
 drop policy if exists "specimens_insert_own" on public.specimens;
-create policy "specimens_insert_own" on public.specimens for insert with check (auth.uid()::text = owner_id);
+create policy "specimens_insert_own" on public.specimens for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "specimens_update_own" on public.specimens;
-create policy "specimens_update_own" on public.specimens for update using (auth.uid()::text = owner_id);
+create policy "specimens_update_own" on public.specimens for update using (auth.uid() = owner_id);
 
 drop policy if exists "specimens_delete_own" on public.specimens;
-create policy "specimens_delete_own" on public.specimens for delete using (auth.uid()::text = owner_id);
+create policy "specimens_delete_own" on public.specimens for delete using (auth.uid() = owner_id);
 
 -- Archivist Chests policies
 drop policy if exists "chests_select_own" on public.archivist_chests;
-create policy "chests_select_own" on public.archivist_chests for select using (auth.uid()::text = owner_id);
+create policy "chests_select_own" on public.archivist_chests for select using (auth.uid() = owner_id);
 
 drop policy if exists "chests_insert_own" on public.archivist_chests;
-create policy "chests_insert_own" on public.archivist_chests for insert with check (auth.uid()::text = owner_id);
+create policy "chests_insert_own" on public.archivist_chests for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "chests_delete_own" on public.archivist_chests;
-create policy "chests_delete_own" on public.archivist_chests for delete using (auth.uid()::text = owner_id);
+create policy "chests_delete_own" on public.archivist_chests for delete using (auth.uid() = owner_id);
 
 -- Cairns policies
 drop policy if exists "cairns_select_all" on public.cairns;
 create policy "cairns_select_all" on public.cairns for select using (true);
 
 drop policy if exists "cairns_insert_auth" on public.cairns;
-create policy "cairns_insert_auth" on public.cairns for insert with check (auth.uid()::text = owner_id);
+create policy "cairns_insert_auth" on public.cairns for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "cairns_update_upvote" on public.cairns;
 create policy "cairns_update_upvote" on public.cairns for update using (true);
 
 drop policy if exists "cairns_delete_own" on public.cairns;
-create policy "cairns_delete_own" on public.cairns for delete using (auth.uid()::text = owner_id);
+create policy "cairns_delete_own" on public.cairns for delete using (auth.uid() = owner_id);
 
 -- Geocaches policies
 drop policy if exists "geocaches_select_all" on public.geocaches;
 create policy "geocaches_select_all" on public.geocaches for select using (true);
 
 drop policy if exists "geocaches_insert_auth" on public.geocaches;
-create policy "geocaches_insert_auth" on public.geocaches for insert with check (auth.uid()::text = owner_id);
+create policy "geocaches_insert_auth" on public.geocaches for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "geocaches_update_finder" on public.geocaches;
 create policy "geocaches_update_finder" on public.geocaches for update using (true);
 
 drop policy if exists "geocaches_delete_own" on public.geocaches;
-create policy "geocaches_delete_own" on public.geocaches for delete using (auth.uid()::text = owner_id);
+create policy "geocaches_delete_own" on public.geocaches for delete using (auth.uid() = owner_id);
 
 -- Geocache Logs policies
 drop policy if exists "geocache_logs_select_all" on public.geocache_logs;
 create policy "geocache_logs_select_all" on public.geocache_logs for select using (true);
 
 drop policy if exists "geocache_logs_insert_auth" on public.geocache_logs;
-create policy "geocache_logs_insert_auth" on public.geocache_logs for insert with check (auth.uid()::text = owner_id);
+create policy "geocache_logs_insert_auth" on public.geocache_logs for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "geocache_logs_delete_own" on public.geocache_logs;
-create policy "geocache_logs_delete_own" on public.geocache_logs for delete using (auth.uid()::text = owner_id);
+create policy "geocache_logs_delete_own" on public.geocache_logs for delete using (auth.uid() = owner_id);
 
 -- Community Challenges policies
 drop policy if exists "challenges_select_all" on public.community_challenge_entries;
 create policy "challenges_select_all" on public.community_challenge_entries for select using (true);
 
 drop policy if exists "challenges_insert_own" on public.community_challenge_entries;
-create policy "challenges_insert_own" on public.community_challenge_entries for insert with check (auth.uid()::text = owner_id);
+create policy "challenges_insert_own" on public.community_challenge_entries for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "challenges_update_own" on public.community_challenge_entries;
-create policy "challenges_update_own" on public.community_challenge_entries for update using (auth.uid()::text = owner_id);
+create policy "challenges_update_own" on public.community_challenge_entries for update using (auth.uid() = owner_id);
 
 drop policy if exists "challenges_delete_own" on public.community_challenge_entries;
-create policy "challenges_delete_own" on public.community_challenge_entries for delete using (auth.uid()::text = owner_id);
+create policy "challenges_delete_own" on public.community_challenge_entries for delete using (auth.uid() = owner_id);
 
 -- Pantheon policies
 drop policy if exists "pantheon_select_all" on public.pantheon_entries;
 create policy "pantheon_select_all" on public.pantheon_entries for select using (true);
 
 drop policy if exists "pantheon_insert_own" on public.pantheon_entries;
-create policy "pantheon_insert_own" on public.pantheon_entries for insert with check (auth.uid()::text = owner_id);
+create policy "pantheon_insert_own" on public.pantheon_entries for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "pantheon_update_own" on public.pantheon_entries;
-create policy "pantheon_update_own" on public.pantheon_entries for update using (auth.uid()::text = owner_id);
+create policy "pantheon_update_own" on public.pantheon_entries for update using (auth.uid() = owner_id);
 
 drop policy if exists "pantheon_delete_own" on public.pantheon_entries;
-create policy "pantheon_delete_own" on public.pantheon_entries for delete using (auth.uid()::text = owner_id);
+create policy "pantheon_delete_own" on public.pantheon_entries for delete using (auth.uid() = owner_id);
 
 -- ============================================================================
 -- PUBLICATION REALTIME (Pour mise à jour instantanée des cairns et classements)
 -- ============================================================================
-alter publication supabase_realtime add table public.cairns;
-alter publication supabase_realtime add table public.geocaches;
-alter publication supabase_realtime add table public.community_challenge_entries;
-alter publication supabase_realtime add table public.pantheon_entries;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables 
+    where pubname = 'supabase_realtime' and tablename = 'cairns'
+  ) then
+    alter publication supabase_realtime add table public.cairns;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables 
+    where pubname = 'supabase_realtime' and tablename = 'geocaches'
+  ) then
+    alter publication supabase_realtime add table public.geocaches;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables 
+    where pubname = 'supabase_realtime' and tablename = 'community_challenge_entries'
+  ) then
+    alter publication supabase_realtime add table public.community_challenge_entries;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables 
+    where pubname = 'supabase_realtime' and tablename = 'pantheon_entries'
+  ) then
+    alter publication supabase_realtime add table public.pantheon_entries;
+  end if;
+end $$;
