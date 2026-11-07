@@ -27,49 +27,49 @@ export const MISSIONS_CATALOG: MissionDefinition[] = [
     category: 'global',
     requiredCategoryLevel: 1,
     requiredGlobalLevel: 1,
-    xpBonus: 100,
+    xpBonus: 50,
     evaluate: (entries) => ({ current: Math.min(1, entries.length), target: 1 }),
   },
   {
     id: 'm_near_river',
     arcName: 'Hydrologie',
     title: 'Au Fil de l’Eau Vive',
-    description: 'Découvrez un point d’intérêt situé à proximité d’une rivière, d’une source ou d’un cours d’eau.',
+    description: 'Découvrez deux points d’intérêt situés à proximité d’une rivière, d’une source ou d’un cours d’eau.',
     category: 'geographie',
     requiredCategoryLevel: 1,
     requiredGlobalLevel: 1,
-    xpBonus: 145,
+    xpBonus: 75,
     evaluate: (entries) => ({
-      current: Math.min(1, entries.filter((e) => e.nearWaterway).length),
-      target: 1,
+      current: Math.min(2, entries.filter((e) => e.nearWaterway).length),
+      target: 2,
     }),
   },
   {
     id: 'm_folklore_whisper',
     arcName: 'Folklore',
     title: 'Chasseur de Rumeurs & Légendes',
-    description: 'Révélez une légende urbaine ou rurale, un mégalithe à contes ou une curiosité insolite.',
+    description: 'Révélez deux légendes urbaines ou rurales, mégalithes à contes ou curiosités insolites.',
     category: 'legende',
     requiredCategoryLevel: 1,
     requiredGlobalLevel: 1,
-    xpBonus: 165,
+    xpBonus: 80,
     evaluate: (entries) => ({
-      current: Math.min(1, entries.filter((e) => e.category === 'legende').length),
-      target: 1,
+      current: Math.min(2, entries.filter((e) => e.category === 'legende').length),
+      target: 2,
     }),
   },
   {
     id: 'm_deep_geology',
     arcName: 'Temps Profond',
     title: 'Mémoire Minérale & Fossiles',
-    description: 'Débloquez un affleurement géologique, un gisement fossilifère ou une singularité du relief.',
+    description: 'Débloquez deux affleurements géologiques, gisements fossilifères ou singularités du relief.',
     category: 'geographie',
     requiredCategoryLevel: 1,
     requiredGlobalLevel: 1,
-    xpBonus: 155,
+    xpBonus: 75,
     evaluate: (entries) => ({
-      current: Math.min(1, entries.filter((e) => e.category === 'geographie').length),
-      target: 1,
+      current: Math.min(2, entries.filter((e) => e.category === 'geographie').length),
+      target: 2,
     }),
   },
   {
@@ -346,25 +346,69 @@ export const MISSIONS_CATALOG: MissionDefinition[] = [
     }),
   },
   {
-    id: 'm_buried_rivers_faults',
-    arcName: 'Hydrogéologie & Filons',
-    title: 'Rivières Enfouies, Failles & Cryptes',
+    id: 'm_bss_soundings',
+    arcName: 'Banque du Sous-Sol',
+    title: 'Sondeur des Abysses & Piézomètres BRGM',
     description:
-      'Explorez une rivière enterrée ou busée, une faille géologique, un filon minier BRGM ou une crypte voûtée sous un édifice ancien.',
+      'Identifiez 2 forages profonds ou piézomètres officiels BRGM (BSS) sondant les nappes phréatiques et les couches géologiques.',
     category: 'geographie',
     requiredCategoryLevel: 1,
     requiredGlobalLevel: 1,
-    xpBonus: 205,
+    xpBonus: 85,
     evaluate: (entries) => ({
       current: Math.min(
-        1,
+        2,
         entries.filter((e) =>
-          /enterré|busé|pertuis|aqueduc|faille|filon|gîte|crypte|hypogée|karstique/i.test(
-            `${e.subType} ${e.name} ${e.summary}`
+          /bss|banque du sous-sol|forage|piézomètre|piezometre/i.test(
+            `${e.source} ${e.subType} ${e.name} ${e.summary}`
           )
         ).length
       ),
-      target: 1,
+      target: 2,
+    }),
+  },
+  {
+    id: 'm_hubeau_gauges',
+    arcName: 'Hub’Eau Hydrométrie',
+    title: 'Sentinelle des Crues & Limnimètres',
+    description:
+      'Relevez 2 stations hydrométriques Hub’Eau mesurant la hauteur d’eau et le débit en temps réel des rivières de France.',
+    category: 'geographie',
+    requiredCategoryLevel: 1,
+    requiredGlobalLevel: 1,
+    xpBonus: 80,
+    evaluate: (entries) => ({
+      current: Math.min(
+        2,
+        entries.filter((e) =>
+          /hub[’']?eau|hydrométrie|hydrometrie|station hydrométrique|débit|hauteur d[’']eau/i.test(
+            `${e.source} ${e.subType} ${e.name} ${e.summary}`
+          )
+        ).length
+      ),
+      target: 2,
+    }),
+  },
+  {
+    id: 'm_cartofriches_urbex',
+    arcName: 'Cartofriches Cerema',
+    title: 'Pionnier des Friches & Reconversion',
+    description:
+      'Explorez 2 friches industrielles, ferroviaires ou tertiaires répertoriées par le Cerema en voie de renaturation spontanée.',
+    category: 'etrange',
+    requiredCategoryLevel: 1,
+    requiredGlobalLevel: 1,
+    xpBonus: 85,
+    evaluate: (entries) => ({
+      current: Math.min(
+        2,
+        entries.filter((e) =>
+          /cartofriches|cerema|friche/i.test(
+            `${e.source} ${e.subType} ${e.name} ${e.summary}`
+          )
+        ).length
+      ),
+      target: 2,
     }),
   },
 ];

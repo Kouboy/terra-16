@@ -369,7 +369,7 @@ export const GeocacheModal: React.FC<{
   unlockedEntries: UnlockedEntry[];
   foundGeocacheIds: Set<string>;
   onClose: () => void;
-  onRequestGoogleSignIn: () => void;
+  onRequestCloudSignIn: () => void;
   onFocusMapTarget: (lat: number, lng: number, isSubterranean: boolean) => void;
   onClaimGeocacheDiscovery: (cache: ExplorerGeocacheRecord) => void;
   onLocalCacheUpserted: (cache: ExplorerGeocacheRecord) => void;
@@ -392,7 +392,7 @@ export const GeocacheModal: React.FC<{
   unlockedEntries,
   foundGeocacheIds,
   onClose,
-  onRequestGoogleSignIn,
+  onRequestCloudSignIn,
   onFocusMapTarget,
   onClaimGeocacheDiscovery,
   onLocalCacheUpserted,
@@ -790,14 +790,14 @@ export const GeocacheModal: React.FC<{
             {!currentUser && (
               <div className="p-2.5 bg-[#fef3c7] border-2 border-[#b45309] flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs text-[#78350f] flex-1 min-w-[200px] break-words">
-                  Connectez-vous pour publier votre capsule dans le monde partagé Firestore (sinon elle sera gardée sur cet appareil).
+                  Connectez-vous pour publier votre capsule dans le monde partagé Supabase (sinon elle sera gardée sur cet appareil).
                 </span>
                 <button
                   type="button"
-                  onClick={onRequestGoogleSignIn}
+                  onClick={onRequestCloudSignIn}
                   className="min-h-[38px] px-2.5 py-1 text-xs font-bold rpg-gold-btn whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  Connexion Google
+                  Sauvegarde Cloud
                 </button>
               </div>
             )}
@@ -1074,16 +1074,16 @@ export const GeocacheModal: React.FC<{
                 <div className="p-2.5 bg-[#f5e7c6] border border-[#78350f]/40 flex items-center justify-between gap-2">
                   <span className="text-xs text-[#5c3a21]">
                     {cache.id.startsWith('local_')
-                      ? 'Capsule locale : connectez-vous à Google avant le dépôt pour ouvrir un registre partagé.'
+                      ? 'Capsule locale : connectez-vous au Grimoire Cloud avant le dépôt pour ouvrir un registre partagé.'
                       : 'Connectez-vous pour lire et signer le registre partagé des découvreurs.'}
                   </span>
                   {!currentUser && (
                     <button
                       type="button"
-                      onClick={onRequestGoogleSignIn}
+                      onClick={onRequestCloudSignIn}
                       className="px-2.5 py-1 text-xs font-bold rpg-gold-btn whitespace-nowrap shrink-0 cursor-pointer"
                     >
-                      Connexion
+                      Connexion Cloud
                     </button>
                   )}
                 </div>

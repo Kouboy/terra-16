@@ -577,7 +577,7 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
                 onClick={onRequestCloudSignIn}
                 className="min-h-[38px] px-3.5 py-1.5 font-bold bg-[#991b1b] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow whitespace-nowrap shrink-0"
               >
-                Connexion Google
+                Connexion Cloud
               </button>
             )}
           </div>

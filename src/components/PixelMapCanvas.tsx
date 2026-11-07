@@ -37,6 +37,7 @@ import {
   playStartledBirdsSfx,
 } from '../sound';
 import {
+  type BuildingPalette,
   RegionalStyleId,
   RegionalTheme,
   resolveRegionalTheme,
@@ -375,6 +376,8 @@ const ATLAS_ROW_SAND = 13; // 0..3: golden coastal beaches, dunes & river sandba
 const ATLAS_ROW_SCRUB = 14; // 0..3: regional garrigue, maquis, heathland & moor
 const ATLAS_ROW_WETLAND = 15; // 0..3: marshes, reedbeds, peat bogs & salt-meadows
 const ATLAS_ROW_SCREE = 16; // 0..3: alpine talus, moraines, rocky chaos & scree
+const ATLAS_ROW_BRIDGE = 17; // 0: stone arch, 1: timber footbridge, 2: rail viaduct, 3: overpass parapet
+const ATLAS_ROW_TUNNEL = 18; // 0: road portal, 1: rail portal, 2: dark cavern mouth, 3: wing walls
 
 const cachedRegionalAtlases = new Map<RegionalStyleId, HTMLCanvasElement>();
 
@@ -383,7 +386,7 @@ function getOrCreateSnesAtlas(theme: RegionalTheme): HTMLCanvasElement {
   if (cached) return cached;
   const atlas = document.createElement('canvas');
   atlas.width = ATLAS_TILE * 4;
-  atlas.height = ATLAS_TILE * 17;
+  atlas.height = ATLAS_TILE * 19;
   const g = atlas.getContext('2d');
   if (!g) return atlas;
   g.imageSmoothingEnabled = false;
@@ -814,6 +817,136 @@ function getOrCreateSnesAtlas(theme: RegionalTheme): HTMLCanvasElement {
       // Tiny lingering névé snow patch in sheltered alpine scree hollow
       dot(srx, sry, 2, 12, '#bae6fd', 4, 2);
       dot(srx, sry, 2, 12, '#ffffff', 3, 1);
+    }
+
+    // ========================================================================
+    // Row 17: Dedicated 16-Bit Bridge Tileset (Stone Arch, Timber, Rail Viaduct & Overpass Parapets)
+    // ========================================================================
+    const brx = v * 16;
+    const bry = ATLAS_ROW_BRIDGE * 16;
+    if (v === 0) {
+      // 0: Classic French Cut-Stone Arched Bridge Deck (Calcaire / Grès d'Alsace / Granit)
+      dot(brx, bry, 0, 0, '#3d2b1f', 16, 16);
+      dot(brx, bry, 0, 2, '#d4c19f', 16, 12);
+      for (let y = 3; y <= 12; y += 3) {
+        dot(brx, bry, 0, y, '#b59d79', 16, 1);
+        for (let x = (y & 1) * 3; x < 16; x += 6) {
+          dot(brx, bry, x, y - 1, '#fbf6ea', 3, 2);
+        }
+      }
+      dot(brx, bry, 0, 0, '#2b1d12', 16, 2);
+      dot(brx, bry, 0, 1, '#efe2c6', 16, 1);
+      dot(brx, bry, 0, 14, '#2b1d12', 16, 2);
+      dot(brx, bry, 0, 14, '#cbb694', 16, 1);
+      dot(brx, bry, 2, 0, '#ffffff', 2, 2);
+      dot(brx, bry, 10, 0, '#ffffff', 2, 2);
+      dot(brx, bry, 2, 14, '#efe2c6', 2, 2);
+      dot(brx, bry, 10, 14, '#efe2c6', 2, 2);
+    } else if (v === 1) {
+      // 1: Rustic Weathered Oak Timber Footbridge (Passerelle de bois)
+      dot(brx, bry, 0, 0, '#2b1608', 16, 16);
+      dot(brx, bry, 0, 3, '#a8703b', 16, 10);
+      for (let px = 0; px < 16; px += 4) {
+        dot(brx, bry, px, 3, '#5c3419', 1, 10);
+        dot(brx, bry, px + 1, 3, '#d9a46c', 2, 10);
+        dot(brx, bry, px + 2, 4, '#1c1008', 1, 1);
+        dot(brx, bry, px + 2, 11, '#1c1008', 1, 1);
+      }
+      dot(brx, bry, 0, 1, '#3b1f0e', 16, 2);
+      dot(brx, bry, 0, 2, '#854d0e', 16, 1);
+      dot(brx, bry, 0, 13, '#3b1f0e', 16, 2);
+      dot(brx, bry, 0, 13, '#78350f', 16, 1);
+    } else if (v === 2) {
+      // 2: Heavy Rail Viaduct Ballast Deck & Steel Girder Flanges
+      dot(brx, bry, 0, 0, '#1e293b', 16, 16);
+      dot(brx, bry, 0, 2, '#475569', 16, 12);
+      for (let by = 2; by < 14; by++) {
+        for (let bx = 0; bx < 16; bx++) {
+          if ((bx ^ by) & 1) dot(brx, bry, bx, by, '#334155');
+        }
+      }
+      for (let tx = 1; tx < 16; tx += 4) {
+        dot(brx, bry, tx, 3, '#291e14', 2, 10);
+        dot(brx, bry, tx, 4, '#4a2c13', 2, 8);
+      }
+      dot(brx, bry, 0, 5, '#e2e8f0', 16, 1);
+      dot(brx, bry, 0, 6, '#94a3b8', 16, 1);
+      dot(brx, bry, 0, 9, '#e2e8f0', 16, 1);
+      dot(brx, bry, 0, 10, '#94a3b8', 16, 1);
+      dot(brx, bry, 0, 0, '#0f172a', 16, 2);
+      dot(brx, bry, 0, 1, '#64748b', 16, 1);
+      dot(brx, bry, 0, 14, '#0f172a', 16, 2);
+      dot(brx, bry, 0, 14, '#64748b', 16, 1);
+    } else {
+      // 3: Modern Elevated Roadway / Overpass Deck (Passage Supérieur / Échangeur)
+      dot(brx, bry, 0, 0, '#1e293b', 16, 16);
+      dot(brx, bry, 0, 2, '#475569', 16, 12);
+      dot(brx, bry, 0, 3, '#64748b', 16, 10);
+      dot(brx, bry, 2, 7, '#ffffff', 4, 2);
+      dot(brx, bry, 10, 7, '#ffffff', 4, 2);
+      dot(brx, bry, 0, 0, '#0f172a', 16, 2);
+      dot(brx, bry, 0, 1, '#94a3b8', 16, 1);
+      dot(brx, bry, 0, 14, '#0f172a', 16, 2);
+      dot(brx, bry, 0, 14, '#94a3b8', 16, 1);
+    }
+
+    // ========================================================================
+    // Row 18: Dedicated 16-Bit Tunnel Portal Tileset (Têtes de tunnel, Voûtes & Frontons)
+    // ========================================================================
+    const tnx = v * 16;
+    const tny = ATLAS_ROW_TUNNEL * 16;
+    if (v === 0) {
+      // 0: Road Tunnel Portal Arch (Tête de tunnel routier en pierre de taille)
+      dot(tnx, tny, 0, 0, '#3d2b1f', 16, 16);
+      dot(tnx, tny, 1, 1, '#8c7558', 14, 14);
+      dot(tnx, tny, 2, 2, '#b59d79', 12, 12);
+      dot(tnx, tny, 3, 3, '#d4c19f', 10, 10);
+      dot(tnx, tny, 7, 1, '#fbf6ea', 2, 3);
+      dot(tnx, tny, 6, 2, '#3d2b1f', 4, 1);
+      dot(tnx, tny, 4, 4, '#0a0604', 8, 12);
+      dot(tnx, tny, 5, 5, '#040201', 6, 11);
+      dot(tnx, tny, 5, 12, '#475569', 6, 4);
+      dot(tnx, tny, 7, 13, '#ffffff', 2, 3);
+      dot(tnx, tny, 2, 6, '#fde047', 1, 2);
+      dot(tnx, tny, 13, 6, '#fde047', 1, 2);
+    } else if (v === 1) {
+      // 1: Railway Tunnel Portal Arch (Tête de tunnel ferroviaire avec caténaire & gabarit)
+      dot(tnx, tny, 0, 0, '#2e2015', 16, 16);
+      dot(tnx, tny, 1, 1, '#78532f', 14, 14);
+      dot(tnx, tny, 2, 2, '#a17345', 12, 12);
+      dot(tnx, tny, 3, 3, '#c2925b', 10, 10);
+      dot(tnx, tny, 7, 1, '#fef3c7', 2, 3);
+      dot(tnx, tny, 4, 4, '#080503', 8, 12);
+      dot(tnx, tny, 5, 5, '#020101', 6, 11);
+      dot(tnx, tny, 5, 11, '#e2e8f0', 1, 5);
+      dot(tnx, tny, 10, 11, '#e2e8f0', 1, 5);
+      dot(tnx, tny, 6, 12, '#3b1f0e', 4, 2);
+      dot(tnx, tny, 6, 15, '#3b1f0e', 4, 1);
+      dot(tnx, tny, 5, 3, '#ef4444', 6, 1);
+      dot(tnx, tny, 6, 3, '#ffffff', 2, 1);
+      dot(tnx, tny, 8, 3, '#ffffff', 1, 1);
+      dot(tnx, tny, 7, 4, '#94a3b8', 2, 2);
+    } else if (v === 2) {
+      // 2: Mountain Rockface Tunnel Arch (Percée rocheuse naturelle / tunnel taillé dans la roche)
+      dot(tnx, tny, 0, 0, theme.cliff[4], 16, 16);
+      dot(tnx, tny, 1, 1, theme.cliff[3], 14, 14);
+      dot(tnx, tny, 2, 2, theme.cliff[2], 12, 12);
+      dot(tnx, tny, 3, 3, theme.cliff[1], 10, 10);
+      dot(tnx, tny, 4, 4, '#070402', 8, 12);
+      dot(tnx, tny, 5, 5, '#010000', 6, 11);
+      dot(tnx, tny, 5, 12, '#78350f', 6, 4);
+      dot(tnx, tny, 6, 13, '#b45309', 4, 3);
+    } else {
+      // 3: Retaining Wing Walls & Embankment Stone Abutment (Mur en aile de soutènement)
+      dot(tnx, tny, 0, 0, '#3d2b1f', 16, 16);
+      for (let y = 0; y < 16; y += 3) {
+        dot(tnx, tny, 0, y, '#2b1d12', 16, 1);
+        for (let x = (y & 1) * 3; x < 16; x += 5) {
+          dot(tnx, tny, x, y + 1, '#a89274', 4, 2);
+          dot(tnx, tny, x, y + 1, '#d4c19f', 2, 1);
+        }
+      }
+      dot(tnx, tny, 0, 0, '#fbf6ea', 16, 2);
     }
   }
 
@@ -1696,7 +1829,11 @@ function detectImplicitTransverseBridges(
 
     for (let k = start; k <= end; k++) {
       const c = chain[k];
-      if (bridgeModeGrid[c.idx] === B_NONE || modeCode === B_ROAD) {
+      if (
+        bridgeModeGrid[c.idx] === B_NONE ||
+        (modeCode === B_ROAD && bridgeModeGrid[c.idx] !== B_RAIL_VIADUCT) ||
+        modeCode === B_RAIL_VIADUCT
+      ) {
         bridgeModeGrid[c.idx] = modeCode;
         bridgeAxisGrid[c.idx] = c.axis;
       }
@@ -1942,6 +2079,29 @@ function draw16BitStreetLamp(ctx: CanvasRenderingContext2D, sx: number, sy: numb
  *  - BC_VILLAGE: Traditional French maisons de bourg (stone or colombages, colored shutters, flowerboxes, smoking chimney)
  *  - BC_FARM: Rural hamlet stone longères & timber barns (weathered beams, double hayloft/barn doors)
  */
+const DEFAULT_FALLBACK_BUILDING_PALETTE: BuildingPalette = {
+  outline: '#1e293b',
+  roofShadow: '#1e293b',
+  roofMid: '#475569',
+  roofLight: '#64748b',
+  roofRidge: '#94a3b8',
+  wall: '#f1f5f9',
+  wallShade: '#cbd5e1',
+  cornice: '#ffffff',
+  timber: '#78350f',
+  shutter: '#3b82f6',
+};
+
+function getSafeBuildingPalette(
+  palettes: BuildingPalette[] | readonly BuildingPalette[] | undefined | null,
+  rawIndex: number
+): BuildingPalette {
+  if (!palettes || palettes.length === 0) return DEFAULT_FALLBACK_BUILDING_PALETTE;
+  const count = palettes.length;
+  const safeIdx = ((Math.floor(rawIndex) % count) + count) % count;
+  return palettes[safeIdx] || palettes[0] || DEFAULT_FALLBACK_BUILDING_PALETTE;
+}
+
 function draw16BitTypedBuildingTile(
   pctx: CanvasRenderingContext2D,
   wx: number,
@@ -2275,8 +2435,8 @@ function draw16BitTypedBuildingTile(
 
     // Multi-story City-Center Haussmannian / Historic Townhouse (2 window rows + mansard + optional street shopfront!)
     const topLift = blockedNorth || (!nB && rawNB) ? -1 : -5;
-    const urbanStyle = tileHash(wx >> 1, wy >> 1) % 3;
-    const pal = theme.urbanPalettes[urbanStyle];
+    const urbanStyle = ((tileHash(wx >> 1, wy >> 1) % 3) + 3) % 3;
+    const pal = getSafeBuildingPalette(theme?.urbanPalettes, urbanStyle);
 
     const hasGroundShop =
       archCode === BC_COMMERCIAL || (facesStreetSouth && (wx + wy * 3) % 3 === 0);
@@ -2460,7 +2620,7 @@ function draw16BitTypedBuildingTile(
   if (archCode === BC_FARM) {
     const topLift = blockedNorth || (!nB && rawNB) ? 0 : -2;
     const isTimberBarn = (wx + wy) % 2 === 1;
-    const farmRef = theme.villagePalettes[0];
+    const farmRef = getSafeBuildingPalette(theme?.villagePalettes, 0);
     const outline = farmRef.outline;
     const roofMid = isTimberBarn ? '#6b4c2b' : farmRef.roofMid;
     const roofLight = isTimberBarn ? '#8c663e' : farmRef.roofLight;
@@ -2564,8 +2724,8 @@ function draw16BitTypedBuildingTile(
   // ==========================================================================
   if (archCode === BC_SUBURBAN) {
     const topLift = blockedNorth || (!nB && rawNB) ? 0 : -2;
-    const subStyle = (wx * 3 + wy * 5) % 3;
-    const pal = theme.suburbanPalettes[subStyle];
+    const subStyle = (((wx * 3 + wy * 5) % 3) + 3) % 3;
+    const pal = getSafeBuildingPalette(theme?.suburbanPalettes, subStyle);
 
     if (!sB) {
       const roofH = 7 - topLift;
@@ -2671,8 +2831,8 @@ function draw16BitTypedBuildingTile(
   // 6. REGIONAL VERNACULAR VILLAGE HOUSE (MAISON DE BOURG — 7 FRENCH TRADITIONS!)
   // ==========================================================================
   const topLift = blockedNorth || (!nB && rawNB) ? 0 : -3;
-  const style = tileHash(wx >> 1, wy >> 1) % 3;
-  const pal = theme.villagePalettes[style];
+  const style = ((tileHash(wx >> 1, wy >> 1) % 3) + 3) % 3;
+  const pal = getSafeBuildingPalette(theme?.villagePalettes, style);
 
   if (!sB) {
     const roofH = 8 - topLift;
@@ -2869,13 +3029,14 @@ function draw16BitOrthoBridgeTile(
   landN: boolean,
   landS: boolean,
   landW: boolean,
-  landE: boolean
+  landE: boolean,
+  isOverDry: boolean = false
 ) {
   const isFoot = mode === B_FOOTBRIDGE;
   const isRail = mode === B_RAIL_VIADUCT;
 
   if (isHoriz) {
-    // HORIZONTAL (EAST-WEST) SPAN OVER NORTH-SOUTH RIVER
+    // HORIZONTAL (EAST-WEST) SPAN OVER WATER OR UNDERLYING HIGHWAY/RAIL
     const openN = !bN;
     const openS = !bS;
 
@@ -2883,8 +3044,8 @@ function draw16BitOrthoBridgeTile(
       const y0 = openN ? 4 : 0;
       const y1 = openS ? 11 : 15;
       if (openS) {
-        pctx.fillStyle = 'rgba(15, 23, 42, 0.42)';
-        pctx.fillRect(sx, sy + 12, 16, 2);
+        pctx.fillStyle = isOverDry ? 'rgba(15, 23, 42, 0.46)' : 'rgba(15, 23, 42, 0.42)';
+        pctx.fillRect(sx, sy + 12, 16, isOverDry ? 3 : 2);
       }
       pctx.fillStyle = '#5c3419';
       pctx.fillRect(sx, sy + y0, 16, y1 - y0 + 1);
@@ -2922,8 +3083,12 @@ function draw16BitOrthoBridgeTile(
         pctx.fillStyle = 'rgba(15, 23, 42, 0.48)';
         pctx.fillRect(sx, sy + 13, 16, 3);
         if (!landW && !landE) {
-          pctx.fillStyle = '#6e5c44';
+          pctx.fillStyle = isOverDry ? '#475569' : '#6e5c44';
           pctx.fillRect(sx + 6, sy + 12, 4, 4);
+          if (isOverDry) {
+            pctx.fillStyle = '#64748b';
+            pctx.fillRect(sx + 7, sy + 12, 2, 4);
+          }
         }
       }
       pctx.fillStyle = '#334155';
@@ -2955,14 +3120,24 @@ function draw16BitOrthoBridgeTile(
     if (openS) {
       pctx.fillStyle = 'rgba(12, 20, 44, 0.44)';
       pctx.fillRect(sx, sy + 13, 16, 3);
-      // 3/4-view stone arch spandrel & cutwater pier (pile en bec) on outer South face only
-      pctx.fillStyle = '#6e5a42';
-      pctx.fillRect(sx, sy + 12, 16, 1);
-      if (!landW && !landE) {
-        pctx.fillStyle = '#8c7558';
-        pctx.fillRect(sx + 6, sy + 12, 4, 3);
-        pctx.fillStyle = '#e0f2fe';
-        pctx.fillRect(sx + 5, sy + 14, 6, 1);
+      if (isOverDry) {
+        // Reinforced concrete/stone overpass pier pillar descending to the lower grade
+        if (!landW && !landE) {
+          pctx.fillStyle = '#475569';
+          pctx.fillRect(sx + 6, sy + 12, 4, 4);
+          pctx.fillStyle = '#64748b';
+          pctx.fillRect(sx + 7, sy + 12, 2, 4);
+        }
+      } else {
+        // 3/4-view stone arch spandrel & cutwater pier (pile en bec) on outer South face only
+        pctx.fillStyle = '#6e5a42';
+        pctx.fillRect(sx, sy + 12, 16, 1);
+        if (!landW && !landE) {
+          pctx.fillStyle = '#8c7558';
+          pctx.fillRect(sx + 6, sy + 12, 4, 3);
+          pctx.fillStyle = '#e0f2fe';
+          pctx.fillRect(sx + 5, sy + 14, 6, 1);
+        }
       }
     }
 
@@ -3002,8 +3177,8 @@ function draw16BitOrthoBridgeTile(
       }
     }
 
-    // Sculpted bank abutment pilasters (dés de culée) ONLY on outer parapets so roadway flows freely
-    if (landW) {
+    // Sculpted bank abutment pilasters (dés de culée) ONLY at physical ends of the span
+    if (landW && !bW) {
       if (openN) {
         pctx.fillStyle = '#3b2b1d';
         pctx.fillRect(sx, sy, 3, 3);
@@ -3017,7 +3192,7 @@ function draw16BitOrthoBridgeTile(
         pctx.fillRect(sx, sy + 10, 2, 2);
       }
     }
-    if (landE) {
+    if (landE && !bE) {
       if (openN) {
         pctx.fillStyle = '#3b2b1d';
         pctx.fillRect(sx + 13, sy, 3, 3);
@@ -3034,7 +3209,7 @@ function draw16BitOrthoBridgeTile(
     return;
   }
 
-  // VERTICAL (NORTH-SOUTH) SPAN OVER EAST-WEST RIVER
+  // VERTICAL (NORTH-SOUTH) SPAN OVER WATER OR UNDERLYING CORRIDOR
   const openW = !bW;
   const openE = !bE;
 
@@ -3042,8 +3217,8 @@ function draw16BitOrthoBridgeTile(
     const x0 = openW ? 4 : 0;
     const x1 = openE ? 11 : 15;
     if (openE) {
-      pctx.fillStyle = 'rgba(15, 23, 42, 0.38)';
-      pctx.fillRect(sx + 12, sy, 2, 16);
+      pctx.fillStyle = isOverDry ? 'rgba(15, 23, 42, 0.44)' : 'rgba(15, 23, 42, 0.38)';
+      pctx.fillRect(sx + 12, sy, isOverDry ? 3 : 2, 16);
     }
     pctx.fillStyle = '#5c3419';
     pctx.fillRect(sx + x0, sy, x1 - x0 + 1, 16);
@@ -3080,6 +3255,12 @@ function draw16BitOrthoBridgeTile(
     if (openE) {
       pctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
       pctx.fillRect(sx + 13, sy, 3, 16);
+      if (!landN && !landS && isOverDry) {
+        pctx.fillStyle = '#475569';
+        pctx.fillRect(sx + 12, sy + 6, 4, 4);
+        pctx.fillStyle = '#64748b';
+        pctx.fillRect(sx + 12, sy + 7, 4, 2);
+      }
     }
     pctx.fillStyle = '#334155';
     pctx.fillRect(sx + x0, sy, x1 - x0 + 1, 16);
@@ -3110,6 +3291,12 @@ function draw16BitOrthoBridgeTile(
   if (openE) {
     pctx.fillStyle = 'rgba(12, 20, 44, 0.42)';
     pctx.fillRect(sx + 14, sy, 2, 16);
+    if (isOverDry && !landN && !landS) {
+      pctx.fillStyle = '#475569';
+      pctx.fillRect(sx + 12, sy + 6, 4, 4);
+      pctx.fillStyle = '#64748b';
+      pctx.fillRect(sx + 12, sy + 7, 4, 2);
+    }
   }
 
   // Seamless staggered limestone cobble roadway deck
@@ -3148,8 +3335,8 @@ function draw16BitOrthoBridgeTile(
     }
   }
 
-  // Sculpted bank entry pilasters ONLY on outer parapets (never barring the roadway!)
-  if (landN) {
+  // Sculpted bank entry pilasters ONLY at physical ends of the span
+  if (landN && !bN) {
     if (openW) {
       pctx.fillStyle = '#3b2b1d';
       pctx.fillRect(sx, sy, 3, 3);
@@ -3163,7 +3350,7 @@ function draw16BitOrthoBridgeTile(
       pctx.fillRect(sx + 12, sy, 2, 2);
     }
   }
-  if (landS) {
+  if (landS && !bS) {
     if (openW) {
       pctx.fillStyle = '#3b2b1d';
       pctx.fillRect(sx, sy + 13, 3, 3);
@@ -3440,6 +3627,104 @@ function render16BitDiagonalBridgePass(
 }
 
 /**
+ * Renders an authentic 16-bit SNES cut-stone Tunnel Portal Mouth on worldLayer.
+ * Features semicircular voussoir masonry arch, diamond-point keystone,
+ * deep dark cavernous entrance cavity, track/road threshold, and flared retaining wing walls!
+ */
+function draw16BitTunnelPortalTile(
+  pctx: CanvasRenderingContext2D,
+  snesAtlas: HTMLCanvasElement | null,
+  sx: number,
+  sy: number,
+  mode: 'road' | 'rail' | 'path' = 'road'
+) {
+  // Soft ground shadow around entrance
+  pctx.fillStyle = 'rgba(12, 18, 30, 0.48)';
+  pctx.fillRect(sx - 4, sy + 10, 24, 6);
+
+  // Left & right wing-walls (murs en aile) flaring back to retain slope
+  pctx.fillStyle = '#2e2015';
+  pctx.fillRect(sx - 5, sy - 2, 6, 14);
+  pctx.fillRect(sx + 15, sy - 2, 6, 14);
+  pctx.fillStyle = '#6e5033';
+  pctx.fillRect(sx - 4, sy - 1, 4, 12);
+  pctx.fillRect(sx + 16, sy - 1, 4, 12);
+  pctx.fillStyle = '#9e7b57';
+  pctx.fillRect(sx - 4, sy - 1, 2, 4);
+  pctx.fillRect(sx + 18, sy - 1, 2, 4);
+
+  // Main Ashlar Masonry Portal Fronton (Fronton de tête de tunnel en pierre de taille)
+  pctx.fillStyle = '#261a11';
+  pctx.fillRect(sx, sy - 6, 16, 18);
+  pctx.fillStyle = '#6e5033';
+  pctx.fillRect(sx + 1, sy - 5, 14, 16);
+  pctx.fillStyle = '#a8855e';
+  pctx.fillRect(sx + 2, sy - 4, 12, 14);
+
+  // Upper cornice / coping stones
+  pctx.fillStyle = '#efe2c6';
+  pctx.fillRect(sx, sy - 6, 16, 2);
+  pctx.fillStyle = '#261a11';
+  pctx.fillRect(sx, sy - 4, 16, 1);
+
+  // Semicircular Arch Voussoirs (Claveaux rayonnants de la voûte)
+  pctx.fillStyle = '#261a11';
+  pctx.fillRect(sx + 2, sy - 1, 12, 13);
+  pctx.fillStyle = '#f5ebd6';
+  // Keystone (clef de voûte en pointe de diamant)
+  pctx.fillRect(sx + 7, sy - 4, 2, 3);
+  pctx.fillStyle = '#ffffff';
+  pctx.fillRect(sx + 7, sy - 3, 2, 1);
+
+  // Cavernous Pitch-Black Tunnel Cavity (Intérieur fuyant dans l'obscurité)
+  pctx.fillStyle = '#0a0604';
+  pctx.fillRect(sx + 3, sy, 10, 12);
+  pctx.fillStyle = '#030201';
+  pctx.fillRect(sx + 4, sy + 1, 8, 11);
+  pctx.fillStyle = '#000000';
+  pctx.fillRect(sx + 5, sy + 2, 6, 10);
+
+  // Mode-Specific Corridor Elements entering the portal
+  if (mode === 'rail') {
+    // Railway track plunging into darkness
+    pctx.fillStyle = '#334155';
+    pctx.fillRect(sx + 4, sy + 7, 8, 5); // Ballast
+    pctx.fillStyle = '#291e14';
+    pctx.fillRect(sx + 4, sy + 9, 8, 1); // Wooden tie
+    pctx.fillRect(sx + 4, sy + 11, 8, 1);
+    // Steel rails
+    pctx.fillStyle = '#e2e8f0';
+    pctx.fillRect(sx + 5, sy + 6, 1, 6);
+    pctx.fillRect(sx + 10, sy + 6, 1, 6);
+    pctx.fillStyle = '#94a3b8';
+    pctx.fillRect(sx + 5, sy + 4, 1, 2);
+    pctx.fillRect(sx + 10, sy + 4, 1, 2);
+    // Overhead catenary clearance beam
+    pctx.fillStyle = '#ef4444';
+    pctx.fillRect(sx + 4, sy, 8, 1);
+    pctx.fillStyle = '#ffffff';
+    pctx.fillRect(sx + 6, sy, 4, 1);
+  } else if (mode === 'path') {
+    // Rustic footpath / stone steps into cavern
+    pctx.fillStyle = '#8c7558';
+    pctx.fillRect(sx + 4, sy + 8, 8, 4);
+    pctx.fillStyle = '#d4c19f';
+    pctx.fillRect(sx + 5, sy + 9, 6, 1);
+    pctx.fillRect(sx + 5, sy + 11, 6, 1);
+  } else {
+    // Road asphalt & safety markings
+    pctx.fillStyle = '#334155';
+    pctx.fillRect(sx + 4, sy + 8, 8, 4);
+    pctx.fillStyle = '#ffffff';
+    pctx.fillRect(sx + 7, sy + 9, 2, 3); // Center road line
+    // Yellow side warning markers
+    pctx.fillStyle = '#fde047';
+    pctx.fillRect(sx + 2, sy + 5, 1, 2);
+    pctx.fillRect(sx + 13, sy + 5, 1, 2);
+  }
+}
+
+/**
  * Oriented 16-Bit Railway Renderer (N-S, E-W, Curves, Diagonals & Level Crossings!)
  */
 function draw16BitOrientedRail(
@@ -3498,8 +3783,10 @@ function draw16BitOrientedRail(
     return;
   }
 
-  // Pure East-West Railway
-  if ((rW || rE) && !rN && !rS) {
+  const diagCount = (rNW ? 1 : 0) + (rNE ? 1 : 0) + (rSW ? 1 : 0) + (rSE ? 1 : 0);
+
+  // Pure Straight East-West Railway (connected on both sides, or single side without diagonals)
+  if ((rW && rE && !rN && !rS) || ((rW || rE) && !rN && !rS && diagCount === 0)) {
     pctx.fillStyle = '#57534e';
     pctx.fillRect(sx, sy + 2, 16, 12);
     pctx.fillStyle = '#78716c';
@@ -3519,8 +3806,8 @@ function draw16BitOrientedRail(
     return;
   }
 
-  // Pure North-South Railway
-  if ((rN || rS) && !rW && !rE) {
+  // Pure Straight North-South Railway (connected on both sides, or single side without diagonals)
+  if ((rN && rS && !rW && !rE) || ((rN || rS) && !rW && !rE && diagCount === 0)) {
     pctx.fillStyle = '#57534e';
     pctx.fillRect(sx + 2, sy, 12, 16);
     pctx.fillStyle = '#78716c';
@@ -3540,21 +3827,29 @@ function draw16BitOrientedRail(
     return;
   }
 
-  // Curved / Elbow / Junction Railway (connects active N/S/W/E arms smoothly!)
-  if (cardCount >= 2) {
+  // Curved / Elbow / Junction / Cardinal+Diagonal Railway
+  if (cardCount >= 2 || (cardCount === 1 && diagCount > 0)) {
     pctx.fillStyle = '#6b655f';
     pctx.fillRect(sx + 3, sy + 3, 10, 10);
+
+    // Cardinal arm ballast
     if (rN) pctx.fillRect(sx + 3, sy, 10, 6);
     if (rS) pctx.fillRect(sx + 3, sy + 10, 10, 6);
     if (rW) pctx.fillRect(sx, sy + 3, 6, 10);
     if (rE) pctx.fillRect(sx + 10, sy + 3, 6, 10);
+
+    // Diagonal arm ballast extensions
+    if (rNW) pctx.fillRect(sx, sy, 6, 6);
+    if (rNE) pctx.fillRect(sx + 10, sy, 6, 6);
+    if (rSW) pctx.fillRect(sx, sy + 10, 6, 6);
+    if (rSE) pctx.fillRect(sx + 10, sy + 10, 6, 6);
 
     // Center sleeper cross-ties
     pctx.fillStyle = '#4a2a14';
     pctx.fillRect(sx + 4, sy + 7, 8, 2);
     pctx.fillRect(sx + 7, sy + 4, 2, 8);
 
-    // Curved steel rail connections
+    // Steel rail lines & gentle rounded junction curves
     pctx.fillStyle = '#e2e8f0';
     if (rN) {
       pctx.fillRect(sx + 4, sy, 1, 6);
@@ -3572,6 +3867,25 @@ function draw16BitOrientedRail(
       pctx.fillRect(sx + 10, sy + 4, 6, 1);
       pctx.fillRect(sx + 10, sy + 10, 6, 1);
     }
+
+    // Diagonal rail corner connections
+    if (rNW) {
+      pctx.fillRect(sx, sy + 4, 5, 1);
+      pctx.fillRect(sx + 4, sy, 1, 5);
+    }
+    if (rNE) {
+      pctx.fillRect(sx + 11, sy + 4, 5, 1);
+      pctx.fillRect(sx + 10, sy, 1, 5);
+    }
+    if (rSW) {
+      pctx.fillRect(sx, sy + 10, 5, 1);
+      pctx.fillRect(sx + 4, sy + 11, 1, 5);
+    }
+    if (rSE) {
+      pctx.fillRect(sx + 11, sy + 10, 5, 1);
+      pctx.fillRect(sx + 10, sy + 11, 1, 5);
+    }
+
     // Smooth inner & outer curve arcs
     pctx.fillRect(sx + 5, sy + 5, 6, 1);
     pctx.fillRect(sx + 5, sy + 10, 6, 1);
@@ -3580,7 +3894,7 @@ function draw16BitOrientedRail(
     return;
   }
 
-  // Diagonal fallback (if isolated diagonal step)
+  // Pure Diagonal Railway (no cardinal arms active)
   const diagNESW = (rNE || rSW) && !rNW && !rSE;
   for (let i = 0; i < 16; i++) {
     const cx = diagNESW ? 15 - i : i;
@@ -4017,6 +4331,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     ids: new Set(),
   });
   const lieuDitBannerTimerRef = useRef<number | null>(null);
+  const recentVisibleBannersRef = useRef<Set<string>>(new Set());
   const [lieuDitArrival, setLieuDitArrival] = useState<{
     name: string;
     kind: LieuDitKind;
@@ -4232,10 +4547,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       lastTs = now;
 
       const remDistM = haversineMeters(state.lat, state.lng, playerLat, playerLng);
-      const ease = 1 - Math.exp(-dtSec * 14.5);
-      const minGlideM = metersPerVirtualPx * 46 * dtSec;
+      // Fluid critically-damped spring-like easing without rigid snap-cuts
+      const ease = 1 - Math.exp(-dtSec * 10.5);
+      const minGlideM = metersPerVirtualPx * 24 * dtSec;
 
-      if (remDistM <= 0.14) {
+      if (remDistM <= 0.08) {
         state.lat = playerLat;
         state.lng = playerLng;
       } else {
@@ -4243,7 +4559,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         const ratio = moveM / remDistM;
         state.lat += (playerLat - state.lat) * ratio;
         state.lng += (playerLng - state.lng) * ratio;
-        state.strideAccum = (state.strideAccum + dtSec * 12) % 360;
+        state.strideAccum = (state.strideAccum + dtSec * 10) % 360;
       }
 
       let remPanM = 0;
@@ -4254,13 +4570,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         const dEast = panMeters.east - state.panEast;
         const dNorth = panMeters.north - state.panNorth;
         remPanM = Math.hypot(dEast, dNorth);
-        if (remPanM <= 0.22) {
+        if (remPanM <= 0.12) {
           state.panEast = panMeters.east;
           state.panNorth = panMeters.north;
           remPanM = 0;
         } else {
-          const panEase = 1 - Math.exp(-dtSec * 15);
-          const panStep = Math.min(remPanM, Math.max(remPanM * panEase, minGlideM * 1.2));
+          const panEase = 1 - Math.exp(-dtSec * 11);
+          const panStep = Math.min(remPanM, Math.max(remPanM * panEase, minGlideM * 1.1));
           const pRatio = panStep / remPanM;
           state.panEast += dEast * pRatio;
           state.panNorth += dNorth * pRatio;
@@ -4790,9 +5106,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             (denseUrbanMask[idx] === 1 && mCes >= 0.13)
           ) {
             settlementGrid[idx] = SETTLE_CITY_CENTER;
-          } else if (mCes >= 0.072 || (lCes >= 0.12 && mUrb >= 0.025)) {
+          } else if (
+            mCes >= 0.028 ||
+            (lCes >= 0.06 && mUrb >= 0.015) ||
+            (t === T_RESIDENTIAL && (mCes >= 0.012 || lCes >= 0.02))
+          ) {
             settlementGrid[idx] = SETTLE_SUBURB;
-          } else if (mCes >= 0.017 || lCes >= 0.06) {
+          } else if (mCes >= 0.014 || lCes >= 0.04) {
             settlementGrid[idx] = SETTLE_VILLAGE;
           } else if (bldgCov16[idx] > 0 || lCes >= 0.004 || t === T_RESIDENTIAL) {
             settlementGrid[idx] = SETTLE_HAMLET;
@@ -4847,7 +5167,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         zoomLevel <= 3
           ? [
               { kind: 'pier', code: T_PIER, brush: 0, implicitBridgeMode: B_NONE, maxSpan: 0 },
-              { kind: 'rail', code: T_RAIL, brush: 0, implicitBridgeMode: B_RAIL_VIADUCT, maxSpan: 7 },
+              { kind: 'rail', code: T_RAIL, brush: 0, implicitBridgeMode: B_RAIL_VIADUCT, maxSpan: 12 },
               { kind: 'major_road', code: T_MAIN_ROAD, brush: majorBrush, implicitBridgeMode: B_ROAD, maxSpan: 6 },
               { kind: 'minor_road', code: T_STREET, brush: minorBrush, implicitBridgeMode: B_ROAD, maxSpan: 5 },
               { kind: 'steps', code: T_STEPS, brush: 0, implicitBridgeMode: B_FOOTBRIDGE, maxSpan: 3 },
@@ -4855,7 +5175,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             ]
           : [
               { kind: 'pier', code: T_PIER, brush: 0, implicitBridgeMode: B_NONE, maxSpan: 0 },
-              { kind: 'rail', code: T_RAIL, brush: 0, implicitBridgeMode: B_RAIL_VIADUCT, maxSpan: 7 },
+              { kind: 'rail', code: T_RAIL, brush: 0, implicitBridgeMode: B_RAIL_VIADUCT, maxSpan: 12 },
               { kind: 'path', code: T_PATH, brush: 0, implicitBridgeMode: B_FOOTBRIDGE, maxSpan: 4 },
               { kind: 'steps', code: T_STEPS, brush: 0, implicitBridgeMode: B_FOOTBRIDGE, maxSpan: 3 },
               { kind: 'minor_road', code: T_STREET, brush: minorBrush, implicitBridgeMode: B_ROAD, maxSpan: 5 },
@@ -5033,6 +5353,30 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
             }
             if (bMode === B_RAIL_VIADUCT) {
               railMaskGrid[c.idx] = 1;
+            }
+          }
+        } else if (chain.length >= 2) {
+          // Dry-Land Overpass / Flyover / Rail Viaduct (Passage supérieur / viaduc sur terre ferme)
+          // The bridge spans elevated above underlying corridors (railway lines, roads, paths, cuttings)
+          for (let k = 1; k < chain.length - 1; k++) {
+            const c = chain[k];
+            const under = grid[c.idx];
+            const isCrossingInfrastructure =
+              under === T_RAIL ||
+              under === T_MAIN_ROAD ||
+              under === T_STREET ||
+              under === T_PATH ||
+              under === T_STEPS ||
+              railMaskGrid[c.idx] === 1;
+
+            if (isCrossingInfrastructure || chain.length <= 10) {
+              if (bridgeModeGrid[c.idx] === B_NONE || bMode === B_ROAD || bMode === B_RAIL_VIADUCT) {
+                bridgeModeGrid[c.idx] = bMode;
+                bridgeAxisGrid[c.idx] = c.axis;
+              }
+              if (bMode === B_RAIL_VIADUCT) {
+                railMaskGrid[c.idx] = 1;
+              }
             }
           }
         }
@@ -5215,7 +5559,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           const areaTiles2 = polygonAreaTiles2(pts);
           const bcCode = encodeBuildingArchetype(feat.bldgClass);
           const minWideTiles2 =
-            bcCode === BC_INDUSTRIAL || bcCode === BC_COMMERCIAL ? 0.45 : 0.75;
+            bcCode === BC_INDUSTRIAL || bcCode === BC_COMMERCIAL
+              ? 0.35
+              : bcCode === BC_SUBURBAN || bcCode === BC_VILLAGE
+              ? 0.22
+              : 0.55;
           if (!feat.landmark && areaTiles2 < minWideTiles2) continue;
           fillPolygonGrid(
             grid,
@@ -5383,6 +5731,50 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           }
 
           grid[idx] = T_BUILDING;
+        }
+      }
+
+      // ======================================================================
+      // STEP 4B: PROCEDURAL PARCEL GARDENS (LOTISSEMENT & VILLAGE ENCLOSURES)
+      // Converts raw wild meadow (T_MEADOW) around suburban pavilions & cottages
+      // into private residential gardens (T_RESIDENTIAL) with lawn, paths & fences!
+      // ======================================================================
+      for (let gy = 1; gy < GRID_SIZE - 1; gy++) {
+        const rOff = gy * GRID_SIZE;
+        for (let gx = 1; gx < GRID_SIZE - 1; gx++) {
+          const idx = rOff + gx;
+          if (grid[idx] !== T_BUILDING) continue;
+          const settle = settlementGrid[idx];
+          const bClass = bldgClassGrid[idx];
+          if (
+            settle === SETTLE_SUBURB ||
+            settle === SETTLE_VILLAGE ||
+            bClass === BC_SUBURBAN ||
+            bClass === BC_VILLAGE
+          ) {
+            const neighbors = [
+              idx - GRID_SIZE,
+              idx + GRID_SIZE,
+              idx - 1,
+              idx + 1,
+              idx - GRID_SIZE - 1,
+              idx - GRID_SIZE + 1,
+              idx + GRID_SIZE - 1,
+              idx + GRID_SIZE + 1,
+            ];
+            for (const nIdx of neighbors) {
+              if (grid[nIdx] === T_MEADOW) {
+                grid[nIdx] = T_RESIDENTIAL;
+                if (
+                  settlementGrid[nIdx] === SETTLE_RURAL ||
+                  settlementGrid[nIdx] === SETTLE_HAMLET
+                ) {
+                  settlementGrid[nIdx] =
+                    settle === SETTLE_SUBURB ? SETTLE_SUBURB : SETTLE_VILLAGE;
+                }
+              }
+            }
+          }
         }
       }
 
@@ -6498,9 +6890,16 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     [nearbyGeocaches, subterraneanMode]
   );
 
-  // Real Surface <-> Sous-sol stairwell portals derived from real subterranean entrances & landmarks
+  // Real Surface <-> Sous-sol stairwell portals derived from real subterranean entrances, tunnels & landmarks
   const portalAnchors = useMemo(() => {
-    const out: Array<{ id: string; name: string; lat: number; lng: number }> = [];
+    const out: Array<{
+      id: string;
+      name: string;
+      lat: number;
+      lng: number;
+      tunnelMode?: 'road' | 'rail' | 'path';
+      isStairwell?: boolean;
+    }> = [];
     for (const sf of subterranean) {
       if (sf.points.length === 0) continue;
       if (
@@ -6512,14 +6911,37 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         sf.kind === 'tunnel_road'
       ) {
         const pt = sf.points[0];
-        if (!out.some((p) => haversineMeters(p.lat, p.lng, pt.lat, pt.lng) < 95)) {
-          out.push({ id: `portal_${sf.id}`, name: sf.name || 'Accès souterrain', lat: pt.lat, lng: pt.lng });
+        if (!out.some((p) => haversineMeters(p.lat, p.lng, pt.lat, pt.lng) < 65)) {
+          out.push({
+            id: `portal_${sf.id}`,
+            name: sf.name || (sf.kind === 'tunnel_road' ? 'Tunnel routier' : 'Accès souterrain'),
+            lat: pt.lat,
+            lng: pt.lng,
+            tunnelMode: sf.kind === 'tunnel_road' ? 'road' : 'path',
+            isStairwell: sf.kind === 'portal' || sf.kind === 'crypt',
+          });
         }
       }
       if (out.length >= 10) break;
     }
+    // Also include real surface tunnel mouths from terrain
+    for (const tf of terrain) {
+      if (tf.kind !== 'tunnel_portal' || tf.points.length === 0) continue;
+      const pt = tf.points[0];
+      if (!out.some((p) => haversineMeters(p.lat, p.lng, pt.lat, pt.lng) < 45)) {
+        out.push({
+          id: `portal_${tf.id}`,
+          name: tf.name || (tf.tunnelMode === 'rail' ? 'Tunnel ferroviaire' : 'Portail de tunnel'),
+          lat: pt.lat,
+          lng: pt.lng,
+          tunnelMode: tf.tunnelMode || 'road',
+          isStairwell: false,
+        });
+      }
+      if (out.length >= 20) break;
+    }
     return out;
-  }, [subterranean]);
+  }, [subterranean, terrain]);
 
   const nearestPortal = useMemo(() => {
     let best: { id: string; name: string; lat: number; lng: number; dist: number } | null = null;
@@ -6973,7 +7395,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       const gx = wx - originWx;
       const gy = wy - originWy;
       if (gx >= 0 && gx < gridSize && gy >= 0 && gy < gridSize) {
-        return railMaskGrid[gy * gridSize + gx] === 1;
+        const idx = gy * gridSize + gx;
+        return railMaskGrid[idx] === 1 || bridgeModeGrid[idx] === B_RAIL_VIADUCT;
       }
       return false;
     };
@@ -7069,11 +7492,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         ? ((activeCalendarMonth % 12) + 12) % 12
         : (calendarDate || new Date()).getMonth();
     const lithoKey = bedrock?.lithology ? bedrock.lithology.slice(0, 18) : 'std';
+    // Slow down terrain ambient rasterization (once every ~3.2s) so 60fps camera panning glides smoothly across cached buffer
+    const slowEnvTick = Math.floor(envTick / 8);
     const staticCacheKey = `${layerW}_${layerH}_${anchorWx}_${anchorWy}_${
       subterraneanMode ? 'sub' : 'surf'
     }_${regionalTheme.id}_${subLithoProfile.id}_${lithoKey}_${reliefEnabled ? 1 : 0}_${
       subtleBuildings ? 1 : 0
-    }_${trailsVisible ? 1 : 0}_m${resolvedCalMonth}_${envTick}`;
+    }_${trailsVisible ? 1 : 0}_m${resolvedCalMonth}_${slowEnvTick}`;
 
     if (
       worldLayer.width !== layerW ||
@@ -8674,13 +9099,28 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           landN,
           landS,
           landW,
-          landE
+          landE,
+          !isWaterLike(getTileAt(wx, wy))
         );
       }
     }
 
     if (diagBridgeCells.length > 0) {
       render16BitDiagonalBridgePass(pctx, diagBridgeCells, layerW, layerH, getTileAt);
+    }
+
+    // ========================================================================
+    // PASS 1C-TUNNEL: 16-BIT SURFACE TUNNEL PORTALS (TÊTES & VOÛTES DE TUNNEL)
+    // ========================================================================
+    for (const feat of terrain) {
+      if (feat.kind !== 'tunnel_portal' || feat.points.length === 0) continue;
+      const pt = feat.points[0];
+      const worldPxX_pt = Math.round((pt.lng * 111320 * worldMapData.cosRef) / metersPerVirtualPx);
+      const worldPxY_pt = Math.round((-pt.lat * 110540) / metersPerVirtualPx);
+      const sx = worldPxX_pt - layerOriginPxX;
+      const sy = worldPxY_pt - layerOriginPxY;
+      if (sx < -24 || sx > layerW + 24 || sy < -24 || sy > layerH + 24) continue;
+      draw16BitTunnelPortalTile(pctx, atlas, sx, sy, feat.tunnelMode || 'road');
     }
 
     // ========================================================================
@@ -9664,19 +10104,66 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       const pv = projectToVirtual(portal.lat, portal.lng);
       if (pv.vx < -16 || pv.vx > VW + 16 || pv.vy < -16 || pv.vy > VH + 16) continue;
       occupiedLabelRects.push({
-        x0: (pv.vx - 8) * SCALE,
-        y0: (pv.vy - 7) * SCALE,
-        x1: (pv.vx + 8) * SCALE,
-        y1: (pv.vy + 7) * SCALE,
+        x0: (pv.vx - 10) * SCALE,
+        y0: (pv.vy - 12) * SCALE,
+        x1: (pv.vx + 10) * SCALE,
+        y1: (pv.vy + 8) * SCALE,
       });
-      px(pv.vx - 6, pv.vy - 5, 13, 10, '#140b05');
-      px(pv.vx - 5, pv.vy - 4, 11, 8, subterraneanMode ? '#38bdf8' : '#78716c');
-      px(pv.vx - 4, pv.vy - 3, 9, 6, '#1c1917');
-      px(pv.vx - 3, pv.vy - 2, 7, 1, '#d6d3d1');
-      px(pv.vx - 2, pv.vy, 6, 1, '#a8a29e');
-      px(pv.vx - 1, pv.vy + 2, 5, 1, '#78716c');
-      px(pv.vx - 5, pv.vy - 4, 2, 2, '#fde047');
-      px(pv.vx + 4, pv.vy - 4, 2, 2, '#fde047');
+
+      if (portal.isStairwell) {
+        // Classic Urban Subway / Metro / Crypt Stairwell
+        px(pv.vx - 6, pv.vy - 5, 13, 10, '#140b05');
+        px(pv.vx - 5, pv.vy - 4, 11, 8, subterraneanMode ? '#38bdf8' : '#78716c');
+        px(pv.vx - 4, pv.vy - 3, 9, 6, '#1c1917');
+        px(pv.vx - 3, pv.vy - 2, 7, 1, '#d6d3d1');
+        px(pv.vx - 2, pv.vy, 6, 1, '#a8a29e');
+        px(pv.vx - 1, pv.vy + 2, 5, 1, '#78716c');
+        px(pv.vx - 5, pv.vy - 4, 2, 2, '#fde047');
+        px(pv.vx + 4, pv.vy - 4, 2, 2, '#fde047');
+      } else {
+        // Grand 16-Bit Monumental Tunnel Portal Marker
+        // Wing retaining walls
+        px(pv.vx - 10, pv.vy - 4, 4, 10, '#261a11');
+        px(pv.vx - 9, pv.vy - 3, 3, 8, '#6e5033');
+        px(pv.vx + 7, pv.vy - 4, 4, 10, '#261a11');
+        px(pv.vx + 7, pv.vy - 3, 3, 8, '#6e5033');
+        // Portal Masonry Arch & Coping
+        px(pv.vx - 6, pv.vy - 9, 13, 15, '#261a11');
+        px(pv.vx - 5, pv.vy - 8, 11, 13, '#8c7558');
+        px(pv.vx - 4, pv.vy - 7, 9, 11, '#b59d79');
+        // Keystone (clef de voûte en pointe de diamant)
+        px(pv.vx - 1, pv.vy - 9, 3, 3, '#fbf6ea');
+        px(pv.vx, pv.vy - 8, 1, 1, '#ffffff');
+        // Cavernous gaping entrance mouth
+        px(pv.vx - 4, pv.vy - 4, 9, 10, '#040201');
+        px(pv.vx - 3, pv.vy - 3, 7, 9, '#000000');
+        if (portal.tunnelMode === 'rail') {
+          // Rail track entering into darkness
+          px(pv.vx - 3, pv.vy + 3, 7, 2, '#3b1f0e');
+          px(pv.vx - 2, pv.vy + 1, 1, 5, '#e2e8f0');
+          px(pv.vx + 2, pv.vy + 1, 1, 5, '#e2e8f0');
+          // Red overhead clearance bracket
+          px(pv.vx - 3, pv.vy - 5, 7, 1, '#ef4444');
+        } else {
+          // Road marking entering
+          px(pv.vx - 1, pv.vy + 3, 3, 3, '#ffffff');
+          px(pv.vx - 5, pv.vy - 2, 1, 2, '#fde047');
+          px(pv.vx + 5, pv.vy - 2, 1, 2, '#fde047');
+        }
+      }
+
+      // Proximity glow & subtle beacon pulse when player is within 42m
+      const distToPlayer = haversineMeters(effectivePlayerLat, effectivePlayerLng, portal.lat, portal.lng);
+      if (distToPlayer <= 42) {
+        const pulse = Math.sin(animTick * 0.12) * 0.3 + 0.7;
+        ctx.fillStyle = `rgba(56, 189, 248, ${pulse * 0.45})`;
+        ctx.fillRect(
+          Math.round((pv.vx - 7) * SCALE),
+          Math.round((pv.vy + 7) * SCALE),
+          Math.round(15 * SCALE),
+          Math.round(2 * SCALE)
+        );
+      }
     }
 
     // Pre-compute visible NPCs & POIs once so named place banners respect their screen boxes while staying underneath sprites!
@@ -9759,30 +10246,59 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     // ========================================================================
     // PASS 2F: LIEUX-DITS, HAMEAUX, SOMMETS & HYDRONYMES SUR BANNIÈRES VÉLIN
     // ========================================================================
-    if (!subterraneanMode && !uiCollapsed && lieuxDitsVisible && zoomLevel >= 2 && zoomLevel <= 6) {
+    if (!subterraneanMode && !uiCollapsed && lieuxDitsVisible && zoomLevel >= 1 && zoomLevel <= 7) {
       const bannerQueue: Array<{
+        id: string;
         lat: number;
         lng: number;
         name: string;
         kind: LieuDitKind;
         altitudeMeters?: number;
+        prio: number;
       }> = [];
       const seenBannerNorm = new Set<string>();
+
+      const getKindPrio = (k: LieuDitKind): number => {
+        switch (k) {
+          case 'ville':
+            return 0;
+          case 'village':
+            return 1;
+          case 'col_sommet':
+            return 2;
+          case 'hydronyme':
+            return 3;
+          case 'hameau':
+            return 4;
+          case 'quartier':
+            return 5;
+          case 'lieu_dit':
+            return 6;
+          default:
+            return 7;
+        }
+      };
 
       for (const ld of lieuxDits) {
         const norm = ld.name.trim().toLowerCase();
         if (!norm || seenBannerNorm.has(norm)) continue;
+        // In wide regional 0.5x view (zoomLevel === 1), emphasize towns, villages and prominent peaks
+        if (zoomLevel === 1 && ld.kind !== 'ville' && ld.kind !== 'village' && ld.kind !== 'col_sommet') {
+          continue;
+        }
         seenBannerNorm.add(norm);
         bannerQueue.push({
+          id: ld.id || norm,
           lat: ld.lat,
           lng: ld.lng,
           name: ld.name,
           kind: ld.kind,
           altitudeMeters: ld.altitudeMeters,
+          prio: getKindPrio(ld.kind),
         });
       }
 
-      if (zoomLevel <= 5) {
+      if (zoomLevel <= 5 && zoomLevel >= 2) {
         for (const lbl of namedPlaceLabels) {
           const norm = lbl.name.trim().toLowerCase();
           if (!norm || seenBannerNorm.has(norm)) continue;
@@ -9794,18 +10310,46 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               ? 'bois_vallee'
               : 'lieu_dit';
           bannerQueue.push({
+            id: `nl_${norm}`,
             lat: lbl.lat,
             lng: lbl.lng,
             name: lbl.name,
             kind: fallbackKind,
+            prio: getKindPrio(fallbackKind),
           });
         }
       }
 
+      // Sort with strict visual hierarchy and anti-flicker hysteresis:
+      // 1. Higher-tier places (ville > village > sommet > hameau > lieu-dit)
+      // 2. Already-visible banners from previous frame get preference (avoids 1-pixel frame toggling)
+      // 3. Proximity to explorer
+      const recentlyVisible = recentVisibleBannersRef.current;
+      bannerQueue.sort((a, b) => {
+        if (a.prio !== b.prio) return a.prio - b.prio;
+        const aRecent = recentlyVisible.has(a.id) ? -1 : 0;
+        const bRecent = recentlyVisible.has(b.id) ? -1 : 0;
+        if (aRecent !== bRecent) return aRecent - bRecent;
+        const distA = haversineMeters(effectivePlayerLat, effectivePlayerLng, a.lat, a.lng);
+        const distB = haversineMeters(effectivePlayerLat, effectivePlayerLng, b.lat, b.lng);
+        return distA - distB;
+      });
+
+      const nextVisibleBanners = new Set<string>();
+      const occupiedBannerRects: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
+
+      // Avoid drawing right over the Explorer's head
+      occupiedBannerRects.push({
+        x0: (exPx - 14) * SCALE,
+        y0: (eyPx - 22) * SCALE,
+        x1: (exPx + 14) * SCALE,
+        y1: (eyPx + 10) * SCALE,
+      });
+
       ctx.font = 'bold 10px "Cinzel", Georgia, serif';
       for (const bItem of bannerQueue) {
         const lv = projectToVirtual(bItem.lat, bItem.lng);
-        if (lv.vx < 40 || lv.vx > VW - 40 || lv.vy < 26 || lv.vy > VH - 26) continue;
+        if (lv.vx < 35 || lv.vx > VW - 35 || lv.vy < 20 || lv.vy > VH - 20) continue;
         const fullTxt =
           bItem.kind === 'col_sommet' && typeof bItem.altitudeMeters === 'number'
             ? `${bItem.name} · ${Math.round(bItem.altitudeMeters)}m`
@@ -9813,11 +10357,14 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         const estBodyW = Math.ceil(ctx.measureText(fullTxt).width) + 26;
         const centerX = Math.round(lv.vx * SCALE);
         const topY = Math.round(lv.vy * SCALE - 9);
-        const bx0 = Math.round(centerX - estBodyW / 2) - 7;
+        const bx0 = Math.round(centerX - estBodyW / 2) - 4;
         const by0 = topY - 2;
-        const bx1 = Math.round(centerX + estBodyW / 2) + 7;
-        const by1 = topY + 19;
-        if (hasRectCollision(occupiedLabelRects, bx0, by0, bx1, by1, 5)) continue;
+        const bx1 = Math.round(centerX + estBodyW / 2) + 4;
+        const by1 = topY + 18;
+
+        // Collide strictly against other banners & player, NOT against background POI icons!
+        if (hasRectCollision(occupiedBannerRects, bx0, by0, bx1, by1, 2)) continue;
+
         const drawnBox = drawLieuDitBanner16Bit(
           ctx,
           centerX,
@@ -9826,8 +10373,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           bItem.kind,
           bItem.altitudeMeters
         );
+        occupiedBannerRects.push(drawnBox);
         occupiedLabelRects.push(drawnBox);
+        nextVisibleBanners.add(bItem.id);
       }
+      recentVisibleBannersRef.current = nextVisibleBanners;
     }
 
     // ========================================================================
@@ -11446,14 +11996,14 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         {/* Top-Left Illuminated Cartouche: Compass, Scale Name, Width, Altimeter & Subsoil/Weather */}
         {!uiCollapsed && (
           <div
-            className={`pointer-events-none absolute border-2 border-[#2b1d12] min-h-[40px] sm:min-h-0 px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-mono tabular-nums jrpg-shadow flex items-center gap-1 sm:gap-2 max-w-[calc(100%-218px)] sm:max-w-[calc(100%-365px)] ${
+            className={`pointer-events-none absolute border-2 border-[#2b1d12] min-h-[44px] px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-mono tabular-nums jrpg-shadow flex items-center gap-1.5 sm:gap-2 max-w-[calc(100%-220px)] sm:max-w-[calc(100%-365px)] ${
               subterraneanMode
                 ? 'bg-[#21160f]/95 text-amber-100 border-amber-600'
                 : 'bg-[#f7ebd2]/95 text-[#23170e]'
             } ${
               immersiveFullscreen
-                ? 'top-[max(0.5rem,env(safe-area-inset-top))] left-[max(0.5rem,env(safe-area-inset-left))]'
-                : 'top-2 sm:top-2.5 left-2 sm:left-2.5'
+                ? 'top-[max(0.85rem,env(safe-area-inset-top))] left-[max(0.85rem,env(safe-area-inset-left))]'
+                : 'top-3 sm:top-3 left-3 sm:left-3'
             }`}
           >
             <span
@@ -11530,8 +12080,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         <div
           className={`absolute flex items-center gap-1 sm:gap-1.5 z-20 ${
             immersiveFullscreen
-              ? 'top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))]'
-              : 'top-2 sm:top-2.5 right-2 sm:right-2.5'
+              ? 'top-[max(0.85rem,env(safe-area-inset-top))] right-[max(0.85rem,env(safe-area-inset-right))]'
+              : 'top-3 sm:top-3 right-3 sm:right-3'
           }`}
         >
           {onToggleSubterraneanMode && !uiCollapsed && (
@@ -11546,7 +12096,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               aria-label={subterraneanMode ? 'Afficher la surface' : 'Afficher le sous-sol'}
               className={`${
                 !immersiveFullscreen ? 'lg:hidden ' : ''
-              }h-10 w-10 sm:h-8 sm:w-auto px-0 sm:px-2.5 border-2 jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap shrink-0 transition-colors ${
+              }h-11 min-w-[44px] sm:h-8 sm:w-auto px-2 sm:px-2.5 border-2 jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap shrink-0 transition-colors ${
                 subterraneanMode
                   ? 'bg-[#1c130d] text-amber-300 border-amber-400 hover:bg-[#2e2016]'
                   : 'bg-[#f7ebd2]/95 text-[#23170e] border-[#2b1d12] hover:bg-amber-200'
@@ -11569,7 +12119,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               onClick={() => zoomLevel > 1 && onChangeZoom((zoomLevel - 1) as ZoomLevel)}
               disabled={zoomLevel <= 1}
               aria-label="Dézoomer la carte"
-              className="w-9 h-10 sm:w-8 sm:h-8 flex items-center justify-center text-base sm:text-sm font-mono font-bold text-[#23170e] hover:bg-amber-300 active:bg-amber-400 disabled:opacity-40 transition-colors"
+              className="w-11 h-11 sm:w-8 sm:h-8 flex items-center justify-center text-lg sm:text-sm font-mono font-bold text-[#23170e] hover:bg-amber-300 active:bg-amber-400 disabled:opacity-40 transition-colors"
             >
               −
             </button>
@@ -11581,7 +12131,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               onClick={() => zoomLevel < 6 && onChangeZoom((zoomLevel + 1) as ZoomLevel)}
               disabled={zoomLevel >= 6}
               aria-label="Zoomer la carte"
-              className="w-9 h-10 sm:w-8 sm:h-8 border-l-2 sm:border-l-0 border-[#2b1d12] flex items-center justify-center text-base sm:text-sm font-mono font-bold text-[#23170e] hover:bg-amber-300 active:bg-amber-400 disabled:opacity-40 transition-colors"
+              className="w-11 h-11 sm:w-8 sm:h-8 border-l-2 sm:border-l-0 border-[#2b1d12] flex items-center justify-center text-lg sm:text-sm font-mono font-bold text-[#23170e] hover:bg-amber-300 active:bg-amber-400 disabled:opacity-40 transition-colors"
             >
               +
             </button>
@@ -11593,7 +12143,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
               onClick={onToggleUiCollapsed}
               title={uiCollapsed ? 'Déplier l’UI' : 'Replier l’UI'}
               aria-label={uiCollapsed ? 'Déplier l’UI' : 'Replier l’UI'}
-              className={`h-10 min-w-[40px] sm:h-8 sm:min-w-0 px-2 sm:px-2.5 border-2 border-[#2b1d12] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
+              className={`h-11 min-w-[44px] sm:h-8 sm:min-w-0 px-2.5 border-2 border-[#2b1d12] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
                 uiCollapsed
                   ? 'bg-amber-300 text-[#24160c] hover:bg-amber-200'
                   : 'bg-[#f7ebd2]/95 text-[#23170e] hover:bg-amber-200'
@@ -11628,7 +12178,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                   ? 'Quitter le plein écran'
                   : 'Activer le mode plein écran'
               }
-              className={`h-10 w-10 sm:h-8 sm:w-auto px-0 sm:px-2.5 border-2 border-[#2b1d12] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
+              className={`h-11 min-w-[44px] sm:h-8 sm:w-auto px-2.5 border-2 border-[#2b1d12] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
                 immersiveFullscreen
                   ? 'bg-[#991b1b] text-[#fffbeb] hover:bg-[#b91c1c]'
                   : 'bg-[#28160d] text-amber-300 hover:bg-[#3f2416]'
@@ -11650,9 +12200,13 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           <button
             type="button"
             onClick={() => setPanMeters({ east: 0, north: 0 })}
-            className="absolute top-[3.25rem] sm:top-12 right-2 sm:right-2.5 min-h-[40px] sm:min-h-0 bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1d12] px-2.5 py-1.5 text-xs font-bold jrpg-shadow inline-flex items-center gap-1.5 z-10 transition-colors whitespace-nowrap"
+            className={`absolute z-10 min-h-[44px] px-3 py-2 bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1d12] text-xs font-bold jrpg-shadow inline-flex items-center gap-2 transition-colors whitespace-nowrap ${
+              immersiveFullscreen
+                ? 'top-[4.25rem] sm:top-14 right-[max(0.85rem,env(safe-area-inset-right))]'
+                : 'top-14 sm:top-14 right-3 sm:right-3'
+            }`}
           >
-            <PixelUiIcon name="gps" className="w-3.5 h-3.5 shrink-0" />
+            <PixelUiIcon name="gps" className="w-4 h-4 shrink-0" />
             <span>Recentrer</span>
           </button>
         )}
@@ -11752,7 +12306,11 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
           >
             <span className="w-2 h-2 bg-[#991b1b] border border-[#24160c] shrink-0" />
             <span className="text-[10px] uppercase tracking-wider font-bold text-[#991b1b] shrink-0">
-              {lieuDitArrival.kind === 'hameau'
+              {lieuDitArrival.kind === 'ville'
+                ? 'Ville'
+                : lieuDitArrival.kind === 'village'
+                ? 'Village'
+                : lieuDitArrival.kind === 'hameau'
                 ? 'Hameau'
                 : lieuDitArrival.kind === 'quartier'
                 ? 'Quartier'
@@ -11760,6 +12318,8 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
                 ? 'Belvédère'
                 : lieuDitArrival.kind === 'bois_vallee'
                 ? 'Contrée'
+                : lieuDitArrival.kind === 'hydronyme'
+                ? 'Cours d’eau'
                 : 'Lieu-dit'}
             </span>
             <span className="font-display font-bold text-xs sm:text-sm truncate">

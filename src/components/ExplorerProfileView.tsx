@@ -81,6 +81,7 @@ interface ExplorerProfileViewProps {
   onNavigateToActivity?: (
     activity: 'almanach' | 'chasse' | 'enigmes' | 'guildes' | 'narratives' | 'defis'
   ) => void;
+  onReturnToMap?: () => void;
   onResetCharacter: () => Promise<void>;
   onExportBackup: () => Promise<void>;
 }
@@ -129,6 +130,7 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
   onLocatePoiOnMap,
   onNavigateToMissions,
   onNavigateToActivity,
+  onReturnToMap,
   onResetCharacter,
   onExportBackup,
 }) => {
@@ -692,6 +694,16 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
               </div>
 
               <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
+                {onReturnToMap && (
+                  <button
+                    type="button"
+                    onClick={onReturnToMap}
+                    className="min-h-[42px] px-3.5 py-2 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow whitespace-nowrap shrink-0 inline-flex items-center gap-1.5"
+                  >
+                    <PixelUiIcon name="pocket-compass" className="w-4 h-4 text-amber-900" />
+                    <span>Retour à la Carte</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onAuthAction}
@@ -1964,6 +1976,19 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {/* Floating 1-Tap Return to Map on Mobile/Smartphone */}
+      {onReturnToMap && (
+        <div className="md:hidden fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-40">
+          <button
+            type="button"
+            onClick={onReturnToMap}
+            className="min-h-[44px] px-3.5 py-2 bg-amber-300 hover:bg-amber-200 text-[#24160c] font-bold text-xs border-2 border-[#2b1a0e] jrpg-shadow-crimson inline-flex items-center gap-2"
+          >
+            <PixelUiIcon name="pocket-compass" className="w-4 h-4 text-amber-900" />
+            <span>Revenir à la Carte</span>
+          </button>
         </div>
       )}
     </div>

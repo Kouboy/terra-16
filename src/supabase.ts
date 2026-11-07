@@ -36,46 +36,19 @@ import type {
   PantheonMetrics,
 } from './pantheonAndLiveEvents';
 
-// Default project credentials identified from Supabase dashboard
-const DEFAULT_SUPABASE_URL = 'https://iiuavileukbczktzqdbs.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_LvefQjGqsWeE9sLtspBhLQ_cWKgzZu-';
+// Supabase Production Project credentials for Terra 16
+export const SUPABASE_URL = 'https://iiuavileukbczktzqdbs.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_LvefQjGqsWeE9sLtspBhLQ_cWKgzZu-';
+export const isSupabaseConfigured = true;
+export const isFirebaseConfigured = true;
 
-// Environment variables or fallback local storage overrides (helpful for mobile testing)
-const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
-const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
-
-function getStoredUrl(): string {
-  if (typeof window === 'undefined') return '';
-  const val = (window.localStorage.getItem('terra16_supabase_url') || '').trim();
-  return val.startsWith('http') ? val : '';
-}
-
-function getStoredKey(): string {
-  if (typeof window === 'undefined') return '';
-  const val = (window.localStorage.getItem('terra16_supabase_anon_key') || '').trim();
-  return val.length > 20 ? val : '';
-}
-
-export const SUPABASE_URL = envUrl || getStoredUrl() || DEFAULT_SUPABASE_URL;
-export const SUPABASE_ANON_KEY = envKey || getStoredKey() || DEFAULT_SUPABASE_ANON_KEY;
-
-export const isSupabaseConfigured = Boolean(
-  SUPABASE_URL &&
-  SUPABASE_ANON_KEY &&
-  SUPABASE_URL.startsWith('http') &&
-  SUPABASE_ANON_KEY.length > 20
-);
-export const isFirebaseConfigured = isSupabaseConfigured;
-
-export const supabase: SupabaseClient | null = isSupabaseConfigured
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    })
-  : null;
+export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
 
 export function configureSupabaseRuntimeCredentials(url: string, anonKey: string): boolean {
   if (typeof window === 'undefined') return false;
@@ -198,7 +171,7 @@ export async function signInExplorerWithGoogle(): Promise<void> {
     throw new Error(formatSupabaseAuthErrorFr(new Error('SUPABASE_NOT_CONFIGURED')));
   }
   const redirectOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-  const { error } = await supabase.auth.signInWithOAuth({
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       redirectTo: redirectOrigin,
@@ -206,6 +179,9 @@ export async function signInExplorerWithGoogle(): Promise<void> {
   });
   if (error) {
     throw new Error(formatSupabaseAuthErrorFr(error));
+  }
+  if (data?.url && typeof window !== 'undefined') {
+    window.location.assign(data.url);
   }
 }
 
@@ -238,6 +214,53 @@ export async function verifyExplorerEmailOtp(email: string, token: string): Prom
     throw new Error(formatSupabaseAuthErrorFr(error || new Error('Erreur de vérification du code.')));
   }
   return normalizeSupabaseUser(data.user)!;
+}
+
+export async function signInExplorerWithPassword(email: string, password: string): Promise<ExplorerAuthUser> {
+  if (!supabase || !isSupabaseConfigured) {
+    throw new Error(formatSupabaseAuthErrorFr(new Error('SUPABASE_NOT_CONFIGURED')));
+  }
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  });
+  if (error || !data.user) {
+    throw new Error(formatSupabaseAuthErrorFr(error || new Error('Identifiants incorrects.')));
+  }
+  return normalizeSupabaseUser(data.user)!;
+}
+
+export async function signUpExplorerWithPassword(
+  email: string,
+  password: string,
+  callsign?: string
+): Promise<{ user: ExplorerAuthUser | null; requiresEmailConfirmation: boolean }> {
+  if (!supabase || !isSupabaseConfigured) {
+    throw new Error(formatSupabaseAuthErrorFr(new Error('SUPABASE_NOT_CONFIGURED')));
+  }
+  const { data, error } = await supabase.auth.signUp({
+    email: email.trim(),
+    password,
+    options: {
+      data: {
+        display_name: callsign?.trim() || 'Éclaireur',
+      },
+    },
+  });
+  if (error) {
+    throw new Error(formatSupabaseAuthErrorFr(error));
+  }
+  const isAlreadyRegistered = Boolean(
+    data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0
+  );
+  if (isAlreadyRegistered) {
+    throw new Error(
+      'Un compte explorateur existe déjà avec cette adresse email. Veuillez utiliser "Se connecter" ou votre lien de connexion reçu précédemment.'
+    );
+  }
+  const user = data.user ? normalizeSupabaseUser(data.user) : null;
+  const requiresEmailConfirmation = !data.session && Boolean(data.user);
+  return { user, requiresEmailConfirmation };
 }
 
 export async function signOutExplorer(): Promise<void> {

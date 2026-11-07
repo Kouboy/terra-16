@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { ExplorerAuthUser as User } from '../supabase';
+import {
+  configureSupabaseRuntimeCredentials,
+  signInExplorerWithEmailOtp,
+  verifyExplorerEmailOtp,
+  signInExplorerWithPassword,
+  signUpExplorerWithPassword,
+  type ExplorerAuthUser as User,
+} from '../supabase';
 import {
   AVATAR_PRESETS,
   EXPLORER_GENDERS,
@@ -48,6 +55,7 @@ interface TitleScreenViewProps {
   discoveriesCount: number;
   regionLabel: string;
   weather: WeatherInfo | null;
+  onResetCharacter?: () => void;
 }
 
 function resolveTitlePhase(
@@ -81,14 +89,26 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
   discoveriesCount,
   regionLabel,
   weather,
+  onResetCharacter,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [animTick, setAnimTick] = useState(0);
   const [previewAtmo, setPreviewAtmo] = useState<TimeOfDayMode>('auto');
   const [customizerOpen, setCustomizerOpen] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [callsignDraft, setCallsignDraft] = useState(explorerCallsign || 'Éclaireur');
   const [isEmbarking, setIsEmbarking] = useState(false);
   const [signingInGoogle, setSigningInGoogle] = useState(false);
+
+  // Open-Source Supabase Direct Authentication
+  const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'otp' | 'password'>('password');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authOtpCode, setAuthOtpCode] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+  const [authFeedback, setAuthFeedback] = useState<{ text: string; isError?: boolean } | null>(null);
 
   useEffect(() => {
     setCallsignDraft(explorerCallsign || 'Éclaireur');
@@ -107,7 +127,7 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
   );
 
   const moonInfo = useMemo(() => computeRealMoonPhase(new Date()), []);
-  const seasonVis = useMemo(() => resolveCalendarSeasonVisuals(new Date().getMonth() + 1), []);
+  const seasonVis = useMemo(() => resolveCalendarSeasonVisuals(new Date()), []);
 
   const availableOutfits = useMemo(
     () => OUTFIT_COSMETICS_CATALOG.filter((o) => unlockedOutfitIds.has(o.id) || o.id === 'arpenteur'),
@@ -695,6 +715,103 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
     }
   };
 
+  const handleSendEmailOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail.trim() || isSubmittingAuth) return;
+    setIsSubmittingAuth(true);
+    setAuthFeedback(null);
+    try {
+      await signInExplorerWithEmailOtp(authEmail.trim());
+      setOtpSent(true);
+      setAuthFeedback({
+        text: 'Code magique envoyé à ' + authEmail.trim() + ' ! Entrez le code à 6 chiffres reçu dans votre boîte de messagerie.',
+      });
+      playTitleSelectSfx(muted);
+    } catch (err) {
+      setAuthFeedback({
+        text: err instanceof Error ? err.message : 'Impossible d’envoyer le code par courriel.',
+        isError: true,
+      });
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
+  const handleVerifyEmailOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authOtpCode.trim() || isSubmittingAuth) return;
+    setIsSubmittingAuth(true);
+    setAuthFeedback(null);
+    try {
+      await verifyExplorerEmailOtp(authEmail.trim(), authOtpCode.trim());
+      playTitleSelectSfx(muted);
+      setAuthFeedback({ text: 'Connexion réussie ! Chargement de votre Grimoire…' });
+      window.setTimeout(() => {
+        setSupabaseModalOpen(false);
+      }, 900);
+    } catch (err) {
+      setAuthFeedback({
+        text: err instanceof Error ? err.message : 'Code magique invalide ou expiré.',
+        isError: true,
+      });
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
+  const handlePasswordSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail.trim() || !authPassword || isSubmittingAuth) return;
+    setIsSubmittingAuth(true);
+    setAuthFeedback(null);
+    try {
+      await signInExplorerWithPassword(authEmail.trim(), authPassword);
+      playTitleSelectSfx(muted);
+      setAuthFeedback({ text: 'Connexion réussie ! Bienvenue explorateur.' });
+      window.setTimeout(() => {
+        setSupabaseModalOpen(false);
+      }, 900);
+    } catch (err) {
+      setAuthFeedback({
+        text: err instanceof Error ? err.message : 'Email ou mot de passe incorrect.',
+        isError: true,
+      });
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
+  const handlePasswordSignUp = async () => {
+    if (!authEmail.trim() || !authPassword || isSubmittingAuth) return;
+    if (authPassword.length < 6) {
+      setAuthFeedback({ text: 'Le mot de passe doit comporter au moins 6 caractères.', isError: true });
+      return;
+    }
+    setIsSubmittingAuth(true);
+    setAuthFeedback(null);
+    try {
+      const res = await signUpExplorerWithPassword(authEmail.trim(), authPassword, callsignDraft);
+      playTitleSelectSfx(muted);
+      if (res.requiresEmailConfirmation) {
+        setAuthFeedback({
+          text: 'Compte créé ! Veuillez confirmer votre adresse en cliquant sur le lien reçu par email.',
+        });
+      } else {
+        setAuthFeedback({ text: 'Compte explorateur créé avec succès !' });
+        window.setTimeout(() => {
+          setSupabaseModalOpen(false);
+        }, 900);
+      }
+    } catch (err) {
+      setAuthFeedback({
+        text: err instanceof Error ? err.message : 'Erreur lors de la création du compte.',
+        isError: true,
+      });
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
   const hasSavedProgress = discoveriesCount > 0 || explorerLevel > 1;
 
   return (
@@ -821,34 +938,320 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                playTitleSelectSfx(muted);
-                setCustomizerOpen((v) => !v);
-              }}
-              aria-expanded={customizerOpen}
-              className={`min-h-[42px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center gap-1.5 shrink-0 transition-colors ${
-                customizerOpen
-                  ? 'bg-[#28160d] text-amber-300'
-                  : 'bg-[#ecd8b1] hover:bg-amber-200 text-[#24160c]'
-              }`}
-            >
-              <PixelUiIcon name="user-profile" className="w-4 h-4 shrink-0" />
-              <span>{customizerOpen ? 'Fermer l’atelier' : 'Personnaliser'}</span>
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {hasSavedProgress && onResetCharacter && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playTitleSelectSfx(muted);
+                    setResetConfirmOpen(true);
+                  }}
+                  className="min-h-[42px] px-2.5 py-2 text-xs font-bold bg-[#7f1d1d] hover:bg-[#991b1b] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center gap-1 shrink-0 transition-colors"
+                  title="Réinitialiser l'expédition et repartir au niveau 1"
+                >
+                  <PixelUiIcon name="trash" className="w-4 h-4 shrink-0" />
+                  <span>Réinitialiser</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  playTitleSelectSfx(muted);
+                  setCustomizerOpen((v) => !v);
+                }}
+                aria-expanded={customizerOpen}
+                className={`min-h-[42px] px-3 py-2 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center gap-1.5 shrink-0 transition-colors ${
+                  customizerOpen
+                    ? 'bg-[#28160d] text-amber-300'
+                    : 'bg-[#ecd8b1] hover:bg-amber-200 text-[#24160c]'
+                }`}
+              >
+                <PixelUiIcon name="user-profile" className="w-4 h-4 shrink-0" />
+                <span>{customizerOpen ? 'Fermer l’atelier' : 'Personnaliser'}</span>
+              </button>
+            </div>
           </div>
 
           {authError && (
-            <div className="grimoire-folio-crimson px-3 py-2 text-xs text-rose-950 flex items-center justify-between gap-2">
-              <span className="font-semibold">{authError}</span>
-              <button
-                type="button"
-                onClick={onClearAuthError}
-                className="min-h-[34px] px-2.5 py-1 bg-[#991b1b] text-[#fffbeb] font-bold border border-[#2b1a0e] shrink-0"
-              >
-                Fermer
-              </button>
+            <div className="grimoire-folio-crimson p-3 text-xs text-rose-950 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold leading-snug">{authError}</span>
+                <button
+                  type="button"
+                  onClick={onClearAuthError}
+                  className="min-h-[30px] px-2 py-0.5 bg-[#991b1b] text-[#fffbeb] text-[11px] font-bold border border-[#2b1a0e] shrink-0"
+                >
+                  Fermer
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5 pt-1 border-t border-rose-300/40">
+                <button
+                  type="button"
+                  onClick={() => {
+                    configureSupabaseRuntimeCredentials(
+                      'https://iiuavileukbczktzqdbs.supabase.co',
+                      'sb_publishable_LvefQjGqsWeE9sLtspBhLQ_cWKgzZu-'
+                    );
+                  }}
+                  className="min-h-[36px] px-3 py-1 bg-amber-400 hover:bg-amber-300 text-[#24160c] font-bold text-xs border border-[#2b1a0e] jrpg-shadow inline-flex items-center gap-1"
+                >
+                  <PixelUiIcon name="star" className="w-3.5 h-3.5" />
+                  <span>⚡ Activer Supabase immédiatement</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+                      const regs = await navigator.serviceWorker.getRegistrations();
+                      for (const reg of regs) {
+                        await reg.unregister();
+                      }
+                    }
+                    if (typeof caches !== 'undefined') {
+                      const keys = await caches.keys();
+                      for (const k of keys) {
+                        await caches.delete(k);
+                      }
+                    }
+                    window.location.reload();
+                  }}
+                  className="min-h-[36px] px-3 py-1 bg-[#28160d] hover:bg-[#3f2416] text-amber-200 font-bold text-xs border border-[#d97706] jrpg-shadow inline-flex items-center gap-1"
+                >
+                  <PixelUiIcon name="pocket-compass" className="w-3.5 h-3.5" />
+                  <span>🔄 Vider le cache &amp; actualiser</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Reset Confirmation Modal */}
+          {resetConfirmOpen && onResetCharacter && (
+            <div className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4">
+              <div className="grimoire-folio-crimson max-w-sm w-full p-4 space-y-3 text-rose-950 border-2 border-rose-900 shadow-2xl">
+                <h3 className="font-bold font-display text-base text-rose-950 flex items-center gap-2">
+                  <PixelUiIcon name="trash" className="w-5 h-5 text-rose-900" />
+                  <span>Réinitialiser la progression ?</span>
+                </h3>
+                <p className="text-xs leading-relaxed text-rose-900">
+                  Cette action effacera vos découvertes, votre XP, votre niveau et vos statistiques locales pour recommencer une aventure neuve au niveau 1.
+                </p>
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-rose-300">
+                  <button
+                    type="button"
+                    onClick={() => setResetConfirmOpen(false)}
+                    className="min-h-[38px] px-3 py-1.5 bg-[#ecd8b1] hover:bg-amber-100 text-[#24160c] font-bold text-xs border border-[#2b1a0e]"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetConfirmOpen(false);
+                      onResetCharacter();
+                    }}
+                    className="min-h-[38px] px-3 py-1.5 bg-[#991b1b] hover:bg-rose-800 text-[#fffbeb] font-bold text-xs border border-[#2b1a0e]"
+                  >
+                    Oui, réinitialiser
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* OpenSource Supabase Auth Modal (Zero Google Cloud friction) */}
+          {supabaseModalOpen && (
+            <div className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-3 sm:p-4">
+              <div className="bg-[#f5e6cb] border-4 border-[#2b1a0e] max-w-md w-full p-4 space-y-3.5 text-[#24160c] shadow-2xl jrpg-shadow relative">
+                <div className="flex items-center justify-between border-b-2 border-[#8c653b] pb-2">
+                  <div className="flex items-center gap-2">
+                    <PixelUiIcon name="star" className="w-5 h-5 text-amber-600" />
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base leading-tight text-[#24160c]">
+                        Sauvegarde Cloud Supabase
+                      </h3>
+                      <p className="text-[10px] sm:text-xs text-[#6b4928]">
+                        Solution Open-Source clé en main sans compte Google Cloud
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSupabaseModalOpen(false);
+                      setAuthFeedback(null);
+                    }}
+                    className="w-8 h-8 flex items-center justify-center bg-[#ecd8b1] hover:bg-rose-200 text-[#24160c] font-bold text-sm border-2 border-[#2b1a0e]"
+                    aria-label="Fermer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Tabs: Mot de passe (instantané) vs Lien Magique */}
+                <div className="grid grid-cols-2 gap-1.5 bg-[#dfcaa5] p-1 border-2 border-[#8c653b]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('password');
+                      setAuthFeedback(null);
+                    }}
+                    className={`min-h-[34px] text-xs font-bold py-1 px-2 border ${
+                      authMode === 'password'
+                        ? 'bg-[#991b1b] text-[#fffbeb] border-[#2b1a0e]'
+                        : 'bg-[#ecd8b1] text-[#24160c] border-transparent hover:bg-amber-100'
+                    }`}
+                  >
+                    🔑 Email &amp; Mot de passe
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('otp');
+                      setAuthFeedback(null);
+                    }}
+                    className={`min-h-[34px] text-xs font-bold py-1 px-2 border ${
+                      authMode === 'otp'
+                        ? 'bg-[#991b1b] text-[#fffbeb] border-[#2b1a0e]'
+                        : 'bg-[#ecd8b1] text-[#24160c] border-transparent hover:bg-amber-100'
+                    }`}
+                  >
+                    ✉️ Lien Magique Email
+                  </button>
+                </div>
+
+                {authFeedback && (
+                  <div
+                    className={`p-2.5 text-xs border-2 font-medium leading-relaxed ${
+                      authFeedback.isError
+                        ? 'bg-rose-100 text-rose-950 border-rose-700'
+                        : 'bg-emerald-100 text-emerald-950 border-emerald-700'
+                    }`}
+                  >
+                    {authFeedback.text}
+                  </div>
+                )}
+
+                {/* Tab 1: Email Magic Link / OTP */}
+                {authMode === 'otp' && (
+                  <div className="space-y-3">
+                    {!otpSent ? (
+                      <form onSubmit={handleSendEmailOtp} className="space-y-2.5">
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#3b2312] mb-1">
+                            Votre adresse email
+                          </label>
+                          <input
+                            type="email"
+                            required
+                            value={authEmail}
+                            onChange={(e) => setAuthEmail(e.target.value)}
+                            placeholder="ex: explorateur@domaine.fr"
+                            className="w-full min-h-[40px] px-3 py-1.5 bg-[#fffdf7] border-2 border-[#6b4928] text-xs font-semibold text-[#24160c] focus:outline-none focus:border-[#2b1a0e]"
+                          />
+                        </div>
+                        <p className="text-[10px] text-[#6b4928] leading-tight">
+                          Aucun mot de passe à retenir. Supabase vous envoie un code à 6 chiffres par courriel pour vous connecter instantanément.
+                        </p>
+                        <button
+                          type="submit"
+                          disabled={isSubmittingAuth || !authEmail.trim()}
+                          className="w-full min-h-[42px] px-4 py-2 font-bold text-xs bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex items-center justify-center gap-2"
+                        >
+                          <PixelUiIcon name="scroll" className="w-4 h-4 shrink-0" />
+                          <span>{isSubmittingAuth ? 'Envoi en cours…' : 'Recevoir mon code magique par email'}</span>
+                        </button>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleVerifyEmailOtp} className="space-y-2.5">
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#3b2312] mb-1">
+                            Code à 6 chiffres reçu par email
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            maxLength={8}
+                            value={authOtpCode}
+                            onChange={(e) => setAuthOtpCode(e.target.value)}
+                            placeholder="123456"
+                            className="w-full min-h-[44px] px-3 py-1.5 bg-[#fffdf7] border-2 border-[#6b4928] text-center tracking-widest text-lg font-bold text-[#24160c] focus:outline-none focus:border-[#2b1a0e]"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOtpSent(false);
+                              setAuthFeedback(null);
+                            }}
+                            className="min-h-[40px] px-2 py-1 bg-[#ecd8b1] hover:bg-amber-100 text-[#24160c] font-bold text-xs border border-[#2b1a0e]"
+                          >
+                            Changer d’email
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isSubmittingAuth || !authOtpCode.trim()}
+                            className="min-h-[40px] px-3 py-1 bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-[#24160c] font-bold text-xs border-2 border-[#2b1a0e] jrpg-shadow"
+                          >
+                            {isSubmittingAuth ? 'Vérification…' : 'Valider &amp; Entrer'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                )}
+
+                {/* Tab 2: Classic Email & Password */}
+                {authMode === 'password' && (
+                  <form onSubmit={handlePasswordSignIn} className="space-y-2.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#3b2312] mb-1">
+                        Adresse email
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        placeholder="ex: explorateur@domaine.fr"
+                        className="w-full min-h-[38px] px-3 py-1.5 bg-[#fffdf7] border-2 border-[#6b4928] text-xs font-semibold text-[#24160c] focus:outline-none focus:border-[#2b1a0e]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#3b2312] mb-1">
+                        Mot de passe
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full min-h-[38px] px-3 py-1.5 bg-[#fffdf7] border-2 border-[#6b4928] text-xs font-semibold text-[#24160c] focus:outline-none focus:border-[#2b1a0e]"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        type="submit"
+                        disabled={isSubmittingAuth || !authEmail.trim() || !authPassword}
+                        className="min-h-[42px] px-3 py-1 bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-[#24160c] font-bold text-xs border-2 border-[#2b1a0e] jrpg-shadow"
+                      >
+                        {isSubmittingAuth ? 'Connexion…' : 'Se connecter'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handlePasswordSignUp}
+                        disabled={isSubmittingAuth || !authEmail.trim() || !authPassword}
+                        className="min-h-[42px] px-3 py-1 bg-[#28160d] hover:bg-[#3f2416] disabled:opacity-60 text-amber-200 font-bold text-xs border-2 border-[#d97706] jrpg-shadow"
+                      >
+                        Créer mon compte
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
             </div>
           )}
 
@@ -1023,16 +1426,14 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
             {!user ? (
               <button
                 type="button"
-                disabled={!authReady || signingInGoogle}
-                onClick={handleGoogleSignInAndEnter}
-                className="min-h-[44px] px-3.5 py-2 text-xs sm:text-sm font-bold bg-amber-300 hover:bg-amber-200 disabled:opacity-60 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-2 sm:col-span-2"
+                onClick={() => {
+                  playTitleSelectSfx(muted);
+                  setSupabaseModalOpen(true);
+                }}
+                className="min-h-[44px] px-3.5 py-2 text-xs sm:text-sm font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-2 sm:col-span-2"
               >
-                <PixelUiIcon name="star" className="w-4 h-4 shrink-0" />
-                <span>
-                  {signingInGoogle
-                    ? 'Connexion Cloud Supabase…'
-                    : 'Connexion Cloud Supabase (Sauvegarde & Défis)'}
-                </span>
+                <PixelUiIcon name="star" className="w-4 h-4 shrink-0 text-amber-800" />
+                <span>Connexion Cloud Grimoire (Sauvegarde &amp; Défis)</span>
               </button>
             ) : (
               <div className="sm:col-span-2 flex items-center justify-between gap-2 px-3 py-2 bg-[#ecd8b1] border-2 border-[#8c653b] text-xs">

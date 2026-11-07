@@ -712,13 +712,17 @@ export function drawLieuDitBanner16Bit(
   const y = Math.round(topY);
 
   const pal =
-    kind === 'hydronyme'
+    kind === 'ville'
+      ? { bg: '#fef3c7', top: '#fffbeb', bot: '#fde68a', ribbon: '#991b1b', ink: '#451a03' }
+      : kind === 'village'
+      ? { bg: '#fbf2dc', top: '#fffbeb', bot: '#ead5af', ribbon: '#c2410c', ink: '#24160c' }
+      : kind === 'hydronyme'
       ? { bg: '#e0f2fe', top: '#f0f9ff', bot: '#bae6fd', ribbon: '#0369a1', ink: '#0c4a6e' }
       : kind === 'bois_vallee'
       ? { bg: '#dcfce7', top: '#f0fdf4', bot: '#bbf7d0', ribbon: '#15803d', ink: '#14532d' }
       : kind === 'col_sommet'
       ? { bg: '#fef3c7', top: '#fffbeb', bot: '#fde68a', ribbon: '#b45309', ink: '#451a03' }
-      : { bg: '#fbf2dc', top: '#fffbeb', bot: '#ead5af', ribbon: '#991b1b', ink: '#24160c' };
+      : { bg: '#fbf2dc', top: '#fffbeb', bot: '#ead5af', ribbon: '#78350f', ink: '#24160c' };
 
   // Swallowtail notched ribbon tails (left & right)
   ctx.fillStyle = '#1c1008';
@@ -753,7 +757,27 @@ export function drawLieuDitBanner16Bit(
   // Tiny 16-bit crest icon on the left of the banner
   const ix = x + 6;
   const iy = y + 4;
-  if (kind === 'hameau' || kind === 'quartier') {
+  if (kind === 'ville') {
+    // Fortified medieval town mural crown & ramparts
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(ix, iy + 4, 8, 4);
+    ctx.fillStyle = '#991b1b';
+    ctx.fillRect(ix + 1, iy + 1, 2, 3);
+    ctx.fillRect(ix + 5, iy + 1, 2, 3);
+    ctx.fillRect(ix + 3, iy + 2, 2, 2);
+    ctx.fillStyle = '#fde047';
+    ctx.fillRect(ix + 3, iy + 5, 2, 2);
+  } else if (kind === 'village') {
+    // Church bell steeple & village roof
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(ix + 1, iy + 3, 3, 5);
+    ctx.fillStyle = '#991b1b';
+    ctx.fillRect(ix + 2, iy + 1, 1, 2);
+    ctx.fillStyle = '#c2410c';
+    ctx.fillRect(ix + 4, iy + 4, 4, 4);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(ix + 2, iy + 4, 1, 2);
+  } else if (kind === 'hameau' || kind === 'quartier') {
     // Tiny gabled cottage roof + chimney
     ctx.fillStyle = '#991b1b';
     ctx.fillRect(ix, iy + 2, 7, 3);

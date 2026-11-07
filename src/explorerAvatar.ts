@@ -213,6 +213,7 @@ export type CosmeticSlot = 'headgear' | 'outfit' | 'tool' | 'pack' | 'familiar';
 export type CosmeticUnlockSourceKind =
   | 'initial'
   | 'mission'
+  | 'marche'
   | 'enigme'
   | 'chasse'
   | 'almanach'
@@ -227,6 +228,7 @@ export interface CosmeticItemDef {
   name: string;
   subtitle: string;
   unlockMissionId?: string;
+  unlockWalkingChallengeId?: string;
   fallbackCategory?: ExplorationCategory;
   fallbackCategoryLevel?: number;
   minDiscoveries?: number;
@@ -323,6 +325,36 @@ export const HEADGEAR_CATALOG: Array<CosmeticItemDef & { id: ExplorerHeadgearId 
     subtitle: 'Bandeau d’azur et d’or aux pans flottants des expéditions collectives',
     minCommunityChallengeClaims: 1,
   },
+  {
+    id: 'casque_chantier_brgm',
+    slot: 'headgear',
+    name: 'Casque Blanc de Géotechnicien BRGM',
+    subtitle: 'Casque rigide blanc d’ingénieur de sondage & visière protectrice',
+    unlockMissionId: 'm_bss_soundings',
+    fallbackCategory: 'geographie',
+    fallbackCategoryLevel: 1,
+  },
+  {
+    id: 'foulard_sept_lieues',
+    slot: 'headgear',
+    name: 'Foulard des Sept-Lieues',
+    subtitle: 'Défi Quotidien (10 km) · Soie d’or volage & nœud de marcheur rapide',
+    unlockWalkingChallengeId: 'day_10km',
+  },
+  {
+    id: 'chapeau_longues_routes',
+    slot: 'headgear',
+    name: 'Chapeau des Longues Routes',
+    subtitle: 'Défi Mensuel (50 km) · Feutre havane à large bord & plume d’aigle des crêtes',
+    unlockWalkingChallengeId: 'mo_50km',
+  },
+  {
+    id: 'couronne_grand_arpenteur',
+    slot: 'headgear',
+    name: 'Couronne du Grand Arpenteur',
+    subtitle: 'Défi Annuel (1 000 km) · Diadème d’or forgé & lauriers sertis d’azurite',
+    unlockWalkingChallengeId: 'ann_1000km',
+  },
 ];
 
 export const OUTFIT_COSMETICS_CATALOG: Array<CosmeticItemDef & { id: ExplorerOutfitId }> = [
@@ -398,6 +430,29 @@ export const OUTFIT_COSMETICS_CATALOG: Array<CosmeticItemDef & { id: ExplorerOut
     subtitle: 'Brocart outremer enluminé d’or, écharpe d’ivoire & fermoir de chroniqueur',
     minCompletedNarratives: 2,
   },
+  {
+    id: 'tenue_friches_urbex',
+    slot: 'outfit',
+    name: 'Tenue d’Exploration des Friches & Urbex',
+    subtitle: 'Parka tout-terrain olive, renforts d’acier & bottes de sécurité',
+    unlockMissionId: 'm_cartofriches_urbex',
+    fallbackCategory: 'etrange',
+    fallbackCategoryLevel: 1,
+  },
+  {
+    id: 'manteau_quatre_saisons',
+    slot: 'outfit',
+    name: 'Manteau des Quatre Saisons des Marcheurs',
+    subtitle: 'Défi Annuel (365 km) · Étoffe d’or boréale, doublure de givre & ramages printaniers',
+    unlockWalkingChallengeId: 'ann_365km',
+  },
+  {
+    id: 'tabard_maitres_marcheurs',
+    slot: 'outfit',
+    name: 'Tabard des Maîtres-Marcheurs',
+    subtitle: 'Défi Événement (20 km) · Tabard héraldique écarlate, liseré d’argent & lauriers brodés',
+    unlockWalkingChallengeId: 'ev_semaine_mobilite',
+  },
 ];
 
 export const TOOL_CATALOG: Array<CosmeticItemDef & { id: ExplorerToolId }> = [
@@ -469,6 +524,45 @@ export const TOOL_CATALOG: Array<CosmeticItemDef & { id: ExplorerToolId }> = [
     subtitle: 'Plume carmin & or accompagnée d’un rouleau scellé de cire vermeille',
     minCompletedNarratives: 1,
   },
+  {
+    id: 'sonde_piezo_laiton',
+    slot: 'tool',
+    name: 'Sonde Piézométrique en Laiton',
+    subtitle: 'Ruban millimétré et sonde d’immersion pour mesurer la cote des nappes',
+    unlockMissionId: 'm_bss_soundings',
+    fallbackCategory: 'geographie',
+    fallbackCategoryLevel: 1,
+  },
+  {
+    id: 'moulinet_hydro',
+    slot: 'tool',
+    name: 'Moulinet Hydrométrique',
+    subtitle: 'Hélice d’acier chromé mesurant la vitesse de courant et le débit',
+    unlockMissionId: 'm_hubeau_gauges',
+    fallbackCategory: 'geographie',
+    fallbackCategoryLevel: 1,
+  },
+  {
+    id: 'baton_chemins_creux',
+    slot: 'tool',
+    name: 'Bâton des Chemins Creux',
+    subtitle: 'Défi Quotidien (5 km) · Frêne courbé, bague d’argent & lanière de cuir',
+    unlockWalkingChallengeId: 'day_5km',
+  },
+  {
+    id: 'boussole_alizes',
+    slot: 'tool',
+    name: 'Boussole des Alizés',
+    subtitle: 'Défi Hebdo (25 km) · Cadran de laiton vieilli & rose des vents oscillante',
+    unlockWalkingChallengeId: 'wk_25km',
+  },
+  {
+    id: 'lanterne_brumes_marais',
+    slot: 'tool',
+    name: 'Lanterne des Brumes du Marais',
+    subtitle: 'Défi Événement (10 km) · Cage en fer forgé & flamme turquoise perçant la brume',
+    unlockWalkingChallengeId: 'ev_nuit_etoiles',
+  },
 ];
 
 export const PACK_CATALOG: Array<CosmeticItemDef & { id: ExplorerPackId }> = [
@@ -520,6 +614,20 @@ export const PACK_CATALOG: Array<CosmeticItemDef & { id: ExplorerPackId }> = [
     subtitle: 'Anneaux célestes de laiton tournoyant dans le dos du marcheur',
     minSolvedRiddles: 4,
   },
+  {
+    id: 'besace_pelerin_lunes',
+    slot: 'pack',
+    name: 'Besace du Pèlerin des Lunes',
+    subtitle: 'Défi Hebdo (15 km) · Sacoche de toile cirée & boucle d’argent poli',
+    unlockWalkingChallengeId: 'wk_15km',
+  },
+  {
+    id: 'sacoche_astronavigatrice',
+    slot: 'pack',
+    name: 'Sacoche Astronavigatrice',
+    subtitle: 'Défi Mensuel (120 km) · Coffret dorsal de bois sombre cerclé de cuivre céleste',
+    unlockWalkingChallengeId: 'mo_120km',
+  },
 ];
 
 export const FAMILIAR_CATALOG: Array<CosmeticItemDef & { id: ExplorerFamiliarId }> = [
@@ -534,63 +642,70 @@ export const FAMILIAR_CATALOG: Array<CosmeticItemDef & { id: ExplorerFamiliarId 
     slot: 'familiar',
     name: 'Hermine Blanche des Éclaireurs',
     subtitle: 'Vive hermine d’ivoire à pointe d’ébène qui bondit joyeusement dans vos pas',
-    unlockMissionId: 'm_first_discovery',
+    minDiscoveries: 5,
   },
   {
     id: 'chouette_erudite',
     slot: 'familiar',
     name: 'Athéna, Chouette du Sceau d’Or',
     subtitle: 'Chouette hulotte à besicles de laiton voletant près de votre épaule',
-    minSolvedRiddles: 1,
+    minSolvedRiddles: 3,
   },
   {
     id: 'goupil_saisons',
     slot: 'familiar',
     name: 'Goupil des Quatre Saisons',
     subtitle: 'Petit renard roux au foulard vert forêt qui trottine au fil de l’Almanach',
-    minClaimedAlmanac: 1,
+    minClaimedAlmanac: 2,
   },
   {
     id: 'scarabee_boussole',
     slot: 'familiar',
     name: 'Scarabée Boussole d’Airain',
     subtitle: 'Coléoptère mécanique doré aux élytres d’émeraude vibrant près des trésors',
-    minCompletedHunts: 1,
+    minCompletedHunts: 2,
   },
   {
     id: 'corbeau_cartographe',
     slot: 'familiar',
     name: 'Corbeau Porte-Parchemin',
     subtitle: 'Grand corbeau d’encre bleutée portant un rouleau scellé dans son bec',
-    minCompletedHunts: 2,
+    minCompletedHunts: 3,
   },
   {
     id: 'salamandre_cristal',
     slot: 'familiar',
     name: 'Salamandre des Géodes',
     subtitle: 'Salamandre d’azur constellée de cristaux luminescents des souterrains',
-    minSolvedRiddles: 3,
+    minSolvedRiddles: 5,
   },
   {
     id: 'feu_follet_astral',
     slot: 'familiar',
     name: 'Feu-Follet des Éphémérides',
     subtitle: 'Esprit stellaire doré coiffé d’une minuscule couronne astrale',
-    minClaimedAlmanac: 3,
+    minClaimedAlmanac: 5,
   },
   {
     id: 'cerf_brumes',
     slot: 'familiar',
     name: 'Petit Cerf Blanc des Légendes',
     subtitle: 'Faon d’ivoire aux jeunes bois dorés né au dénouement des quêtes narratives',
-    minCompletedNarratives: 1,
+    minCompletedNarratives: 2,
   },
   {
     id: 'loutre_riviere',
     slot: 'familiar',
     name: 'Loutre des Rivières Unies',
     subtitle: 'Loutre espiègle portant un galet turquoise poli par l’entraide des éclaireurs',
-    minCommunityChallengeClaims: 2,
+    minCommunityChallengeClaims: 3,
+  },
+  {
+    id: 'lerot_dore',
+    slot: 'familiar',
+    name: 'Lérot Doré des Sentiers',
+    subtitle: 'Défi Mensuel (80 km) · Petit loir aux yeux noisette et au museau agile juché sur votre épaule',
+    unlockWalkingChallengeId: 'mo_80km',
   },
 ];
 
@@ -609,6 +724,7 @@ export function isCosmeticUnlocked(
 ): boolean {
   if (
     !item.unlockMissionId &&
+    !item.unlockWalkingChallengeId &&
     !item.fallbackCategory &&
     !item.minDiscoveries &&
     !item.minCompletedMissions &&
@@ -617,6 +733,12 @@ export function isCosmeticUnlocked(
     !item.minClaimedAlmanac &&
     !item.minCompletedNarratives &&
     !item.minCommunityChallengeClaims
+  ) {
+    return true;
+  }
+  if (
+    item.unlockWalkingChallengeId &&
+    (progress.claimedWalkingChallengeIds || []).includes(item.unlockWalkingChallengeId)
   ) {
     return true;
   }
@@ -670,6 +792,15 @@ export function getCosmeticUnlockStatus(
   sourceKind: CosmeticUnlockSourceKind;
 } {
   const unlocked = isCosmeticUnlocked(item, progress, entries);
+  if (item.unlockWalkingChallengeId) {
+    return {
+      unlocked,
+      requirementLabel: 'Défi de Marche accompli',
+      current: unlocked ? 1 : 0,
+      target: 1,
+      sourceKind: 'marche',
+    };
+  }
   if (item.minCompletedNarratives) {
     const cur = Math.min(item.minCompletedNarratives, progress.completedNarrativesCount || 0);
     return {
@@ -1189,6 +1320,44 @@ export function drawExplorerSprite16Bit(
         fp(ax0 + 2, ty + 1 + ringPhase, 4, 4, '#38bdf8');
         fp(ax0 + 3, ty + 2 + ringPhase, 2, 2, '#ffffff');
       }
+    } else if (pack === 'besace_pelerin_lunes') {
+      // Moon Pilgrim's Waxed Canvas Pack + Polished Silver Crescent Buckle
+      if (facingDir === 'up') {
+        fp(-11, ty - 1, 22, 14, OUT);
+        fp(-9, ty, 18, 12, '#1e293b');
+        fp(-8, ty + 1, 16, 10, '#334155');
+        fp(-7, ty + 2, 14, 2, '#64748b'); // leather flap
+        fp(-2, ty + 4, 4, 4, '#e2e8f0'); // silver crescent buckle
+        fp(-1, ty + 5, 2, 2, '#334155');
+      } else {
+        const px = facingDir === 'right' ? -14 : 7;
+        fp(px, ty - 1, 7, 13, OUT);
+        fp(px + 1, ty, 5, 11, '#1e293b');
+        fp(px + 1, ty + 1, 5, 4, '#475569');
+        fp(px + 2, ty + 4, 2, 3, '#f1f5f9');
+      }
+    } else if (pack === 'sacoche_astronavigatrice') {
+      // Deep Ebony Astronavigator Casket with Celestial Copper Trims & Glowing Aperture
+      if (facingDir === 'up') {
+        fp(-12, ty - 3, 24, 16, OUT);
+        fp(-10, ty - 2, 20, 14, '#1c1917');
+        fp(-9, ty - 1, 18, 12, '#292524');
+        // Celestial copper banding
+        fp(-10, ty + 2, 20, 2, '#ea580c');
+        fp(-7, ty - 2, 2, 14, '#f97316');
+        fp(5, ty - 2, 2, 14, '#f97316');
+        // Core glowing lens
+        fp(-3, ty + 1, 6, 6, '#0284c7');
+        fp(-2, ty + 2, 4, 4, '#38bdf8');
+        fp(-1, ty + 3, 2, 2, '#ffffff');
+      } else {
+        const ax = facingDir === 'right' ? -15 : 8;
+        fp(ax, ty - 3, 8, 15, OUT);
+        fp(ax + 1, ty - 2, 6, 13, '#1c1917');
+        fp(ax + 2, ty - 1, 4, 11, '#292524');
+        fp(ax + 1, ty + 2, 6, 2, '#ea580c');
+        fp(ax + 2, ty + 5, 3, 3, '#38bdf8');
+      }
     }
   };
 
@@ -1695,6 +1864,53 @@ export function drawExplorerSprite16Bit(
     fp(tailX, hy - 3 + breeze, 4, 7, OUT);
     fp(tailX + 1, hy - 2 + breeze, 2, 5, '#0284c7');
     fp(tailX + 1, hy + 2 + breeze, 2, 1, '#fde047');
+  } else if (headgear === 'casque_chantier_brgm') {
+    // BRGM Geological Survey White Hard Hat + Forehead Brim & Safety Visor
+    fp(-13, hy - 7, 26, 7, OUT);
+    fp(-11, hy - 6, 22, 5, '#f8fafc'); // White dome
+    fp(-9, hy - 6, 18, 2, '#ffffff'); // Specular highlight
+    fp(-12, hy - 1, 24, 2, '#cbd5e1'); // Ridge brim
+    fp(-3, hy - 4, 6, 3, '#0284c7'); // Blue safety emblem
+    fp(-2, hy - 3, 4, 1, '#38bdf8');
+    if (facingDir !== 'up') {
+      fp(-10 + faceShift, hy + 1, 20, 2, 'rgba(56, 189, 248, 0.45)'); // Protective visor
+    }
+  } else if (headgear === 'foulard_sept_lieues') {
+    // Seven-League Gold & Amber Runner Bandana + Fluttering Trail Ribbon
+    fp(-12, hy - 4, 24, 5, OUT);
+    fp(-11, hy - 3, 22, 3, '#d97706');
+    fp(-10, hy - 3, 20, 1, '#fde047');
+    fp(-2, hy - 4, 4, 3, '#f59e0b');
+    const trailX = facingDir === 'left' ? 9 : -13;
+    fp(trailX, hy - 2 + breeze, 5, 8, OUT);
+    fp(trailX + 1, hy - 1 + breeze, 3, 6, '#fde047');
+    fp(trailX + 2, hy + 3 + breeze, 2, 3, '#fbbf24');
+  } else if (headgear === 'chapeau_longues_routes') {
+    // Wide-Brimmed Havana Trail Hat + Eagle Feather
+    fp(-16, hy - 4, 32, 5, OUT);
+    fp(-14, hy - 3, 28, 3, '#78350f');
+    fp(-12, hy - 3, 24, 1, '#b45309');
+    fp(-10, hy - 10, 20, 7, OUT);
+    fp(-8, hy - 9, 16, 5, '#92400e');
+    fp(-7, hy - 9, 12, 3, '#b45309');
+    // Dark brown hatband + Eagle feather
+    fp(-8, hy - 5, 16, 2, '#451a03');
+    fp(5, hy - 14 + breeze, 4, 7, OUT);
+    fp(6, hy - 13 + breeze, 2, 5, '#e2e8f0');
+    fp(6, hy - 15 + breeze, 2, 2, '#475569');
+  } else if (headgear === 'couronne_grand_arpenteur') {
+    // Master Surveyor's Forged Gold Diadem + Azurite Gems
+    fp(-13, hy - 6, 26, 6, OUT);
+    fp(-11, hy - 5, 22, 4, '#d97706');
+    fp(-10, hy - 5, 20, 2, '#fde047');
+    // 3 Golden peaks
+    fp(-8, hy - 8, 3, 3, '#fef08a');
+    fp(-1, hy - 9, 4, 4, '#ffffff');
+    fp(6, hy - 8, 3, 3, '#fef08a');
+    // Embedded azurite cabochons
+    fp(-7, hy - 4, 2, 2, '#0284c7');
+    fp(0, hy - 4, 2, 2, '#38bdf8');
+    fp(5, hy - 4, 2, 2, '#0284c7');
   }
 
   // ==========================================================================
@@ -1783,6 +1999,63 @@ export function drawExplorerSprite16Bit(
     fp(toolX + 3, toolY - 6 + breeze, 4, 7, '#dc2626');
     fp(toolX + 4, toolY - 6 + breeze, 2, 4, '#fde047');
     fp(toolX + 4, toolY - 7 + breeze, 1, 2, '#ffffff');
+  } else if (tool === 'sonde_piezo_laiton') {
+    // Brass Piezometric Level Reel & Probe Cable
+    fp(toolX - 1, toolY - 3, 8, 8, OUT);
+    fp(toolX, toolY - 2, 6, 6, '#b45309'); // Brass drum
+    fp(toolX + 1, toolY - 1, 4, 4, '#fde047'); // Cable spool
+    fp(toolX + 2, toolY, 2, 2, '#78350f'); // Axle
+    fp(toolX + 2, toolY + 5, 2, 7, OUT); // Hanging cable
+    fp(toolX + 2, toolY + 5, 1, 6, '#f8fafc'); // Graduated tape
+    fp(toolX + 1, toolY + 10, 4, 4, '#38bdf8'); // Heavy brass immersion sensor
+    fp(toolX + 2, toolY + 11, 2, 2, '#ffffff');
+  } else if (tool === 'moulinet_hydro') {
+    // Hydrometric Current Meter & Propeller
+    const propSpin = animTick % 4;
+    fp(toolX + 2, toolY - 4, 2, 14, OUT);
+    fp(toolX + 2, toolY - 4, 1, 13, '#94a3b8'); // Mounting rod
+    fp(toolX - 2, toolY + 3, 10, 5, OUT);
+    fp(toolX - 1, toolY + 4, 8, 3, '#cbd5e1'); // Torpedo body
+    // Spinning propeller blades
+    if (propSpin < 2) {
+      fp(toolX + 7, toolY + 1, 3, 9, '#fbbf24');
+      fp(toolX + 8, toolY + 3, 2, 5, '#fde047');
+    } else {
+      fp(toolX + 5, toolY + 2, 7, 5, '#f59e0b');
+      fp(toolX + 6, toolY + 3, 5, 3, '#fbbf24');
+    }
+    fp(toolX + 7, toolY + 5, 2, 2, '#0284c7'); // Water spray
+  } else if (tool === 'baton_chemins_creux') {
+    // Ash wood Walking Staff with silver ferrule and leather wrap
+    fp(toolX + 2, toolY - 8, 3, 22, OUT);
+    fp(toolX + 3, toolY - 8, 1, 22, '#92400e');
+    fp(toolX + 2, toolY - 8, 3, 3, '#e2e8f0'); // silver head ferrule
+    fp(toolX + 3, toolY - 7, 1, 1, '#ffffff');
+    fp(toolX + 2, toolY, 3, 4, '#451a03'); // leather grip wrap
+    fp(toolX + 2, toolY + 12, 3, 2, '#475569'); // bottom tip
+  } else if (tool === 'boussole_alizes') {
+    // Aged Brass Mariner Compass with Oscillating Wind Rose
+    const roseStep = animTick % 4 < 2;
+    fp(toolX - 1, toolY - 2, 9, 9, OUT);
+    fp(toolX, toolY - 1, 7, 7, '#b45309');
+    fp(toolX + 1, toolY, 5, 5, '#fef3c7');
+    fp(toolX + 3, toolY + 2, 1, 1, '#1e293b');
+    // Compass needle
+    if (roseStep) {
+      fp(toolX + 3, toolY, 1, 2, '#dc2626');
+      fp(toolX + 3, toolY + 3, 1, 2, '#2563eb');
+    } else {
+      fp(toolX + 1, toolY + 2, 2, 1, '#dc2626');
+      fp(toolX + 4, toolY + 2, 2, 1, '#2563eb');
+    }
+  } else if (tool === 'lanterne_brumes_marais') {
+    // Wrought Iron Cage Lantern + Spectral Turquoise Flame
+    fp(toolX + 2, toolY - 3, 3, 2, '#334155'); // iron ring
+    fp(toolX, toolY - 1, 7, 12, OUT);
+    fp(toolX + 1, toolY - 1, 5, 2, '#475569');
+    fp(toolX + 1, toolY + 1, 5, 7, '#06b6d4');
+    fp(toolX + 2, toolY + 2, 3, 5, flamePulse === 0 ? '#ffffff' : '#67e8f9');
+    fp(toolX + 1, toolY + 8, 5, 2, '#334155');
   }
 
   // ==========================================================================
@@ -1986,6 +2259,29 @@ export function drawExplorerSprite16Bit(
       fp(fx - 3, ly - 2, 6, 2, '#fef3c7');
       fp(fx - 2, ly - 3, 1, 1, OUT);
       fp(fx + 1, ly - 3, 1, 1, OUT);
+    } else if (familiar === 'lerot_dore') {
+      // Lérot Doré des Sentiers: Golden Dormouse with Hazel Eyes & Furry Tail
+      const dy = -9 + petHop;
+      const tailX = fx - fFlip * 6;
+      // Bushy golden tail curving upwards
+      fp(tailX - 2, dy - 2 - breeze, 5, 7, OUT);
+      fp(tailX - 1, dy - 1 - breeze, 3, 5, '#d97706');
+      fp(tailX - (fLookRight ? 0 : 1), dy - breeze, 2, 3, '#fde68a');
+      // Plump golden body & white belly
+      fp(fx - 4, dy + 1, 8, 7, OUT);
+      fp(fx - 3, dy + 2, 6, 5, '#f59e0b');
+      fp(fx - 2, dy + 3, 4, 3, '#fffbeb');
+      // Tiny paws
+      fp(fx - 3, dy + 7, 2, 2, '#b45309');
+      fp(fx + 1, dy + 7, 2, 2, '#b45309');
+      // Rounded head, round ears & hazel eyes
+      fp(fx - 4, dy - 4, 8, 6, OUT);
+      fp(fx - 4, dy - 6, 2, 2, '#b45309'); // left round ear
+      fp(fx + 2, dy - 6, 2, 2, '#b45309'); // right round ear
+      fp(fx - 3, dy - 3, 6, 4, '#f59e0b');
+      fp(fx - 2, dy - 2, 2, 2, '#451a03'); // hazel eye
+      fp(fx + 1, dy - 2, 2, 2, '#451a03');
+      fp(fx - 1, dy, 2, 1, '#1c1917'); // nose
     }
 
     // Alchemical Talisman Aura around the Familiar (Solaire / Sylvestre / Astrale)

@@ -6,6 +6,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify('https://iiuavileukbczktzqdbs.supabase.co'),
+      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify('sb_publishable_LvefQjGqsWeE9sLtspBhLQ_cWKgzZu-'),
+    },
     plugins: [
       react(),
       tailwindcss(),

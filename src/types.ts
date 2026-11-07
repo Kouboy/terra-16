@@ -18,6 +18,7 @@ export type ActiveTab = 'carte' | 'carnet' | 'missions' | 'branches' | 'profil';
 
 export type CarnetViewMode =
   | 'liste'
+  | 'collections'
   | 'secrets'
   | 'bestiaire'
   | 'herbier'
@@ -154,7 +155,11 @@ export type ExplorerHeadgearId =
   | 'tricorne_reliquaire'
   | 'couronne_saisons'
   | 'couronne_chroniqueur'
-  | 'bandeau_guilde_unie';
+  | 'bandeau_guilde_unie'
+  | 'casque_chantier_brgm'
+  | 'foulard_sept_lieues'
+  | 'chapeau_longues_routes'
+  | 'couronne_grand_arpenteur';
 
 export type ExplorerOutfitId =
   | 'arpenteur'
@@ -165,7 +170,10 @@ export type ExplorerOutfitId =
   | 'barde'
   | 'almanach_solaire'
   | 'chasseur_reliques'
-  | 'conteuse_legende';
+  | 'conteuse_legende'
+  | 'tenue_friches_urbex'
+  | 'manteau_quatre_saisons'
+  | 'tabard_maitres_marcheurs';
 
 export type ExplorerToolId =
   | 'lanterne_laiton'
@@ -176,7 +184,12 @@ export type ExplorerToolId =
   | 'loupe_sceau_or'
   | 'clef_coffres_anciens'
   | 'sablier_ephemeride'
-  | 'plume_trois_actes';
+  | 'plume_trois_actes'
+  | 'sonde_piezo_laiton'
+  | 'moulinet_hydro'
+  | 'baton_chemins_creux'
+  | 'boussole_alizes'
+  | 'lanterne_brumes_marais';
 
 export type ExplorerPackId =
   | 'besace_cuir'
@@ -185,7 +198,9 @@ export type ExplorerPackId =
   | 'ailerons_automate'
   | 'coffret_piste'
   | 'grimoire_almanach'
-  | 'astrolabe_dorsal';
+  | 'astrolabe_dorsal'
+  | 'besace_pelerin_lunes'
+  | 'sacoche_astronavigatrice';
 
 export type ExplorerFamiliarId =
   | 'aucun'
@@ -197,7 +212,8 @@ export type ExplorerFamiliarId =
   | 'feu_follet_astral'
   | 'hermine_royale'
   | 'cerf_brumes'
-  | 'loutre_riviere';
+  | 'loutre_riviere'
+  | 'lerot_dore';
 
 export type ExplorerGender = 'feminin' | 'masculin' | 'neutre';
 
@@ -476,7 +492,8 @@ export type TerrainKind =
   | 'path'
   | 'steps'
   | 'bridge'
-  | 'rail';
+  | 'rail'
+  | 'tunnel_portal';
 
 export type BridgeMode = 'road' | 'minor' | 'path' | 'rail';
 
@@ -501,6 +518,8 @@ export type BuildingArchetype =
 export type TrailNetwork = 'gr' | 'grp' | 'pr';
 
 export type LieuDitKind =
+  | 'ville'
+  | 'village'
   | 'lieu_dit'
   | 'hameau'
   | 'quartier'
@@ -556,6 +575,7 @@ export interface TerrainFeature {
   waterwayRank?: 'river' | 'canal' | 'stream';
   trailNetwork?: TrailNetwork;
   trailRef?: string;
+  tunnelMode?: 'road' | 'rail' | 'path';
 }
 
 export interface BedrockInfo {
@@ -694,7 +714,10 @@ export type TrophyId =
   | 'maitre_chroniques'
   | 'heraut_communaute'
   | 'temoin_phenomenes'
-  | 'champion_pantheon';
+  | 'champion_pantheon'
+  | 'sondeur_bss'
+  | 'hydrometre_hubeau'
+  | 'explorateur_friches';
 
 export const VALID_TROPHY_IDS: TrophyId[] = [
   'oiseau_de_nuit',
@@ -714,6 +737,9 @@ export const VALID_TROPHY_IDS: TrophyId[] = [
   'heraut_communaute',
   'temoin_phenomenes',
   'champion_pantheon',
+  'sondeur_bss',
+  'hydrometre_hubeau',
+  'explorateur_friches',
 ];
 
 export interface ExplorerProgress {
@@ -743,6 +769,8 @@ export interface ExplorerProgress {
   completedNarrativesCount?: number;
   claimedCommunityChallengesCount?: number;
   claimedLiveEventsCount?: number;
+  claimedCollectionIds?: string[];
+  claimedWalkingChallengeIds?: string[];
   discoveriesCount: number;
   completedMissions: string[];
 }
@@ -939,11 +967,11 @@ export function computeLevelFromXp(xp: number): {
 } {
   let level = 1;
   let threshold = 0;
-  let step = 150;
+  let step = 380;
   while (xp >= threshold + step && level < 50) {
     threshold += step;
     level += 1;
-    step = Math.round(step * 1.32);
+    step = Math.round(step * 1.28);
   }
   const nextLevelXp = threshold + step;
   const span = Math.max(1, nextLevelXp - threshold);

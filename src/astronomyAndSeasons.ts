@@ -317,9 +317,35 @@ export interface CalendarSeasonVisuals {
   particleKind: 'blossom_petals' | 'summer_pollen' | 'autumn_leaves' | 'winter_frost';
 }
 
-export function resolveCalendarSeasonVisuals(monthZeroIndexed: number): CalendarSeasonVisuals {
-  const m = ((monthZeroIndexed % 12) + 12) % 12;
-  if (m >= 2 && m <= 4) {
+export function resolveCalendarSeasonVisuals(
+  monthZeroIndexedOrDate: number | Date = new Date()
+): CalendarSeasonVisuals {
+  let m: number;
+  let d: number | null = null;
+  if (monthZeroIndexedOrDate instanceof Date) {
+    m = monthZeroIndexedOrDate.getMonth();
+    d = monthZeroIndexedOrDate.getDate();
+  } else {
+    m = ((monthZeroIndexedOrDate % 12) + 12) % 12;
+  }
+
+  // Exact astronomical & French calendar seasons
+  let isSpring = false;
+  let isSummer = false;
+  let isAutumn = false;
+
+  if (d !== null) {
+    const md = (m + 1) * 100 + d;
+    isSpring = md >= 320 && md <= 620;
+    isSummer = md >= 621 && md <= 921;
+    isAutumn = md >= 922 && md <= 1220;
+  } else {
+    isSpring = m >= 2 && m <= 4;
+    isSummer = m >= 5 && m <= 7;
+    isAutumn = m >= 8 && m <= 10;
+  }
+
+  if (isSpring) {
     return {
       season: 'printemps',
       labelFr: 'Printemps en fleurs',
@@ -330,7 +356,7 @@ export function resolveCalendarSeasonVisuals(monthZeroIndexed: number): Calendar
       particleKind: 'blossom_petals',
     };
   }
-  if (m >= 5 && m <= 7) {
+  if (isSummer) {
     return {
       season: 'ete',
       labelFr: 'Été doré',
@@ -341,7 +367,7 @@ export function resolveCalendarSeasonVisuals(monthZeroIndexed: number): Calendar
       particleKind: 'summer_pollen',
     };
   }
-  if (m >= 8 && m <= 10) {
+  if (isAutumn) {
     return {
       season: 'automne',
       labelFr: 'Automne ambré',

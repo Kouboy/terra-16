@@ -674,8 +674,8 @@ export const PantheonAndLiveEventsView: React.FC<PantheonAndLiveEventsViewProps>
                     {isVerifiedUser
                       ? `${rankedExplorers.length} explorateur${
                           rankedExplorers.length > 1 ? 's' : ''
-                        } synchronisé${rankedExplorers.length > 1 ? 's' : ''} en temps réel sur Firestore`
-                      : 'Mode local actif — connectez un compte Google vérifié pour publier votre score et voir les autres explorateurs.'}
+                        } synchronisé${rankedExplorers.length > 1 ? 's' : ''} en temps réel sur le Cloud`
+                      : 'Mode local actif — connectez un compte Grimoire Cloud vérifié pour publier votre score et voir les autres explorateurs.'}
                   </p>
                 </div>
 
@@ -968,8 +968,8 @@ export const PantheonAndLiveEventsView: React.FC<PantheonAndLiveEventsViewProps>
             ) : (
               <div className="p-4 bg-[#f8edd6] border border-[#b98b4e] text-xs sm:text-sm text-[#54361d]">
                 {isVerifiedUser
-                  ? 'Vous êtes actuellement le premier explorateur inscrit sur ce Panthéon Firestore ! Dès qu’un autre éclaireur synchronisera ses découvertes, vous pourrez comparer vos trois piliers face-à-face ici.'
-                  : 'Connectez-vous avec Google pour charger les explorateurs du Panthéon Cloud et activer le comparateur face-à-face en temps réel.'}
+                  ? 'Vous êtes actuellement le premier explorateur inscrit sur ce Panthéon Cloud ! Dès qu’un autre éclaireur synchronisera ses découvertes, vous pourrez comparer vos trois piliers face-à-face ici.'
+                  : 'Connectez-vous au Grimoire Cloud pour charger les explorateurs du Panthéon et activer le comparateur face-à-face en temps réel.'}
               </div>
             )}
           </div>

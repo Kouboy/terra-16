@@ -309,6 +309,68 @@ export const OUTFITS_CATALOG: OutfitDefinition[] = [
       lanternAuraRgba: 'rgba(253, 224, 71, 0.26)',
     },
   },
+  {
+    id: 'tenue_friches_urbex',
+    name: 'Tenue d’Exploration des Friches',
+    subtitle: 'Friches Cerema & Urbex · Parka tout-terrain olive, renforts d’acier & écharpe de laiton',
+    requiredCategory: 'etrange',
+    requiredLevel: 1,
+    palette: {
+      coatDark: '#142907',
+      coatMid: '#365314',
+      coatLight: '#65a30d',
+      scarfDark: '#78350f',
+      scarfLight: '#facc15',
+      hatBrim: '#1c1917',
+      hatMid: '#3f3f46',
+      hatLight: '#a1a1aa',
+      pauldron: '#bef264',
+      lanternCore: '#a3e635',
+      lanternAuraRgba: 'rgba(163, 230, 53, 0.25)',
+    },
+  },
+  {
+    id: 'manteau_quatre_saisons',
+    name: 'Manteau des Quatre Saisons des Marcheurs',
+    subtitle: 'Défi Annuel (365 km) · Étoffe d’or boréale, doublure de givre & ramages printaniers',
+    requiredCategory: null,
+    requiredLevel: 1,
+    lockRequirementLabel: 'Défi Annuel de Marche (365 km)',
+    palette: {
+      coatDark: '#1e3a5f',
+      coatMid: '#2563eb',
+      coatLight: '#60a5fa',
+      scarfDark: '#b45309',
+      scarfLight: '#fde047',
+      hatBrim: '#1e293b',
+      hatMid: '#334155',
+      hatLight: '#94a3b8',
+      pauldron: '#facc15',
+      lanternCore: '#38bdf8',
+      lanternAuraRgba: 'rgba(56, 189, 248, 0.28)',
+    },
+  },
+  {
+    id: 'tabard_maitres_marcheurs',
+    name: 'Tabard des Maîtres-Marcheurs',
+    subtitle: 'Défi Événement (20 km) · Tabard héraldique écarlate, liseré d’argent & lauriers brodés',
+    requiredCategory: null,
+    requiredLevel: 1,
+    lockRequirementLabel: 'Défi Événementiel de Marche (20 km)',
+    palette: {
+      coatDark: '#881337',
+      coatMid: '#be123c',
+      coatLight: '#f43f5e',
+      scarfDark: '#334155',
+      scarfLight: '#e2e8f0',
+      hatBrim: '#4c0519',
+      hatMid: '#9f1239',
+      hatLight: '#fecdd3',
+      pauldron: '#e2e8f0',
+      lanternCore: '#fde047',
+      lanternAuraRgba: 'rgba(253, 224, 71, 0.26)',
+    },
+  },
 ];
 
 export function getOutfitById(id?: ExplorerOutfitId): OutfitDefinition {
@@ -316,6 +378,18 @@ export function getOutfitById(id?: ExplorerOutfitId): OutfitDefinition {
 }
 
 export function isOutfitUnlocked(outfit: OutfitDefinition, progress: ExplorerProgress): boolean {
+  if (outfit.id === 'manteau_quatre_saisons') {
+    return (
+      (progress.claimedWalkingChallengeIds || []).includes('ann_365km') ||
+      (progress.walkedMeters || 0) >= 365_000
+    );
+  }
+  if (outfit.id === 'tabard_maitres_marcheurs') {
+    return (
+      (progress.claimedWalkingChallengeIds || []).includes('ev_semaine_mobilite') ||
+      (progress.walkedMeters || 0) >= 20_000
+    );
+  }
   if (outfit.minClaimedAlmanac) {
     return (progress.claimedAlmanacCount || 0) >= outfit.minClaimedAlmanac;
   }

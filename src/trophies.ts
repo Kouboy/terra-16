@@ -131,6 +131,51 @@ function countDistinctRockAffinities(specimens: CollectedSpecimen[]): number {
   return seen.size;
 }
 
+function countBssBoreholes(entries: UnlockedEntry[]): number {
+  let count = 0;
+  for (const e of entries) {
+    if (
+      e.poiId.startsWith('bss_') ||
+      /bss|banque du sous-sol|forage|piézomètre|piezometre/i.test(
+        `${e.source} ${e.subType} ${e.name} ${e.summary}`
+      )
+    ) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function countHubEauStations(entries: UnlockedEntry[]): number {
+  let count = 0;
+  for (const e of entries) {
+    if (
+      e.poiId.startsWith('hydro_') ||
+      /hub[’']?eau|hydrométrie|hydrometrie|station hydrométrique|vigicrues|limnimètre/i.test(
+        `${e.source} ${e.subType} ${e.name} ${e.summary}`
+      )
+    ) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function countCartofriches(entries: UnlockedEntry[]): number {
+  let count = 0;
+  for (const e of entries) {
+    if (
+      e.poiId.startsWith('friche_') ||
+      /cartofriches|cerema|friche/i.test(
+        `${e.source} ${e.subType} ${e.name} ${e.summary}`
+      )
+    ) {
+      count++;
+    }
+  }
+  return count;
+}
+
 function countNaturalistFeats(
   entries: UnlockedEntry[],
   encounters: NpcEncounterRecord[]
@@ -438,6 +483,57 @@ export const TROPHIES_CATALOG: TrophyDefinition[] = [
         Math.round(ctx.progress.solvedRiddlesCount || 0) * 90;
       return Math.round(ctx.progress.totalXp + diversity + rarity);
     },
+  },
+  {
+    id: 'sondeur_bss',
+    name: 'Sondeur des Abysses BSS',
+    tier: 'silver',
+    titles: {
+      feminin: 'Sondeuse des Strates Géologiques',
+      masculin: 'Sondeur des Strates Géologiques',
+      neutre: 'Sondeur des Abysses BSS',
+    },
+    description:
+      'Explorer et consigner 3 forages profonds, piézomètres ou coupes lithologiques de la Banque du Sous-Sol (BRGM).',
+    howToHint:
+      'Passez en vue souterraine ou approchez-vous des forages BSS répertoriés pour enregistrer 3 ouvrages.',
+    unitLabel: 'forages BSS consignés',
+    target: 3,
+    evaluateCurrent: (ctx) => countBssBoreholes(ctx.entries),
+  },
+  {
+    id: 'hydrometre_hubeau',
+    name: 'Vigie des Eaux Vives',
+    tier: 'silver',
+    titles: {
+      feminin: 'Vigie Hydrométrique des Fleuves',
+      masculin: 'Vigie Hydrométrique des Fleuves',
+      neutre: 'Vigie des Eaux Vives',
+    },
+    description:
+      'Découvrir 3 stations hydrométriques Hub’Eau mesurant en continu la hauteur d’eau et le débit des rivières.',
+    howToHint:
+      'Longez les cours d’eau et fleuves pour localiser 3 stations limnimétriques officielles Hub’Eau / Vigicrues.',
+    unitLabel: 'stations hydrométriques visitées',
+    target: 3,
+    evaluateCurrent: (ctx) => countHubEauStations(ctx.entries),
+  },
+  {
+    id: 'explorateur_friches',
+    name: 'Arpenteur des Friches Cerema',
+    tier: 'silver',
+    titles: {
+      feminin: 'Pionnière des Terres en Reconversion',
+      masculin: 'Pionnier des Terres en Reconversion',
+      neutre: 'Arpenteur des Friches Cerema',
+    },
+    description:
+      'Explorer 3 friches industrielles, ferroviaires ou urbaines référencées par le Cerema en régénération spontanée.',
+    howToHint:
+      'Repérez les anciennes manufactures, ateliers ou triages ferroviaires Cartofriches pour consigner 3 sites.',
+    unitLabel: 'friches Cartofriches explorées',
+    target: 3,
+    evaluateCurrent: (ctx) => countCartofriches(ctx.entries),
   },
 ];
 
@@ -791,6 +887,46 @@ export function drawTrophyMedallion16Bit(
       p(8, 16, 2, 2, ink('#16a34a'));
       p(15, 12, 2, 4, hi('#4ade80'));
       p(14, 16, 2, 2, ink('#16a34a'));
+      break;
+    }
+    case 'sondeur_bss': {
+      // Deep borehole drill derrick + cyan groundwater tier
+      p(11, 9, 2, 8, hi('#cbd5e1'));
+      p(10, 10, 4, 1, hi('#94a3b8'));
+      p(9, 12, 6, 1, ink('#64748b'));
+      p(8, 14, 8, 1, ink('#475569'));
+      // Strata levels
+      p(7, 15, 10, 1, ink('#b45309'));
+      p(7, 16, 10, 1, ink('#78350f'));
+      p(8, 17, 8, 2, hi('#38bdf8')); // Aquifer water
+      p(11, 14, 2, 4, hi('#f59e0b')); // Drill string
+      break;
+    }
+    case 'hydrometre_hubeau': {
+      // River stage gauge staff + spinning hydrometric propeller
+      p(8, 9, 2, 9, hi('#f8fafc')); // Measuring staff
+      p(8, 11, 1, 1, ink('#0f172a')); // Markings
+      p(8, 13, 1, 1, ink('#0f172a'));
+      p(8, 15, 1, 1, ink('#0f172a'));
+      p(7, 14, 10, 4, hi('#0284c7')); // Flowing river wave
+      p(8, 15, 8, 2, hi('#38bdf8'));
+      // Propeller hub & blades
+      p(13, 11, 3, 3, hi('#fbbf24'));
+      p(12, 10, 2, 2, ink('#d97706'));
+      p(15, 13, 2, 2, ink('#d97706'));
+      break;
+    }
+    case 'explorateur_friches': {
+      // Sawtooth industrial factory silhouette + pioneer wild sprout
+      p(7, 13, 3, 4, ink('#78716c'));
+      p(7, 11, 3, 2, ink('#57534e')); // Chimney
+      p(10, 13, 3, 4, ink('#78716c'));
+      p(10, 12, 3, 1, ink('#57534e'));
+      p(13, 14, 4, 3, ink('#57534e'));
+      // Sprouting green vine over concrete
+      p(14, 11, 2, 3, hi('#4ade80'));
+      p(15, 10, 2, 2, hi('#86efac'));
+      p(13, 12, 2, 1, hi('#22c55e'));
       break;
     }
   }
