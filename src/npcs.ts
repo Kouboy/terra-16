@@ -771,32 +771,29 @@ function buildRegionalTriviaDialogues(
 
   if (isHuman) {
     // ========================================================================
-    // HUMAN CONVERSATIONS: Coherent 3-beat dialogue in distinct voices!
+    // HUMAN CONVERSATIONS: Passeurs de curiosité (local detail, rumor, optional lead)
     // ========================================================================
     if (kind === 'puisatier') {
       const cav = ctx.cavities.length > 0 ? ctx.cavities[seed % ctx.cavities.length] : null;
       const cavName = cav ? cleanSpokenPlaceName(cav.name) : nearestSub ? cleanSpokenPlaceName(nearestSub.poi.name) : '';
-      const beat1 = ctx.bedrock
-        ? `Baissez un peu la tête sous la voûte, l’ami ! Ici, à l’abri du vent de la surface, on marche directement dans la masse ${lithoFr} déposée au ${periodFr}${ageSpanFr ? `, ${ageSpanFr}` : ''}.`
-        : `Bienvenue sous les pavés ! Dès qu’on descend de quelques marches, le bruit d’en haut s’éteint et l’air garde la même fraîcheur été comme hiver.`;
+      const beat1 = `Bienvenue sous les pavés ! Dès qu’on descend quatre marches, le bruit de la ville s’éteint et l’air garde la même fraîcheur minérale été comme hiver.`;
 
       const beat2 = cavName
-        ? `Toute cette galerie fait partie d’un vieux réseau souterrain : non loin d’ici s’ouvrent les assises de « ${cavName} ». Les anciens carriers savaient lire chaque fissure de la pierre pour éviter les poches d’eau.`
+        ? `Les anciens carriers disaient qu’on pouvait rejoindre les assises de « ${cavName} » par ces galeries sans jamais remettre un pied dehors.`
         : waterRaw
-        ? `Vous entendez ce léger goutte-à-goutte ? Ce sont les infiltrations qui descendent lentement vers le lit ${deWaterwayFr(waterRaw)} juste au-dessus de nos têtes.`
-        : `Ces caves et galeries ont servi tour à tour de carrières à bâtir, de celliers tempérés et de passages discrets sous les fondations des plus vieux édifices.`;
+        ? `Vous entendez ce suintement régulier ? C’est l’eau ${deWaterwayFr(waterRaw)} qui chemine lentement à travers la roche au-dessus de nous.`
+        : `Les puisatiers d’autrefois savaient lire chaque fissure de la pierre pour capter l’eau fraîche sans ébranler les bâtisses du dessus.`;
 
-      const beat3 =
-        altM !== null
-          ? `Faites tout de même attention où vous posez les bottes sur la dalle humide. En surface, le terrain est à près de ${Math.round(altM)} mètres d’altitude, alors les eaux de pluie finissent toujours par chercher leur chemin jusqu’ici !`
-          : `Gardez votre lanterne bien haute près des piliers de taille : dès qu’un escalier de pierre se présente, il vous ramènera droit vers une place ou un monument du dessus.`;
+      const beat3 = cavName
+        ? `Si vous aimez les dessous du pays, guettez les soupiraux grillagés au ras du sol : un souffle frais en sort toujours.`
+        : `Gardez l’œil ouvert si vous apercevez un escalier de pierre taillée : il vous ramènera droit vers une cour ou un passage secret.`;
 
       return [beat1, beat2, beat3];
     }
 
     if (kind === 'erudit') {
       const p1 = nearestHist || primaryPoi;
-      const p1Fact = p1 ? extractConversationalFact(p1.poi, 150) : '';
+      const p1Fact = p1 ? extractConversationalFact(p1.poi, 130) : '';
       const skyNote =
         ctx.weather?.condition === 'rain' ||
         ctx.weather?.condition === 'storm' ||
@@ -805,23 +802,18 @@ function buildRegionalTriviaDialogues(
           ? `${weatherOpening}. `
           : '';
       const beat1 = p1
-        ? `Bonjour, voyageur ! ${skyNote}Je prenais justement quelques notes ${roadOrPlazaRaw ? `${surVoieOuPlaceFr(roadOrPlazaRaw)} ` : ''}en observant les alentours. Regardez ${spokenWalkDistanceFr(p1.dist, lat, lng, p1.poi.lat, p1.poi.lng, seed)} : c’est là que se dresse ${versLieuFr(p1.poi.name)}.`
-        : `Bonjour à vous ! ${weatherOpening}. C’est un plaisir de croiser quelqu’un qui prend encore le temps de lire le paysage autrement qu’au pas de course.`;
+        ? `Bonjour, voyageur ! ${skyNote}Observez la courbure des façades ${roadOrPlazaRaw ? `${surVoieOuPlaceFr(roadOrPlazaRaw)} ` : ''}: elle épouse encore l’ancien enclos de ${versLieuFr(p1.poi.name)} (${spokenWalkDistanceFr(p1.dist, lat, lng, p1.poi.lat, p1.poi.lng, seed)}).`
+        : `Bonjour ! ${weatherOpening}. Prendre le temps de lever les yeux sur les corniches et les pierres d’angle, c’est encore la meilleure manière de comprendre ce coin.`;
 
       const beat2 =
         p1 && p1Fact
-          ? `Ce lieu raconte toute une page d’histoire locale : ${p1Fact.charAt(0).toLowerCase()}${p1Fact.slice(1)} Et dire que la pierre même de nos fondations remonte${periodFr ? ` au ${periodFr}` : ' à des millions d’années'}${lithoFr ? `, taillée dans un socle ${lithoFr}` : ''} !`
-          : ctx.bedrock
-          ? `Quand on gratte un peu sous l’histoire humaine, le vertige prend vite : tout ce terroir repose sur un socle ${lithoFr} formé au ${periodFr}${ageSpanFr ? `, ${ageSpanFr}` : ''}. C’est cette roche qui a donné leur teinte aux vieux murs du pays.`
-          : `Chaque façade ici porte la trace de plusieurs époques superposées, depuis le tracé ancien des chemins jusqu’aux pierres de réemploi dans les soubassements.`;
+          ? `Une curieuse note des archives locales rapporte ce fait : ${p1Fact.charAt(0).toLowerCase()}${p1Fact.slice(1)}`
+          : `Une vieille chronique dit que les maîtres maçons gravaient une marque discrète sur les pierres les plus exposées au vent.`;
 
       const loreTarget = nearestLeg || secondaryPoi;
-      const loreFact = loreTarget ? extractConversationalFact(loreTarget.poi, 135) : '';
       const beat3 = loreTarget
-        ? `Si vous aimez les récits un peu plus secrets, poussez votre marche ${spokenWalkDistanceFr(loreTarget.dist, lat, lng, loreTarget.poi.lat, loreTarget.poi.lng, seed + 1)} jusqu’à ${versLieuFr(loreTarget.poi.name)}. ${loreFact || 'On y sent encore très bien la mémoire ancienne du quartier.'}`
-        : waterRaw
-        ? `Avant de repartir, allez donc jeter un œil du côté des berges ${deWaterwayFr(waterRaw)} : c’est autour de l’eau que les tout premiers bourgs se sont fixés ici.`
-        : `Bonne exploration à vous ! Gardez l’œil ouvert aux angles des vieilles rues, les plus beaux détails se cachent souvent juste au-dessus des portes.`;
+        ? `Si la curiosité vous pousse un peu plus loin, jetez un œil ${spokenWalkDistanceFr(loreTarget.dist, lat, lng, loreTarget.poi.lat, loreTarget.poi.lng, seed + 1)} vers ${versLieuFr(loreTarget.poi.name)} : regardez bien le soubassement.`
+        : `Bonne flânerie à vous ! Regardez bien les impostes au-dessus des portes de chêne, les dates y sont parfois encore lisibles.`;
 
       return [beat1, beat2, beat3];
     }
@@ -829,27 +821,21 @@ function buildRegionalTriviaDialogues(
     if (kind === 'villageois') {
       const beat1 = roadOrPlazaRaw
         ? `Bien le bonjour ! ${weatherOpening}. On voit rarement des promeneurs flâner aussi tranquillement ${surVoieOuPlaceFr(roadOrPlazaRaw)}.`
-        : `Bien le bonjour ! ${weatherOpening}. Prenez votre temps, le pays ne livre ses petites histoires qu’à ceux qui marchent à leur rythme.`;
+        : `Bien le bonjour ! ${weatherOpening}. Prenez votre temps, le coin ne livre ses petites histoires qu’à ceux qui marchent à leur rythme.`;
 
       const memTarget = nearestLeg || nearestHist || primaryPoi;
-      const memFact = memTarget ? extractConversationalFact(memTarget.poi, 145) : '';
+      const memFact = memTarget ? extractConversationalFact(memTarget.poi, 130) : '';
       const beat2 = memTarget
-        ? `Chez nous, tout le monde connaît ${versLieuFr(memTarget.poi.name)}, ${spokenWalkDistanceFr(memTarget.dist, lat, lng, memTarget.poi.lat, memTarget.poi.lng, seed)}. ${
+        ? `Chez nous, les anciens disaient toujours à propos de ${versLieuFr(memTarget.poi.name)} : ${
             memFact
-              ? `Les anciens rappellent volontiers ce détail : ${memFact.charAt(0).toLowerCase()}${memFact.slice(1)}`
-              : `C’est un repère qui veille sur le coin depuis bien des générations.`
+              ? `${memFact.charAt(0).toLowerCase()}${memFact.slice(1)}`
+              : `ce repère a vu passer bien des générations sans jamais changer d’allure.`
           }`
-        : ctx.bedrock
-        ? `Regardez la couleur des murets et des cours : tout vient de notre sous-sol fait ${lithoFr}, hérité du ${periodFr}. Ça donne son caractère aux jardins comme aux chemins creux.`
-        : `Ici, chaque sentier suivait autrefois la limite des vieux clos, des vergers et des terres communes du bourg.`;
+        : `Dans nos ruelles, on raconte que chaque venelle menait autrefois soit à un lavoir secret, soit à un verger commun.`;
 
-      const beat3 = waterRaw
-        ? `Et si vous cherchez un coin paisible pour souffler, descendez donc vers le fil ${deWaterwayFr(waterRaw)} : en ${ctx.seasonLabel}, la fraîcheur de l’eau attire autant les oiseaux que les promeneurs.`
-        : forestOrParkRaw
-        ? `En continuant votre tour, passez donc près de ${versLieuFr(forestOrParkRaw)} : l’ombre des grands arbres y est superbe en cette saison.`
-        : secondaryPoi
-        ? `En filant ${spokenWalkDistanceFr(secondaryPoi.dist, lat, lng, secondaryPoi.poi.lat, secondaryPoi.poi.lng, seed + 2)}, vous tomberez aussi sur ${versLieuFr(secondaryPoi.poi.name)}, ça vaut largement le détour !`
-        : `Bonne route à travers nos ruelles, et n’hésitez pas à pousser jusqu’aux petits chemins derrière les maisons !`;
+      const beat3 = secondaryPoi
+        ? `Si vous avez envie de prolonger le pas, poussez donc ${spokenWalkDistanceFr(secondaryPoi.dist, lat, lng, secondaryPoi.poi.lat, secondaryPoi.poi.lng, seed + 2)} vers ${versLieuFr(secondaryPoi.poi.name)}, l’endroit est paisible.`
+        : `Bonne route à travers nos chemins ! N’hésitez pas à emprunter les sentiers de traverse derrière les jardins.`;
 
       return [beat1, beat2, beat3];
     }
@@ -857,85 +843,66 @@ function buildRegionalTriviaDialogues(
     if (kind === 'colporteur') {
       const slopeComment =
         elevSpan >= 28
-          ? `Avec près de ${elevSpan} mètres de dénivelé dans le secteur, mes mollets s’en souviennent à chaque tournée !`
+          ? `La montée tire un peu sur les mollets par ici, mais la vue sur le vallon en vaut la peine !`
           : waterRaw
-          ? `Tant qu’on suit la vallée ${deWaterwayFr(waterRaw)} et ses vieux ponts, la route roule toute seule.`
-          : `Les chaussées du coin ont vu passer bien des charrettes et des voyageurs avant nous.`;
+          ? `Tant qu’on suit la vallée ${deWaterwayFr(waterRaw)}, le chemin coule tout seul.`
+          : `Les chemins du coin ont vu passer bien des marchands et des curieux avant nous.`;
 
       const beat1 = `Salutations sur le chemin ! ${weatherOpening}. ${slopeComment}`;
 
       const stopPoi = primaryPoi;
-      const stopFact = stopPoi ? extractConversationalFact(stopPoi.poi, 145) : '';
+      const stopFact = stopPoi ? extractConversationalFact(stopPoi.poi, 130) : '';
       const beat2 = stopPoi
-        ? `Quand je fais halte par ici, je m’oriente toujours grâce à ${versLieuFr(stopPoi.poi.name)}, ${spokenWalkDistanceFr(stopPoi.dist, lat, lng, stopPoi.poi.lat, stopPoi.poi.lng, seed)}. ${
-            stopFact || 'On raconte toujours mille choses intéressantes à son sujet au comptoir.'
+        ? `Un roulier me racontait hier près de ${versLieuFr(stopPoi.poi.name)} (${spokenWalkDistanceFr(stopPoi.dist, lat, lng, stopPoi.poi.lat, stopPoi.poi.lng, seed)}) : ${
+            stopFact || 'on y trouve un détail que les cartes ne mentionnent pas.'
           }`
-        : `À force de battre les carrefours, on apprend à lire le pays : la largeur des grands axes trahit souvent d’anciennes routes de foire ou d’octroi.`;
+        : `À force de battre les carrefours, on remarque que les haltes les plus agréables sont souvent près des vieux abreuvoirs.`;
 
       const tipPoi = secondaryPoi || nearestSub;
       const beat3 = tipPoi
-        ? `Un petit tuyau de marchand avant de reprendre ma balle : jetez un coup d’œil ${spokenWalkDistanceFr(tipPoi.dist, lat, lng, tipPoi.poi.lat, tipPoi.poi.lng, seed + 1)}, du côté de ${versLieuFr(tipPoi.poi.name)}. Peu de gens pensent à s’y arrêter !`
-        : ctx.cavities.length > 0
-        ? `Soit dit entre nous, le sous-sol du coin cache aussi d’anciennes caves et galeries… Si vous trouvez une volée de marches en pierre, jetez-y un œil !`
-        : `Allez, bon vent à vous ! Que vos semelles vous portent vers de belles trouvailles.`;
+        ? `Un petit tuyau en passant : allez jeter un coup d’œil ${spokenWalkDistanceFr(tipPoi.dist, lat, lng, tipPoi.poi.lat, tipPoi.poi.lng, seed + 1)} du côté de ${versLieuFr(tipPoi.poi.name)}, la halte en vaut la peine.`
+        : `Allez, bon vent ! Que vos semelles vous mènent sur des chemins paisibles.`;
 
       return [beat1, beat2, beat3];
     }
 
     if (kind === 'randonneur') {
-      const altPhrase =
-        altM !== null
-          ? `Ma boussole indique environ ${Math.round(altM)} mètres d’altitude ici${
-              elevSpan >= 20 ? `, avec de belles pentes tout autour (${elevSpan} m d’écart sur le secteur)` : ''
-            }.`
-          : `Le sentier est vraiment agréable à suivre aujourd’hui.`;
-      const beat1 = `Bonjour ! ${weatherOpening}. ${altPhrase}`;
+      const beat1 = `Bonjour ! ${weatherOpening}. L’air est franc ici, et sous les semelles on sent tout de suite la texture du terrain et la pente du chemin.`;
 
       const natTarget = nearestEco || nearestGeo || primaryPoi;
-      const natFact = natTarget ? extractConversationalFact(natTarget.poi, 145) : '';
-      const beat2 = forestOrParkRaw && waterRaw
-        ? `J’aime beaucoup cet endroit où les frondaisons de ${versLieuFr(forestOrParkRaw)} répondent à la fraîcheur ${deWaterwayFr(waterRaw)}. ${
-            natTarget ? `D’ailleurs, ${spokenWalkDistanceFr(natTarget.dist, lat, lng, natTarget.poi.lat, natTarget.poi.lng, seed)}, on croise ${versLieuFr(natTarget.poi.name)}.` : ''
+      const natFact = natTarget ? extractConversationalFact(natTarget.poi, 130) : '';
+      const beat2 = natTarget
+        ? `En arrivant par là, j’ai remarqué un passage discret vers ${versLieuFr(natTarget.poi.name)} (${spokenWalkDistanceFr(natTarget.dist, lat, lng, natTarget.poi.lat, natTarget.poi.lng, seed)}) : ${
+            natFact || 'les oiseaux y sont bien plus nombreux qu’au bord de la route.'
           }`
-        : natTarget
-        ? `Je viens justement de passer non loin de ${versLieuFr(natTarget.poi.name)}, ${spokenWalkDistanceFr(natTarget.dist, lat, lng, natTarget.poi.lat, natTarget.poi.lng, seed)}. ${
-            natFact || 'Le cadre vaut vraiment qu’on prenne cinq minutes pour observer les lieux.'
-          }`
-        : `En quittant un peu le bitume pour les chemins de terre et les lisières, on découvre tout de suite les oiseaux et les vieux arbres du coin.`;
+        : `En tendant l’oreille à la lisière des chemins creux, on devine souvent l’eau vive bien avant de l’apercevoir.`;
 
-      const beat3 = ctx.bedrock
-        ? `Sous la semelle, on sent tout de suite ce terrain ${lithoFr} hérité du ${periodFr} : il façonne aussi bien le dessin des coteaux que les fleurs sauvages des talus. Bonne marche à vous !`
-        : `Si vous continuez sur les petits sentiers, ouvrez l’œil aux lisières et près de l’eau, la faune locale n’est jamais bien loin. Bonne balade !`;
+      const beat3 = forestOrParkRaw
+        ? `Si vous aimez les vieux sous-bois, filez vers ${versLieuFr(forestOrParkRaw)}, la lumière y filtre superbement. Bonne marche !`
+        : `Ouvrez l’œil aux talus et aux haies vives, la flore sauvage y réserve de jolies surprises. Bonne promenade !`;
 
       return [beat1, beat2, beat3];
     }
 
     // Default Human: 'citadin' (lively neighborhood local)
     const beat1 = roadOrPlazaRaw
-      ? `Tiens, bonjour ! ${weatherOpening}. J’adore flâner ${surVoieOuPlaceFr(roadOrPlazaRaw)} à cette heure-ci, on y sent vraiment l’âme du quartier.`
-      : `Tiens, bonjour ! ${weatherOpening}. Vous explorez le quartier le nez au vent ? C’est encore la meilleure façon de le découvrir.`;
+      ? `Tiens, bonjour ! ${weatherOpening}. J’adore m’attarder ${surVoieOuPlaceFr(roadOrPlazaRaw)} : dès qu’on s’arrête deux minutes, le quartier montre des détails qu’on ne voit jamais en courant.`
+      : `Tiens, bonjour ! ${weatherOpening}. Flâner le nez au vent est encore la meilleure façon de dénicher ce que les guides oublient.`;
 
     const hoodPoi = primaryPoi;
-    const hoodFact = hoodPoi ? extractConversationalFact(hoodPoi.poi, 145) : '';
+    const hoodFact = hoodPoi ? extractConversationalFact(hoodPoi.poi, 130) : '';
     const beat2 = hoodPoi
-      ? `Si vous ne connaissez pas encore bien le coin, passez voir ${versLieuFr(hoodPoi.poi.name)}, ${spokenWalkDistanceFr(hoodPoi.dist, lat, lng, hoodPoi.poi.lat, hoodPoi.poi.lng, seed)}. ${
+      ? `Une voisine me racontait justement que ${hoodPoi.poi.name} ${
           hoodFact
-            ? `${hoodFact}`
-            : `Même nous qui passons devant tous les jours, on finit toujours par y remarquer un détail nouveau.`
+            ? `cache une petite histoire curieuse : ${hoodFact.charAt(0).toLowerCase()}${hoodFact.slice(1)}`
+            : `a gardé sa ferronnerie ou son heurtoir d’origine.`
         }`
-      : waterRaw
-      ? `Tout le quartier vit au rythme ${deWaterwayFr(waterRaw)} : dès qu’un rayon de lumière perce, tout le monde finit par rejoindre les quais et les ponts.`
-      : `Ce que j’aime ici, c’est le contraste entre les grandes façades alignées et le calme soudain des petites cours intérieures.`;
+      : `On dit dans le quartier qu’un vieux passage pavé reliait autrefois les arrière-cours d’un bout à l’autre de l’îlot.`;
 
     const nextStop = secondaryPoi;
-    const beat3 =
-      forestOrParkRaw && waterRaw
-        ? `Pour prolonger la promenade, je vous conseille de filer ensuite entre ${versLieuFr(forestOrParkRaw)} et les abords ${deWaterwayFr(waterRaw)} — c’est la respiration verte de tout le secteur !`
-        : nextStop
-        ? `Et tant que vous êtes dans les parages, poussez donc ${spokenWalkDistanceFr(nextStop.dist, lat, lng, nextStop.poi.lat, nextStop.poi.lng, seed + 1)} jusqu’à ${versLieuFr(nextStop.poi.name)}, la balade en vaut vraiment la peine.`
-        : forestOrParkRaw
-        ? `Quand vous voudrez faire une pause au vert, filez du côté de ${versLieuFr(forestOrParkRaw)}, c’est le refuge préféré des habitués du coin.`
-        : `Bonne promenade à vous ! Flânez sans hâte, chaque détour de rue réserve une petite surprise ici.`;
+    const beat3 = nextStop
+      ? `Si vous avez encore un quart d’heure, faites un détour vers ${versLieuFr(nextStop.poi.name)} (${spokenWalkDistanceFr(nextStop.dist, lat, lng, nextStop.poi.lat, nextStop.poi.lng, seed + 1)}), c’est l’un des recoins les plus calmes.`
+      : `Bonne balade ! Gardez l’œil ouvert sur les mascarons et les petites plaques de rue aux angles.`;
 
     return [beat1, beat2, beat3];
   }

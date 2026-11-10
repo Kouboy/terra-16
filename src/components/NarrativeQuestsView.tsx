@@ -228,6 +228,16 @@ export const NarrativeQuestsView: React.FC<NarrativeQuestsViewProps> = ({
             <p className="text-xs sm:text-sm text-[#3b2312] leading-relaxed">
               {selectedQuest.prologueFr}
             </p>
+
+            {/* Epistemic disclaimer: distinguish exploratory walking sequences from attested historical lineage */}
+            <div className="flex items-start gap-2 p-2.5 bg-[#f8edd6] border border-[#a27a4a]/40 text-[#4a321d] text-xs">
+              <span className="font-bold text-[#854d0e] font-mono text-[11px] shrink-0 uppercase tracking-wider">
+                Arpentage libre
+              </span>
+              <span className="text-[11px] leading-snug">
+                {selectedQuest.epistemicDisclaimerFr}
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -466,12 +476,55 @@ export const ActiveNarrativeMapBanner: React.FC<{
   onOpenNarrativesTab,
   onStopTracking,
 }) => {
+  const [isCollapsed, setIsCollapsed] = React.useState(false);
   if (actsSealed === 3) return null;
   const stage = quest.stages[actsSealed];
   const distMeters = Math.round(
     haversineMeters(explorerPos.lat, explorerPos.lng, stage.lat, stage.lng)
   );
   const canSeal = distMeters <= stage.reachRadiusMeters || alreadyDiscoveredInCarnet;
+
+  if (isCollapsed) {
+    return (
+      <div className="p-2 bg-[#24140b]/95 text-amber-200 border-2 border-[#d97706] jrpg-shadow flex items-center justify-between gap-2 text-xs">
+        <div className="flex items-center gap-1.5 min-w-0 truncate text-[11px]">
+          <span className="font-bold text-amber-300 shrink-0">{stage.phaseLabelFr}</span>
+          <span className="text-amber-400/60" aria-hidden="true">·</span>
+          <span className="truncate text-amber-100">{quest.title}</span>
+          <span className="text-amber-400/60" aria-hidden="true">·</span>
+          <span className="font-mono tabular-nums shrink-0 text-amber-300">
+            {distMeters < 1000 ? `${distMeters} m` : `${(distMeters / 1000).toFixed(1)} km`}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {canSeal && (
+            <button
+              type="button"
+              onClick={onSealCurrentAct}
+              className="px-2 py-1 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white border border-amber-200"
+            >
+              Sceller
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(false)}
+            className="px-2 py-1 text-[11px] font-bold bg-[#3b2214] hover:bg-[#4d2d1b] text-amber-200 border border-[#d97706]"
+          >
+            Déplier
+          </button>
+          <button
+            type="button"
+            onClick={onStopTracking}
+            aria-label="Arrêter le suivi du récit sur la carte"
+            className="px-1.5 py-1 text-xs font-bold text-amber-300 hover:text-white"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-2.5 sm:p-3 bg-[#24140b]/95 text-amber-100 border-2 border-[#d97706] jrpg-shadow flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
@@ -512,6 +565,14 @@ export const ActiveNarrativeMapBanner: React.FC<{
           className="min-h-[38px] px-2.5 py-1.5 text-xs font-bold bg-[#3b2214] hover:bg-[#4d2d1b] text-amber-200 border border-[#d97706]"
         >
           Récit
+        </button>
+        <button
+          type="button"
+          onClick={() => setIsCollapsed(true)}
+          className="min-h-[38px] px-2.5 py-1.5 text-xs font-bold bg-[#3b2214] hover:bg-[#4d2d1b] text-amber-200 border border-[#d97706]"
+          title="Réduire le bandeau pour dégager la carte"
+        >
+          Réduire
         </button>
         <button
           type="button"

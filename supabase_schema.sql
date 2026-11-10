@@ -260,7 +260,8 @@ drop policy if exists "cairns_insert_auth" on public.cairns;
 create policy "cairns_insert_auth" on public.cairns for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "cairns_update_upvote" on public.cairns;
-create policy "cairns_update_upvote" on public.cairns for update using (true);
+drop policy if exists "cairns_update_own" on public.cairns;
+create policy "cairns_update_own" on public.cairns for update using (auth.uid() = owner_id);
 
 drop policy if exists "cairns_delete_own" on public.cairns;
 create policy "cairns_delete_own" on public.cairns for delete using (auth.uid() = owner_id);
@@ -273,7 +274,8 @@ drop policy if exists "geocaches_insert_auth" on public.geocaches;
 create policy "geocaches_insert_auth" on public.geocaches for insert with check (auth.uid() = owner_id);
 
 drop policy if exists "geocaches_update_finder" on public.geocaches;
-create policy "geocaches_update_finder" on public.geocaches for update using (true);
+drop policy if exists "geocaches_update_own" on public.geocaches;
+create policy "geocaches_update_own" on public.geocaches for update using (auth.uid() = owner_id);
 
 drop policy if exists "geocaches_delete_own" on public.geocaches;
 create policy "geocaches_delete_own" on public.geocaches for delete using (auth.uid() = owner_id);
@@ -344,3 +346,41 @@ begin
     alter publication supabase_realtime add table public.pantheon_entries;
   end if;
 end $$;
+
+-- ============================================================================
+-- 10. FONCTIONS RPC SÉCURISÉES (Incrémentation atomique & intégrité des données)
+-- ============================================================================
+
+-- Permet aux visiteurs d'upvoter un cairn sans avoir le droit de modifier son texte ou son auteur
+create or replace function public.increment_cairn_upvote(target_cairn_id text)
+returns void language plpgsql security definer as $$
+begin
+  update public.cairns
+  set upvotes = upvotes + 1
+  where id = target_cairn_id;
+end;
+$$;
+
+-- Permet d'inscrire une signature et d'incrémenter finder_count sans exposer l'édition directe de la géocache
+create or replace function public.record_geocache_log(
+  target_cache_id text,
+  p_finder_id uuid,
+  p_finder_name text,
+  p_message text
+)
+returns void language plpgsql security definer as $$
+begin
+  insert into public.geocache_logs (id, geocache_id, owner_id, finder_name, log_message, created_at)
+  values (
+    target_cache_id || '_' || p_finder_id::text || '_' || extract(epoch from now())::bigint::text,
+    target_cache_id,
+    p_finder_id,
+    p_finder_name,
+    p_message,
+    now()
+  );
+  update public.geocaches
+  set finder_count = finder_count + 1
+  where id = target_cache_id;
+end;
+$$;

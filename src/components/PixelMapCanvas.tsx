@@ -64,6 +64,7 @@ import {
   ExplorerGeocacheRecord,
   ExplorerOutfitId,
   haversineMeters,
+  classifyPoiSignificanceTier,
   HistoricalStratum,
   inferOfficialStateLabel,
   LandmarkStyle,
@@ -7295,6 +7296,7 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     const pctx = offscreen.getContext('2d');
     if (!pctx) return;
     pctx.imageSmoothingEnabled = false;
+    pctx.clearRect(0, 0, VW, VH);
 
     const {
       grid,
@@ -7511,6 +7513,9 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       const wctx = worldLayer.getContext('2d');
       if (wctx) {
         wctx.imageSmoothingEnabled = false;
+        wctx.clearRect(0, 0, layerW, layerH);
+        wctx.fillStyle = subterraneanMode ? subLithoProfile.floorBase : regionalTheme.meadow[1];
+        wctx.fillRect(0, 0, layerW, layerH);
         const pctx = wctx;
         const blitAtlas = (row: number, col: number, dx: number, dy: number) => {
           pctx.drawImage(atlas, (col & 3) * 16, row * 16, 16, 16, dx, dy, 16, 16);
@@ -9326,8 +9331,10 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       }
     }
 
-    const layerSubX = offsetX - layerOriginPxX;
-    const layerSubY = offsetY - layerOriginPxY;
+    const maxSubX = Math.max(0, worldLayer.width - VW);
+    const maxSubY = Math.max(0, worldLayer.height - VH);
+    const layerSubX = Math.max(0, Math.min(maxSubX, offsetX - layerOriginPxX));
+    const layerSubY = Math.max(0, Math.min(maxSubY, offsetY - layerOriginPxY));
     pctx.drawImage(worldLayer, layerSubX, layerSubY, VW, VH, 0, 0, VW, VH);
 
     // ========================================================================
@@ -10548,18 +10555,19 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
     }
 
     for (const { poi, vx, vy, isUnlocked, distMeters } of projectedPois) {
-      const isSecretSite = Boolean(revealedSecretPoiIds?.has(poi.id));
-      const isClueCarrier = Boolean(clueCarrierPoiIds?.has(poi.id));
-      const hasOfficialStateLabel = Boolean(
-        inferOfficialStateLabel(poi.source, poi.subType, poi.officialLabel)
-      );
+      try {
+        const isSecretSite = Boolean(revealedSecretPoiIds?.has(poi.id));
+        const isClueCarrier = Boolean(clueCarrierPoiIds?.has(poi.id));
+        const hasOfficialStateLabel = Boolean(
+          inferOfficialStateLabel(poi.source, poi.subType, poi.officialLabel)
+        );
 
-      const isSelected = selectedPoiId === poi.id || hoveredPoiId === poi.id;
-      const isHotProximity = !isUnlocked && distMeters <= poi.unlockRadiusMeters * 1.65;
-      const isSpectralRevealed =
-        !isUnlocked && spectralLanternMeters > 0 && distMeters <= spectralLanternMeters;
-      const pal = CAT_SPRITE_PAL[poi.category] || CAT_SPRITE_PAL.histoire;
-      const phase = (animTick + poiPhaseHash(poi.id)) % 8;
+        const isSelected = selectedPoiId === poi.id || hoveredPoiId === poi.id;
+        const isHotProximity = !isUnlocked && distMeters <= poi.unlockRadiusMeters * 1.65;
+        const isSpectralRevealed =
+          !isUnlocked && spectralLanternMeters > 0 && distMeters <= spectralLanternMeters;
+        const pal = (poi.category && CAT_SPRITE_PAL[poi.category]) || CAT_SPRITE_PAL.histoire;
+        const phase = (animTick + poiPhaseHash(poi.id)) % 8;
 
       if (isUnlocked) {
         // ====================================================================
@@ -10643,81 +10651,97 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
       } else {
         // ====================================================================
         // UNDISCOVERED MYSTERY POI (OR REVEALED SECRET ARCHIVE SEAL ✦)
+        // VISUAL HIERARCHY (LOT 1):
+        // - "remarquable": Full embossed ornate reliquary seal
+        // - "notable": Elegant compact seal
+        // - "technique": Minimal quiet copper beacon (discrete survey echo)
         // ====================================================================
-        const bobTable = isHotProximity
-          ? [0, -2, -4, -3, -1, -2, -4, -2]
-          : [0, -1, -2, -3, -2, -1, 0, -1];
-        const bob = bobTable[phase];
-        const py = vy + bob;
+        const significance = classifyPoiSignificanceTier(poi);
 
-        if (phase === 0 || phase === 1) {
-          strokePxRect(vx - 5, vy - 2, 11, 5, isSecretSite ? '#c084fc' : '#fde047');
-        } else if (phase === 2 || phase === 3 || phase === 4) {
-          strokePxRect(
-            vx - 9,
-            vy - 4,
-            19,
-            8,
-            isSecretSite ? '#e879f9' : isHotProximity ? '#ef4444' : '#fbbf24'
-          );
-        } else if (phase === 5 || phase === 6) {
-          strokePxRect(
-            vx - 13,
-            vy - 5,
-            27,
-            10,
-            isSecretSite ? 'rgba(216, 180, 254, 0.85)' : 'rgba(253, 224, 71, 0.72)'
-          );
-        }
+        if (significance === 'technique' && !isHotProximity && !isSelected && !isSecretSite) {
+          // Quiet, low-salience geological/hydrometric survey point: small 16-bit brass peg & echo
+          px(vx - 3, vy - 1, 7, 3, 'rgba(18, 10, 6, 0.45)');
+          px(vx - 2, vy - 5, 5, 5, '#140b05');
+          px(vx - 1, vy - 4, 3, 3, pal.dark);
+          px(vx, vy - 3, 1, 1, pal.light);
+          if (phase === 0 || phase === 4) {
+            px(vx - 4, vy - 6, 9, 1, pal.main);
+          }
+        } else {
+          const bobTable = isHotProximity
+            ? [0, -2, -4, -3, -1, -2, -4, -2]
+            : [0, -1, -2, -3, -2, -1, 0, -1];
+          const bob = bobTable[phase];
+          const py = vy + bob;
 
-        px(vx - 14, py - 27, 29, 25, 'rgba(18, 10, 6, 0.52)');
-        px(vx - 6, vy - 1, 13, 4, 'rgba(18, 10, 6, 0.72)');
+          if (phase === 0 || phase === 1) {
+            strokePxRect(vx - 5, vy - 2, 11, 5, isSecretSite ? '#c084fc' : '#fde047');
+          } else if (phase === 2 || phase === 3 || phase === 4) {
+            strokePxRect(
+              vx - 9,
+              vy - 4,
+              19,
+              8,
+              isSecretSite ? '#e879f9' : isHotProximity ? '#ef4444' : '#fbbf24'
+            );
+          } else if (phase === 5 || phase === 6) {
+            strokePxRect(
+              vx - 13,
+              vy - 5,
+              27,
+              10,
+              isSecretSite ? 'rgba(216, 180, 254, 0.85)' : 'rgba(253, 224, 71, 0.72)'
+            );
+          }
 
-        px(vx - 1, py - 3, 3, vy - py + 4, '#140b05');
-        px(vx, py - 3, 1, vy - py + 3, isSecretSite ? '#e879f9' : '#fde047');
+          px(vx - 14, py - 27, 29, 25, 'rgba(18, 10, 6, 0.52)');
+          px(vx - 6, vy - 1, 13, 4, 'rgba(18, 10, 6, 0.72)');
 
-        const auraColor = isSecretSite
-          ? phase % 2 === 0
-            ? '#fde047'
-            : '#c084fc'
-          : isHotProximity
-          ? phase % 2 === 0
-            ? '#fde047'
-            : '#ef4444'
-          : isSpectralRevealed
-          ? phase % 2 === 0
-            ? '#67e8f9'
-            : '#c084fc'
-          : phase === 0 || phase === 4
-          ? '#ffffff'
-          : '#fbbf24';
-        strokePxRect(vx - 13, py - 27, 27, 23, auraColor);
+          px(vx - 1, py - 3, 3, vy - py + 4, '#140b05');
+          px(vx, py - 3, 1, vy - py + 3, isSecretSite ? '#e879f9' : '#fde047');
 
-        px(vx - 11, py - 26, 23, 21, '#140b05');
-        px(vx - 12, py - 24, 25, 17, '#140b05');
-        px(vx - 5, py - 5, 11, 3, '#140b05');
-        px(vx - 2, py - 2, 5, 3, '#140b05');
-
-        const frameMain = isSecretSite
-          ? '#7e22ce'
-          : subterraneanMode
-          ? '#0369a1'
-          : '#d97706';
-        const frameTip = isSecretSite
-          ? '#a855f7'
-          : subterraneanMode
-          ? '#0ea5e9'
-          : '#f59e0b';
-        const goldBright =
-          phase === 1 || phase === 5 || isSelected
+          const auraColor = isSecretSite
+            ? phase % 2 === 0
+              ? '#fde047'
+              : '#c084fc'
+            : isHotProximity
+            ? phase % 2 === 0
+              ? '#fde047'
+              : '#ef4444'
+            : isSpectralRevealed
+            ? phase % 2 === 0
+              ? '#67e8f9'
+              : '#c084fc'
+            : phase === 0 || phase === 4
             ? '#ffffff'
-            : isSecretSite
-            ? '#fde047'
+            : '#fbbf24';
+          strokePxRect(vx - 13, py - 27, 27, 23, auraColor);
+
+          px(vx - 11, py - 26, 23, 21, '#140b05');
+          px(vx - 12, py - 24, 25, 17, '#140b05');
+          px(vx - 5, py - 5, 11, 3, '#140b05');
+          px(vx - 2, py - 2, 5, 3, '#140b05');
+
+          const frameMain = isSecretSite
+            ? '#7e22ce'
             : subterraneanMode
-            ? '#bae6fd'
-            : '#fef08a';
-        px(vx - 10, py - 25, 21, 19, frameMain);
-        px(vx - 11, py - 23, 23, 15, frameMain);
+            ? '#0369a1'
+            : '#d97706';
+          const frameTip = isSecretSite
+            ? '#a855f7'
+            : subterraneanMode
+            ? '#0ea5e9'
+            : '#f59e0b';
+          const goldBright =
+            phase === 1 || phase === 5 || isSelected
+              ? '#ffffff'
+              : isSecretSite
+              ? '#fde047'
+              : subterraneanMode
+              ? '#bae6fd'
+              : '#fef08a';
+          px(vx - 10, py - 25, 21, 19, frameMain);
+          px(vx - 11, py - 23, 23, 15, frameMain);
         px(vx - 10, py - 25, 20, 2, goldBright);
         px(vx - 11, py - 23, 2, 14, goldBright);
         px(vx - 4, py - 6, 9, 3, frameTip);
@@ -10836,6 +10860,10 @@ export const PixelMapCanvas: React.FC<PixelMapCanvasProps> = ({
         }
       }
     }
+  } catch {
+    // Safe fault tolerance: individual malformed POI record never breaks overall canvas render
+  }
+}
 
     // ========================================================================
     // PASS 3B: OFF-SCREEN UNDISCOVERED EDGE COMPASS SEALS

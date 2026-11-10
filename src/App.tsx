@@ -21,6 +21,9 @@ import {
   PanoramicLandmarkPin,
 } from './cartography16Bit';
 import { OrientationTableModal } from './components/OrientationTableModal';
+const WalkRecapModal = React.lazy(() =>
+  import('./components/WalkRecapModal').then((m) => ({ default: m.WalkRecapModal }))
+);
 import { PixelMapCanvas } from './components/PixelMapCanvas';
 import { ResilientPixelImage } from './components/ResilientPixelImage';
 import { TitleScreenView } from './components/TitleScreenView';
@@ -305,13 +308,16 @@ import {
   CarnetViewMode,
   CATEGORY_META,
   CATEGORY_ORDER,
+  classifyPoiSignificanceTier,
   CollectedSpecimen,
   computeLevelFromXp,
   ElevationGrid,
+  EPISTEMIC_STATUS_META,
   ExplorationCategory,
   ExplorerAppearance,
   ExplorerGeocacheRecord,
   ExplorerOutfitId,
+  resolveEpistemicStatus,
   ExplorerProgress,
   getCategoryXp,
   getZoomWalkStepMeters,
@@ -360,6 +366,7 @@ const INITIAL_PROGRESS: ExplorerProgress = {
   packId: 'besace_cuir',
   familiarId: 'aucun',
   walkedMeters: 0,
+  simulatedWalkedMeters: 0,
   totalXp: 0,
   xpHistoire: 0,
   xpGeographie: 0,
@@ -605,7 +612,7 @@ export default function App() {
   const [showTitleScreen, setShowTitleScreen] = useState<boolean>(() => {
     try {
       if (localStorage.getItem('terra16_skip_title_v1') === '1') return false;
-      return sessionStorage.getItem('terra16_session_started_v1') !== '1';
+      return true;
     } catch {
       return true;
     }
@@ -740,6 +747,9 @@ export default function App() {
   ]);
   const [sessionMeters, setSessionMeters] = useState<number>(0);
   const [sessionElevGainM, setSessionElevGainM] = useState<number>(0);
+  const [showWalkRecapModal, setShowWalkRecapModal] = useState<boolean>(false);
+  const [sessionUnlockedPoiIds, setSessionUnlockedPoiIds] = useState<string[]>([]);
+  const [carnetListFilter, setCarnetListFilter] = useState<'all' | 'annotated'>('all');
   const lastStepMetricRef = useRef<{ lat: number; lng: number; alt: number | null }>({
     lat: PRESET_LOCATIONS[0].lat,
     lng: PRESET_LOCATIONS[0].lng,
@@ -773,9 +783,10 @@ export default function App() {
   const [discoveryToast, setDiscoveryToast] = useState<{
     id: string;
     name: string;
-    category: ExplorationCategory;
+    category?: ExplorationCategory;
+    kicker?: string;
     eraLabel?: string;
-    xpAwarded: number;
+    xpAwarded?: number;
     poiId?: string;
     subtitle?: string;
   } | null>(null);
@@ -784,9 +795,10 @@ export default function App() {
   const showDiscoveryToast = useCallback(
     (toast: {
       name: string;
-      category: ExplorationCategory;
+      category?: ExplorationCategory;
+      kicker?: string;
       eraLabel?: string;
-      xpAwarded: number;
+      xpAwarded?: number;
       poiId?: string;
       subtitle?: string;
     }) => {
@@ -1062,13 +1074,7 @@ export default function App() {
       const activeNative = Boolean(
         document.fullscreenElement || docWithWebkit.webkitFullscreenElement
       );
-      if (activeNative) {
-        hadNativeFullscreenRef.current = true;
-      } else if (hadNativeFullscreenRef.current) {
-        hadNativeFullscreenRef.current = false;
-        setIsFullscreenMap(false);
-        setFullscreenModalPoiId(null);
-      }
+      hadNativeFullscreenRef.current = activeNative;
     };
     document.addEventListener('fullscreenchange', onFsChange);
     document.addEventListener('webkitfullscreenchange', onFsChange);
@@ -1598,25 +1604,32 @@ export default function App() {
       setSessionMeters((m) => m + roundedStep);
       setProgress((p) => ({
         ...p,
-        walkedMeters: (p.walkedMeters || 0) + roundedStep,
+        walkedMeters: simulationMode ? p.walkedMeters || 0 : (p.walkedMeters || 0) + roundedStep,
+        simulatedWalkedMeters: simulationMode
+          ? (p.simulatedWalkedMeters || 0) + roundedStep
+          : p.simulatedWalkedMeters || 0,
       }));
-      setWalkingState((prevWs) => {
-        const { nextState, newlyCompletedChallenges } = recordStepDistanceInState(
-          prevWs,
-          roundedStep
-        );
-        if (newlyCompletedChallenges.length > 0) {
-          const first = newlyCompletedChallenges[0];
-          setCutIn({
-            id: `cutin_walk_${first.id}_${Date.now()}`,
-            kind: 'mission',
-            kicker: 'Palier de Marche Franchi !',
-            title: first.title,
-            subtitle: `Objectif de ${formatDistanceKm(first.targetMeters)} atteint ! Réclamez votre récompense exclusive dans les Défis de Marche.`,
-          });
-        }
-        return nextState;
-      });
+
+      // Evaluate physical walking challenges strictly for real GPS steps, preserving leaderboard integrity
+      if (!simulationMode) {
+        setWalkingState((prevWs) => {
+          const { nextState, newlyCompletedChallenges } = recordStepDistanceInState(
+            prevWs,
+            roundedStep
+          );
+          if (newlyCompletedChallenges.length > 0) {
+            const first = newlyCompletedChallenges[0];
+            showDiscoveryToast({
+              kicker: 'Défi de Marche GPS',
+              name: first.title,
+              subtitle: `${formatDistanceKm(first.targetMeters)} franchis à pied · Récompense disponible`,
+              category: 'geographie',
+            });
+          }
+          return nextState;
+        });
+      }
+
       if (prev.alt !== null && curAlt !== null && curAlt > prev.alt + 0.6) {
         setSessionElevGainM((g) => g + Math.round(curAlt - prev.alt!));
       }
@@ -1630,7 +1643,7 @@ export default function App() {
     } else if (prev.alt === null && curAlt !== null) {
       lastStepMetricRef.current = { ...prev, alt: curAlt };
     }
-  }, [playerPos.lat, playerPos.lng, elevation]);
+  }, [playerPos.lat, playerPos.lng, elevation, simulationMode]);
 
   // Automatically activate Screen Wake Lock when "Boussole en poche" is switched on
   useEffect(() => {
@@ -1713,9 +1726,12 @@ export default function App() {
           const merged = [...kept];
           for (const incoming of payload.pois) {
             if (seenIds.has(incoming.id)) continue;
-            const duplicateNearby = merged.some(
-              (ex) => haversineMeters(ex.lat, ex.lng, incoming.lat, incoming.lng) < 20
-            );
+            const duplicateNearby = merged.some((ex) => {
+              const d = haversineMeters(ex.lat, ex.lng, incoming.lat, incoming.lng);
+              if (d < 25) return true;
+              if (d < 65 && ex.name.toLowerCase().trim() === incoming.name.toLowerCase().trim()) return true;
+              return false;
+            });
             if (duplicateNearby) continue;
             seenIds.add(incoming.id);
             merged.push(incoming);
@@ -2250,13 +2266,11 @@ export default function App() {
     }));
 
     const first = newlyProximate[0];
-    setCutIn({
-      id: `secret_prox_${first.secretPoiId}_${Date.now()}`,
-      kind: 'mission',
-      kicker: `✦ Résonance Secrète · Cote ${first.archiveCote}`,
-      title: `« ${first.codenameFr} » se matérialise sur la carte !`,
-      subtitle: `Votre lanterne révèle un sceau caché à quelques pas (+${first.bonusXpTotal} XP & collectible rare à la clé).`,
-      openSecretArchives: true,
+    showDiscoveryToast({
+      kicker: 'Résonance Secrète',
+      name: `Sceau décelé : « ${first.codenameFr} »`,
+      subtitle: `Cote ${first.archiveCote} · Révélé sur la carte à quelques pas`,
+      category: 'legende',
     });
   }, [
     playerPos.lat,
@@ -2310,7 +2324,11 @@ export default function App() {
   }, [activeLayerPois]);
 
   const evaluateMissionsWithEntries = useCallback(
-    (currentEntries: UnlockedEntry[], baseProgress: ExplorerProgress): ExplorerProgress => {
+    (
+      currentEntries: UnlockedEntry[],
+      baseProgress: ExplorerProgress,
+      silentToast = false
+    ): ExplorerProgress => {
       const updated: ExplorerProgress = {
         ...baseProgress,
         completedMissions: [...baseProgress.completedMissions],
@@ -2348,22 +2366,16 @@ export default function App() {
         }
       }
 
-      if (newlyCompletedTitle) {
+      // Lot 5: Avoid stacking multiple noisy toasts/fanfares simultaneously during POI discovery
+      if (newlyCompletedTitle && !silentToast) {
         playMissionFanfare(muted);
-        setCutIn({
-          id: `mission_${Date.now()}`,
-          kind: 'mission',
-          kicker: newlyCompletedRewardName
-            ? newlyCompletedHasFamiliar
-              ? 'Quête scellée · Familier & Cosmétique débloqués !'
-              : 'Quête scellée · Nouvel équipement cosmétique débloqué !'
-            : 'Quête scellée au Grimoire !',
-          title: newlyCompletedTitle,
+        showDiscoveryToast({
+          kicker: newlyCompletedRewardName ? 'Quête & Récompense' : 'Quête Scellée',
+          name: newlyCompletedTitle,
           subtitle: newlyCompletedRewardName
-            ? `+${newlyCompletedBonus} XP · Débloqué : « ${newlyCompletedRewardName} »`
-            : `Récompense de maîtrise accordée : +${newlyCompletedBonus} XP`,
-          unlockedCosmeticName: newlyCompletedRewardName || undefined,
-          unlockedCosmeticSlot: newlyCompletedRewardSlot,
+            ? `Débloqué : « ${newlyCompletedRewardName} »`
+            : `+${newlyCompletedBonus} XP inscrits au registre`,
+          category: 'histoire',
         });
       }
 
@@ -2512,6 +2524,7 @@ export default function App() {
         personalNote: '',
         photoCount: 0,
         discoveredAtIso: nowIso,
+        epistemicStatus: resolveEpistemicStatus(poi),
       };
     });
 
@@ -2542,18 +2555,26 @@ export default function App() {
       });
     }
 
+    const primaryPoi = newlyUnlockedPois[0];
+    const significance = primaryPoi ? classifyPoiSignificanceTier(primaryPoi) : 'notable';
+    const isRemarkable = significance === 'remarquable' || newlyDiscoveredSecrets.length > 0;
+
     if (newlyDiscoveredSecrets.length > 0) {
       playSecretArchiveSealBreakSfx(muted);
-    } else {
+    } else if (isRemarkable) {
       playDiscoveryFanfare(muted);
       if (newlyCollectedClues.length > 0) {
         playSecretClueChimeSfx(muted);
       }
+    } else {
+      // Gentle pocket-compass chime for ordinary discoveries — prevents audio saturation
+      playProximityChimeSfx(muted);
     }
     vibrateUnlockCelebration(hapticsEnabled);
 
     const combinedEntries = [...newEntries, ...entries];
     setEntries(combinedEntries);
+    setSessionUnlockedPoiIds((prev) => [...prev, ...newEntries.map((e) => e.poiId)]);
 
     const nextBase: ExplorerProgress = { ...progress };
     if (isTrueNightFeat) {
@@ -2572,7 +2593,8 @@ export default function App() {
       if (e.category === 'legende') nextBase.xpLegende = (nextBase.xpLegende || 0) + e.xpAwarded;
     }
 
-    const finalProgress = evaluateMissionsWithEntries(combinedEntries, nextBase);
+    // Lot 5: Silent mission evaluation during discovery so the place remains the singular celebration
+    const finalProgress = evaluateMissionsWithEntries(combinedEntries, nextBase, true);
     setProgress(finalProgress);
 
     const primary = newEntries[0];
@@ -2585,37 +2607,40 @@ export default function App() {
 
     if (primarySecret) {
       const rareCollectible = getSecretCollectibleById(primarySecret.site.collectibleId);
-      setCutIn({
-        id: `disc_secret_${primary.poiId}`,
-        kind: 'discovery',
-        kicker: `✦ Lieu d’Intérêt Caché Dévoilé · Cote ${primarySecret.site.archiveCote}`,
-        title: primary.name,
-        subtitle: `+${primary.xpAwarded} XP · Collectible rare débloqué : « ${rareCollectible.name} » !`,
-        emblemSrc: catMeta.emblemSrc,
-        poiId: primary.poiId,
-        openSecretArchives: true,
-      });
-    } else if (primaryClue) {
-      setCutIn({
-        id: `disc_${primary.poiId}`,
-        kind: 'discovery',
-        kicker: `Feuillet + Note à l’Encre Sympathique · ${primaryClue.site.archiveCote}`,
-        title: primary.name,
-        subtitle: `+${primary.xpAwarded} XP · ${primaryClue.titleFr} vers « ${primaryClue.site.codenameFr} » découvert !`,
-        emblemSrc: catMeta.emblemSrc,
-        poiId: primary.poiId,
-        openSecretArchives: true,
-      });
-    } else {
       showDiscoveryToast({
+        kicker: 'Lieu Caché Dévoilé',
         name: primary.name,
         category: primary.category,
         eraLabel: primary.eraLabel,
         xpAwarded: primary.xpAwarded,
         poiId: primary.poiId,
-        subtitle: `${catMeta.label} · +${primary.xpAwarded} XP${
-          totalBonusPct > 0 ? ` (+${totalBonusPct}% bonus)` : ''
-        }`,
+        subtitle: `Cote ${primarySecret.site.archiveCote} · « ${rareCollectible.name} » ajouté au Grimoire`,
+      });
+    } else if (primaryClue) {
+      showDiscoveryToast({
+        kicker: 'Archive Déchiffrée',
+        name: primary.name,
+        category: primary.category,
+        eraLabel: primary.eraLabel,
+        xpAwarded: primary.xpAwarded,
+        poiId: primary.poiId,
+        subtitle: `Indice vers « ${primaryClue.site.codenameFr} » consigné au carnet`,
+      });
+    } else {
+      const kicker =
+        significance === 'remarquable'
+          ? '✦ Lieu Remarquable'
+          : significance === 'technique'
+          ? 'Relevé d’arpentage'
+          : 'Curiosité observée';
+      showDiscoveryToast({
+        kicker,
+        name: primary.name,
+        category: primary.category,
+        eraLabel: primary.eraLabel,
+        xpAwarded: primary.xpAwarded,
+        poiId: primary.poiId,
+        subtitle: `${catMeta.label} · ${primary.subType}`,
       });
     }
 
@@ -2794,6 +2819,14 @@ export default function App() {
       }
     }
   };
+
+  const handleResetWalkSession = useCallback(() => {
+    setSessionMeters(0);
+    setSessionElevGainM(0);
+    setSessionUnlockedPoiIds([]);
+    setBreadcrumbTrail([{ lat: playerPos.lat, lng: playerPos.lng }]);
+    setShowWalkRecapModal(false);
+  }, [playerPos.lat, playerPos.lng]);
 
   const handleResetCharacter = useCallback(async () => {
     // Suppress immediate auto-unlock on POIs currently overlapping playerPos until player steps >= 8m
@@ -3722,8 +3755,11 @@ export default function App() {
     (chest: WorldArchivistChestNode) => {
       if (openedChestIdSet.has(chest.chestId)) {
         setCarnetView('tresors');
-        setActiveTab('carnet');
-        if (isFullscreenMap) exitFullscreenMap();
+        if (isFullscreenMap) {
+          setFullscreenOverlayView('carnet');
+        } else {
+          setActiveTab('carnet');
+        }
         return;
       }
 
@@ -5527,27 +5563,34 @@ export default function App() {
           const hostedClueMatch = selectedMapPoiEntry
             ? findSecretClueHostedOnPoi(selectedMapPoi.id, sectorSecrets)
             : null;
+          const epKey = resolveEpistemicStatus(selectedMapPoi);
+          const epMeta = EPISTEMIC_STATUS_META[epKey];
 
           return (
             <>
-              {(officialMeta || secretSiteMatch) && (
-                <div className="flex flex-wrap items-center gap-1.5 pr-10">
-                  {officialMeta && (
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${officialMeta.badgeClass}`}
-                    >
-                      <span>★ {officialMeta.fullTitle}</span>
+              <div className="flex flex-wrap items-center gap-1.5 pr-10">
+                <span
+                  title={epMeta.tooltipDesc}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${epMeta.badgeClass}`}
+                >
+                  <span className="font-mono">{epMeta.iconSymbol}</span>
+                  <span>{epMeta.badgeLabel}</span>
+                </span>
+                {officialMeta && (
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${officialMeta.badgeClass}`}
+                  >
+                    <span>★ {officialMeta.fullTitle}</span>
+                  </span>
+                )}
+                {secretSiteMatch && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#3b0764] text-amber-300 border border-[#fde047]">
+                    <span>
+                      ✦ {selectedMapPoiEntry ? 'Archive Secrète Dévoilée' : `Lieu Caché Révélé · +${secretSiteMatch.bonusXpTotal} XP`}
                     </span>
-                  )}
-                  {secretSiteMatch && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#3b0764] text-amber-300 border border-[#fde047]">
-                      <span>
-                        ✦ {selectedMapPoiEntry ? 'Archive Secrète Dévoilée' : `Lieu Caché Révélé · +${secretSiteMatch.bonusXpTotal} XP`}
-                      </span>
-                    </span>
-                  )}
-                </div>
-              )}
+                  </span>
+                )}
+              </div>
 
               {selectedMapPoiEntry && hostedClueMatch && (
                 <SympatheticInkClueBanner
@@ -5888,6 +5931,16 @@ export default function App() {
                 <span>Marcher la boucle</span>
               </button>
             </div>
+
+            {/* Indicative path & safety disclaimer */}
+            <div className="p-2 bg-[#fbf5e8] border border-[#a27a4a]/50 text-[10px] text-[#54361d] flex items-start gap-1.5 leading-snug">
+              <PixelUiIcon name="shield" className="w-3.5 h-3.5 text-[#8c653b] shrink-0 mt-0.5" />
+              <p>
+                <strong>Tracé indicatif OpenStreetMap :</strong> restez toujours sur les voies publiques
+                autorisées. Ne pénétrez jamais dans un terrain privé ou dangereux : chaque étape se
+                découvre à distance sans franchir de clôture.
+              </p>
+            </div>
           </>
         ) : (
           <p className="text-xs text-[#6b4928]">
@@ -5978,6 +6031,14 @@ export default function App() {
           >
             Vider
           </button>
+        </div>
+
+        <div className="p-2 bg-[#fbf5e8] border border-[#a27a4a]/50 text-[10px] text-[#54361d] flex items-start gap-1.5 leading-snug">
+          <PixelUiIcon name="shield" className="w-3.5 h-3.5 text-[#8c653b] shrink-0 mt-0.5" />
+          <p>
+            <strong>Tracé indicatif OpenStreetMap :</strong> respectez toujours la signalisation sur
+            le terrain et la sécurité des voies.
+          </p>
         </div>
       </div>
     );
@@ -6598,9 +6659,12 @@ export default function App() {
                     }}
                     onOpenReliquaryTab={() => {
                       setMobileDrawer('none');
-                      if (isFullscreenMap) exitFullscreenMap();
                       setCarnetView('tresors');
-                      setActiveTab('carnet');
+                      if (isFullscreenMap) {
+                        setFullscreenOverlayView('carnet');
+                      } else {
+                        setActiveTab('carnet');
+                      }
                     }}
                   />
                   {renderPresetRoadLoopsCard()}
@@ -6916,6 +6980,56 @@ export default function App() {
       />
     ) : null;
 
+  const renderWalkRecapModal = () =>
+    showWalkRecapModal ? (
+      <Suspense fallback={null}>
+        <WalkRecapModal
+          isOpen={showWalkRecapModal}
+          onClose={() => setShowWalkRecapModal(false)}
+          sessionMeters={sessionMeters}
+          sessionElevGainM={sessionElevGainM}
+          sessionUnlockedPoiIds={sessionUnlockedPoiIds}
+          entries={entries}
+          onOpenEntry={(poiId) => {
+            openJournalEntry(poiId);
+          }}
+          onResetSession={handleResetWalkSession}
+          isSimulatedLocation={simulationMode}
+        />
+      </Suspense>
+    ) : null;
+
+  if (showTitleScreen) {
+    return (
+      <TitleScreenView
+        user={user}
+        authReady={authReady}
+        cloudOnline={cloudOnline}
+        authError={authError}
+        onClearAuthError={() => setAuthError('')}
+        onGoogleAuth={handleAuthAction}
+        onEnterExpedition={handleEnterFromTitleScreen}
+        skipTitleNextTime={skipTitleNextTime}
+        onToggleSkipTitleNextTime={handleToggleSkipTitleNextTime}
+        muted={muted}
+        onToggleMuted={() => setMuted((m) => !m)}
+        explorerCallsign={progress.displayName}
+        onUpdateCallsign={handleSaveCallsignDirect}
+        appearance={explorerAppearance}
+        onUpdateAppearance={handleUpdateAppearance}
+        unlockedHeadgearIds={unlockedCosmeticSets.headgear}
+        unlockedOutfitIds={unlockedCosmeticSets.outfits}
+        unlockedFamiliarIds={unlockedCosmeticSets.familiars}
+        explorerLevel={globalLevelInfo.level}
+        explorerRankTitle={explorerHonorificTitle}
+        discoveriesCount={entries.length}
+        regionLabel={localAtmosphereLabel}
+        weather={weather}
+        onResetCharacter={handleResetCharacter}
+      />
+    );
+  }
+
   // ==========================================================================
   // IMMERSIVE 100dvh FULLSCREEN MAP MODE (Desktop, Smartphone & AI Studio Iframe)
   // ==========================================================================
@@ -7014,12 +7128,12 @@ export default function App() {
                 <PixelCornerRivets className="bg-amber-400" />
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <div className="w-7 h-7 bg-[#451a03] border border-amber-400/80 flex items-center justify-center shrink-0">
-                    <PixelGuildIcon category={discoveryToast.category} className="w-4 h-4 text-amber-300" />
+                    <PixelGuildIcon category={discoveryToast.category || 'geographie'} className="w-4 h-4 text-amber-300" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400 uppercase tracking-wide">
-                      <span>Découverte</span>
-                      {discoveryToast.xpAwarded > 0 && (
+                      <span>{discoveryToast.kicker || 'Découverte'}</span>
+                      {discoveryToast.xpAwarded !== undefined && discoveryToast.xpAwarded > 0 && (
                         <span className="text-yellow-300 font-mono">+{discoveryToast.xpAwarded} XP</span>
                       )}
                     </div>
@@ -7520,9 +7634,7 @@ export default function App() {
                     }}
                     onReturnToMap={() => setFullscreenOverlayView('none')}
                     onNavigateToMissions={() => {
-                      setFullscreenOverlayView('none');
-                      exitFullscreenMap();
-                      setActiveTab('missions');
+                      setFullscreenOverlayView('missions');
                     }}
                     onNavigateToActivity={(activity) => {
                       if (activity === 'enigmes') {
@@ -7531,9 +7643,7 @@ export default function App() {
                         return;
                       }
                       setMissionsSubTab(activity);
-                      setFullscreenOverlayView('none');
-                      exitFullscreenMap();
-                      setActiveTab('missions');
+                      setFullscreenOverlayView('missions');
                     }}
                     onResetCharacter={handleResetCharacter}
                     onExportBackup={() =>
@@ -7725,6 +7835,7 @@ export default function App() {
         {renderRiddleModal()}
         {renderOrientationTableModal()}
         {renderSecretDecipherModal()}
+        {renderWalkRecapModal()}
       </div>
     );
   }
@@ -7742,6 +7853,16 @@ export default function App() {
         <>
           <header className="grimoire-spine sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-6 px-2.5 sm:px-6 py-2 sm:py-2.5 shrink-0">
             <div className="inline-flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {activeTab !== 'carte' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('carte')}
+                  className="md:hidden min-h-[34px] px-2.5 py-1 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border border-amber-400 inline-flex items-center gap-1.5 active:scale-95 shrink-0"
+                >
+                  <PixelUiIcon name="map" className="w-3.5 h-3.5" />
+                  <span>← Carte</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -7772,34 +7893,66 @@ export default function App() {
               </button>
             </div>
 
-            {/* Desktop 5-Tab Navigation */}
-            <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-[#f3dfc1]">
-              {navItems.map((item) => {
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      if (item.id === 'carnet') playJournalOpenSfx(muted);
-                      setActiveTab(item.id);
-                    }}
-                    className={`relative py-1 inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
-                      isActive ? 'text-amber-300' : 'hover:text-[#fffbeb]'
-                    }`}
-                  >
-                    <PixelUiIcon name={item.icon} className="w-4 h-4" />
-                    <span className="font-display text-base">{item.label}</span>
-                    {isActive && (
-                      <motion.span
-                        layoutId="activeNavUnderline"
-                        transition={{ type: 'spring', stiffness: 520, damping: 34 }}
-                        className="absolute left-0 right-0 -bottom-1 h-0.5 bg-[#f59e0b]"
-                      />
-                    )}
-                  </button>
-                );
-              })}
+            {/* Desktop Navigation: Carte (Pillar 1) & Carnet (Pillar 2) + Secondary Activities */}
+            <nav className="hidden md:flex items-center gap-4 text-sm font-semibold text-[#f3dfc1]">
+              {/* Primary Pillars: Carte & Carnet */}
+              <div className="flex items-center gap-4 bg-[#231207]/70 px-3 py-0.5 border border-[#8c653b]/50">
+                {navItems.slice(0, 2).map((item) => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        if (item.id === 'carnet') playJournalOpenSfx(muted);
+                        setActiveTab(item.id);
+                      }}
+                      className={`relative py-1 inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
+                        isActive ? 'text-amber-300 font-bold' : 'text-[#f6dfba] hover:text-[#fffbeb]'
+                      }`}
+                    >
+                      <PixelUiIcon name={item.icon} className="w-4 h-4 text-amber-300" />
+                      <span className="font-display text-base">{item.label}</span>
+                      {isActive && (
+                        <motion.span
+                          layoutId="activeNavUnderline"
+                          transition={{ type: 'spring', stiffness: 520, damping: 34 }}
+                          className="absolute left-0 right-0 -bottom-1 h-0.5 bg-[#f59e0b]"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Secondary Adventures & Log: Quêtes, Guildes, Profil */}
+              <div className="flex items-center gap-3 pl-1">
+                {navItems.slice(2).map((item) => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveTab(item.id);
+                      }}
+                      className={`relative py-1 px-1.5 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                        isActive ? 'text-amber-300 font-semibold' : 'text-[#c7a783] hover:text-[#fffbeb]'
+                      }`}
+                    >
+                      <PixelUiIcon name={item.icon} className="w-3.5 h-3.5 opacity-80" />
+                      <span className="font-display text-sm">{item.label}</span>
+                      {isActive && (
+                        <motion.span
+                          layoutId="activeNavUnderlineSecondary"
+                          transition={{ type: 'spring', stiffness: 520, damping: 34 }}
+                          className="absolute left-0 right-0 -bottom-1 h-0.5 bg-[#f59e0b]"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </nav>
 
             {/* Right Actions: Consolidated Segmented Audio [Ambiance | Son], Install App (if eligible), Cloud Auth */}
@@ -8059,10 +8212,15 @@ export default function App() {
                       {sessionMeters >= 15 && (
                         <>
                           <span>·</span>
-                          <span className="text-emerald-900 font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setShowWalkRecapModal(true)}
+                            className="text-emerald-900 font-bold hover:underline underline-offset-2 cursor-pointer"
+                            title="Consulter le récapitulatif de la promenade en cours"
+                          >
                             {sessionMeters} m
                             {sessionElevGainM >= 2 ? ` (D+ ${sessionElevGainM} m)` : ''}
-                          </span>
+                          </button>
                         </>
                       )}
                     </div>
@@ -8300,10 +8458,15 @@ export default function App() {
                         {sessionMeters >= 15 && (
                           <>
                             <span aria-hidden="true">·</span>
-                            <span className="font-mono tabular-nums text-amber-950 font-bold">
+                            <button
+                              type="button"
+                              onClick={() => setShowWalkRecapModal(true)}
+                              className="font-mono tabular-nums text-amber-950 font-bold hover:underline underline-offset-2 cursor-pointer"
+                              title="Consulter le récapitulatif de la promenade en cours"
+                            >
                               {sessionMeters} m parcourus
                               {sessionElevGainM >= 2 ? ` (D+ ${sessionElevGainM} m)` : ''}
-                            </span>
+                            </button>
                           </>
                         )}
                         <span aria-hidden="true">·</span>
@@ -8478,12 +8641,12 @@ export default function App() {
                       <PixelCornerRivets className="bg-amber-400" />
                       <div className="flex items-center gap-2.5 min-w-0 flex-1">
                         <div className="w-7 h-7 bg-[#451a03] border border-amber-400/80 flex items-center justify-center shrink-0">
-                          <PixelGuildIcon category={discoveryToast.category} className="w-4 h-4 text-amber-300" />
+                          <PixelGuildIcon category={discoveryToast.category || 'geographie'} className="w-4 h-4 text-amber-300" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400 uppercase tracking-wide">
-                            <span>Découverte</span>
-                            {discoveryToast.xpAwarded > 0 && (
+                            <span>{discoveryToast.kicker || 'Découverte'}</span>
+                            {discoveryToast.xpAwarded !== undefined && discoveryToast.xpAwarded > 0 && (
                               <span className="text-yellow-300 font-mono">+{discoveryToast.xpAwarded} XP</span>
                             )}
                           </div>
@@ -10080,24 +10243,92 @@ export default function App() {
                       mobileJournalDetailOpen ? 'hidden lg:block' : 'block'
                     } lg:col-span-4 grimoire-folio p-3.5 sm:p-4 space-y-2 lg:max-h-[700px] lg:overflow-y-auto`}
                   >
-                    {entries.map((item) => {
-                      const cat = CATEGORY_META[item.category] || CATEGORY_META.histoire;
-                      const isCurrent = activeJournalEntry?.poiId === item.poiId;
-                      return (
+                    {/* Promenade en cours + Filter Toolbar */}
+                    <div className="space-y-2 pb-2.5 border-b-2 border-[#8c653b]/50">
+                      <button
+                        type="button"
+                        onClick={() => setShowWalkRecapModal(true)}
+                        className="w-full min-h-[40px] px-3.5 py-2 bg-[#28160d] text-amber-200 hover:bg-[#3d2214] border-2 border-[#d97706] jrpg-shadow text-xs font-bold inline-flex items-center justify-between transition-colors cursor-pointer"
+                        title="Consulter le récapitulatif de la promenade en cours"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <PixelUiIcon name="boot" className="w-4 h-4 text-amber-300" />
+                          <span>Promenade en cours</span>
+                        </span>
+                        <span className="font-mono text-amber-300 text-[11px] tabular-nums">
+                          {sessionMeters < 1000
+                            ? `${sessionMeters} m`
+                            : `${(sessionMeters / 1000).toFixed(2).replace('.', ',')} km`}
+                          {sessionUnlockedPoiIds.length > 0
+                            ? ` (${sessionUnlockedPoiIds.length} découv.)`
+                            : ''}
+                          {' ▸'}
+                        </span>
+                      </button>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs font-bold">
                         <button
-                          key={item.poiId}
                           type="button"
-                          onClick={() => {
-                            playJournalOpenSfx(muted);
-                            setSelectedJournalPoiId(item.poiId);
-                            setMobileJournalDetailOpen(true);
-                          }}
-                          className={`w-full min-h-[56px] text-left p-3.5 border-2 transition-all duration-150 space-y-1 ${
-                            isCurrent
-                              ? 'bg-amber-200/85 border-[#991b1b]'
-                              : 'bg-[#ecd8b1] border-[#8c653b] hover:bg-[#fffbeb] hover:border-[#2b1a0e]'
+                          onClick={() => setCarnetListFilter('all')}
+                          className={`min-h-[36px] px-2.5 py-1.5 border-2 transition-colors ${
+                            carnetListFilter === 'all'
+                              ? 'bg-[#991b1b] text-[#fffbeb] border-[#2b1a0e] jrpg-shadow'
+                              : 'bg-[#f8edd6] text-[#24160c] border-[#8c653b] hover:bg-amber-100'
                           }`}
                         >
+                          Tous ({entries.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCarnetListFilter('annotated')}
+                          className={`min-h-[36px] px-2.5 py-1.5 border-2 transition-colors ${
+                            carnetListFilter === 'annotated'
+                              ? 'bg-[#991b1b] text-[#fffbeb] border-[#2b1a0e] jrpg-shadow'
+                              : 'bg-[#f8edd6] text-[#24160c] border-[#8c653b] hover:bg-amber-100'
+                          }`}
+                        >
+                          Notes &amp; Clichés (
+                          {
+                            entries.filter((e) => Boolean(e.personalNote) || e.photoCount > 0)
+                              .length
+                          }
+                          )
+                        </button>
+                      </div>
+                    </div>
+
+                    {carnetListFilter === 'annotated' &&
+                    entries.filter((e) => Boolean(e.personalNote) || e.photoCount > 0).length ===
+                      0 ? (
+                      <div className="p-4 bg-[#fbf5e8] border-2 border-dashed border-[#8c653b] text-center space-y-2 text-xs text-[#54361d]">
+                        <p className="font-bold text-[#24160c]">Aucune note ni cliché enregistré</p>
+                        <p className="leading-relaxed">
+                          Sélectionnez un lieu dans votre carnet pour y consigner vos propres
+                          observations, anecdotes de promenade ou photos de terrain.
+                        </p>
+                      </div>
+                    ) : (
+                      (carnetListFilter === 'annotated'
+                        ? entries.filter((e) => Boolean(e.personalNote) || e.photoCount > 0)
+                        : entries
+                      ).map((item) => {
+                        const cat = CATEGORY_META[item.category] || CATEGORY_META.histoire;
+                        const isCurrent = activeJournalEntry?.poiId === item.poiId;
+                        return (
+                          <button
+                            key={item.poiId}
+                            type="button"
+                            onClick={() => {
+                              playJournalOpenSfx(muted);
+                              setSelectedJournalPoiId(item.poiId);
+                              setMobileJournalDetailOpen(true);
+                            }}
+                            className={`w-full min-h-[56px] text-left p-3.5 border-2 transition-all duration-150 space-y-1 ${
+                              isCurrent
+                                ? 'bg-amber-200/85 border-[#991b1b]'
+                                : 'bg-[#ecd8b1] border-[#8c653b] hover:bg-[#fffbeb] hover:border-[#2b1a0e]'
+                            }`}
+                          >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
                               {isCurrent ? (
@@ -10153,10 +10384,15 @@ export default function App() {
                                 <span className="text-emerald-800 font-bold">Sceau d’Or ★</span>
                               </>
                             )}
+                            {item.personalNote && (
+                              <div className="w-full text-[11px] italic text-[#422006] truncate pt-0.5 font-serif">
+                                « {item.personalNote} »
+                              </div>
+                            )}
                           </div>
                         </button>
                       );
-                    })}
+                    }))}
                   </div>
 
                   {/* Detail Folio */}
@@ -10371,21 +10607,21 @@ export default function App() {
                   onClaimReward={(challengeId) => {
                     const result = claimWalkingChallengeReward(
                       walkingState,
-                      progress,
-                      challengeId
+                      challengeId,
+                      progress
                     );
-                    if (result.success) {
-                      setWalkingState(result.nextState);
-                      setProgress(result.nextProgress);
-                      vibrateUnlockCelebration(hapticsEnabled);
-                      const chDef = result.challenge;
-                      if (chDef) {
-                        setCutIn({
-                          kicker: 'Récompense de Marche Débloquée !',
-                          title: chDef.cosmeticReward ? chDef.cosmeticReward.name : chDef.title,
-                          subtitle: `+${chDef.xpReward} XP d’Exploration · Récompense cosmétique exclusive ajoutée à votre Garde-Robe !`,
-                        });
-                      }
+                    setWalkingState(result.nextState);
+                    setProgress(result.nextProgress);
+                    vibrateUnlockCelebration(hapticsEnabled);
+                    const chDef = result.challenge;
+                    if (chDef) {
+                      setCutIn({
+                        id: `cutin_walk_${chDef.id}_${Date.now()}`,
+                        kind: 'mission',
+                        kicker: 'Récompense de Marche Débloquée !',
+                        title: chDef.exclusiveCosmetic ? chDef.exclusiveCosmetic.name : chDef.title,
+                        subtitle: `+${chDef.xpReward} XP d’Exploration · Récompense cosmétique exclusive ajoutée à votre Garde-Robe !`,
+                      });
                     }
                   }}
                   onEquipCosmetic={(slot, itemId) => {
@@ -10408,6 +10644,8 @@ export default function App() {
                       if (newlyCompletedChallenges.length > 0) {
                         const first = newlyCompletedChallenges[0];
                         setCutIn({
+                          id: `cutin_step_${first.id}_${Date.now()}`,
+                          kind: 'mission',
                           kicker: 'Palier de Marche Franchi !',
                           title: first.title,
                           subtitle: `Objectif de ${formatDistanceKm(first.targetMeters)} atteint ! Réclamez votre récompense exclusive dans les Défis de Marche.`,
@@ -11296,9 +11534,10 @@ export default function App() {
           {/* FIXED BOTTOM 16-BIT GUILD NAVIGATION DOCK ON SMARTPHONES (< md) */}
           <nav
             aria-label="Navigation principale mobile"
-            className="md:hidden fixed bottom-0 left-0 right-0 z-30 grimoire-bottom-dock grid grid-cols-5 items-stretch pb-safe"
+            className="md:hidden fixed bottom-0 left-0 right-0 z-30 grimoire-bottom-dock flex items-stretch pb-safe"
           >
-            {navItems.map((item) => {
+            {/* Primary Pillars: Carte & Carnet */}
+            {navItems.slice(0, 2).map((item) => {
               const isActive = activeTab === item.id;
               return (
                 <button
@@ -11311,18 +11550,56 @@ export default function App() {
                     }
                     setActiveTab(item.id);
                   }}
-                  className={`relative min-h-[54px] px-1 py-1.5 flex flex-col items-center justify-center gap-1 transition-colors ${
-                    isActive ? 'text-amber-300 bg-[#3b2113]' : 'text-[#e8d5b5] hover:text-[#fffbeb]'
+                  className={`relative flex-[1.25] min-h-[54px] px-2 py-1.5 flex flex-col items-center justify-center gap-1 transition-colors ${
+                    isActive ? 'text-amber-300 bg-[#3b2113]' : 'text-[#fbf0d9] hover:text-[#fffbeb]'
                   }`}
                 >
                   {isActive && (
                     <span
-                      className="absolute top-0 left-2 right-2 h-0.5 bg-[#fde047]"
+                      className="absolute top-0 left-1 right-1 h-0.5 bg-[#fde047]"
                       aria-hidden="true"
                     />
                   )}
-                  <PixelUiIcon name={item.icon} className="w-4 h-4" />
+                  <div className="relative">
+                    <PixelUiIcon name={item.icon} className="w-4 h-4 text-amber-300" />
+                    {item.id === 'carnet' && entries.length > 0 && (
+                      <span className="absolute -top-1 -right-2 px-1 py-0.2 text-[9px] font-mono font-bold bg-[#991b1b] text-amber-100 rounded-xs">
+                        {entries.length}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[11px] font-display font-bold leading-none truncate max-w-full">
+                    {item.shortLabel}
+                  </span>
+                </button>
+              );
+            })}
+
+            {/* Subtle Divider */}
+            <span className="w-px bg-amber-900/60 my-2 self-stretch" aria-hidden="true" />
+
+            {/* Secondary Sections: Quêtes, Guildes, Profil */}
+            {navItems.slice(2).map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(item.id);
+                  }}
+                  className={`relative flex-1 min-h-[54px] px-1 py-1.5 flex flex-col items-center justify-center gap-1 transition-colors ${
+                    isActive ? 'text-amber-300 bg-[#3b2113]' : 'text-[#c2a281] hover:text-[#e8d5b5]'
+                  }`}
+                >
+                  {isActive && (
+                    <span
+                      className="absolute top-0 left-1 right-1 h-0.5 bg-[#fde047]"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <PixelUiIcon name={item.icon} className="w-3.5 h-3.5 opacity-80" />
+                  <span className="text-[10px] font-display font-medium leading-none truncate max-w-full">
                     {item.shortLabel}
                   </span>
                 </button>
@@ -11338,35 +11615,7 @@ export default function App() {
       {renderRiddleModal()}
       {renderOrientationTableModal()}
       {renderSecretDecipherModal()}
-
-      {showTitleScreen && (
-        <TitleScreenView
-          user={user}
-          authReady={authReady}
-          cloudOnline={cloudOnline}
-          authError={authError}
-          onClearAuthError={() => setAuthError('')}
-          onGoogleAuth={handleAuthAction}
-          onEnterExpedition={handleEnterFromTitleScreen}
-          skipTitleNextTime={skipTitleNextTime}
-          onToggleSkipTitleNextTime={handleToggleSkipTitleNextTime}
-          muted={muted}
-          onToggleMuted={() => setMuted((m) => !m)}
-          explorerCallsign={progress.displayName}
-          onUpdateCallsign={handleSaveCallsignDirect}
-          appearance={explorerAppearance}
-          onUpdateAppearance={handleUpdateAppearance}
-          unlockedHeadgearIds={unlockedCosmeticSets.headgear}
-          unlockedOutfitIds={unlockedCosmeticSets.outfits}
-          unlockedFamiliarIds={unlockedCosmeticSets.familiars}
-          explorerLevel={globalLevelInfo.level}
-          explorerRankTitle={explorerHonorificTitle}
-          discoveriesCount={entries.length}
-          regionLabel={localAtmosphereLabel}
-          weather={weather}
-          onResetCharacter={handleResetCharacter}
-        />
-      )}
+      {renderWalkRecapModal()}
     </div>
   );
 }

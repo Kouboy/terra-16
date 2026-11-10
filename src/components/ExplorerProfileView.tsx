@@ -803,12 +803,16 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
             </div>
 
             <div className="min-w-0 overflow-hidden p-3 bg-[#f8edd6] border border-[#8c653b]">
-              <div className="text-[11px] text-[#6b4928] font-semibold truncate">Distance parcourue</div>
+              <div className="text-[11px] text-[#6b4928] font-semibold truncate">Marche Réelle (GPS)</div>
               <div className="text-xl font-bold font-mono tabular-nums text-[#24160c] mt-0.5 truncate">
-                {formatDistanceLabel(totalWalkedMeters)}
+                {formatDistanceLabel(progress.walkedMeters || 0)}
               </div>
-              <div className="text-[11px] text-[#54361d] mt-0.5 truncate">
-                {sessionElevGainM >= 2 ? `D+ session : +${sessionElevGainM} m` : 'Pas sur le terrain'}
+              <div className="text-[10px] text-[#54361d] mt-0.5 truncate">
+                {(progress.simulatedWalkedMeters || 0) > 0
+                  ? `Simulé : ${formatDistanceLabel(progress.simulatedWalkedMeters || 0)}`
+                  : sessionElevGainM >= 2
+                  ? `D+ session : +${sessionElevGainM} m`
+                  : 'Pas physiques validés'}
               </div>
             </div>
 

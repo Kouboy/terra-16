@@ -274,9 +274,18 @@ export const BestiaryRencontresView: React.FC<{
 
       {/* ==================== 1. BESTIAIRE SAUVAGE ==================== */}
       {subTab === 'bestiaire' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* 12-Species Plate Grid */}
-          <div className="lg:col-span-7 grimoire-folio p-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="space-y-4">
+          {/* Editorial Rigor Notice (Roadmap Lot 3: Plausible fauna occurrences vs formal in-situ survey) */}
+          <div className="p-3 bg-[#f5ecda] border-2 border-[#b89565] text-xs text-[#52331b] flex items-start gap-2.5">
+            <PixelUiIcon name="book" className="w-4 h-4 text-amber-800 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1 leading-relaxed">
+              <strong>Faune du terroir :</strong> Les espèces représentées sont des <em>présences plausibles</em> issues de la modélisation des biomes régionaux (lisières, bocages, zones humides, falaises), et ne constituent pas un inventaire certifié <em>in situ</em>.
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            {/* 12-Species Plate Grid */}
+            <div className="lg:col-span-7 grimoire-folio p-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
             {BESTIARY_SPECIES_CATALOG.map((sp) => {
               const rec = speciesMap.get(sp.kind);
               const isObserved = Boolean(rec);
@@ -441,6 +450,7 @@ export const BestiaryRencontresView: React.FC<{
               </div>
             )}
           </div>
+        </div>
         </div>
       )}
 

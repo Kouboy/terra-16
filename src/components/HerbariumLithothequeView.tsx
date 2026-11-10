@@ -297,6 +297,14 @@ export const HerbariumLithothequeView: React.FC<{
             </div>
           </ParchmentScrollStrip>
 
+          {/* Editorial Rigor Notice (Roadmap Lot 3: Plausible occurrences vs in-situ survey) */}
+          <div className="p-3 bg-[#f5ecda] border-2 border-[#b89565] text-xs text-[#52331b] flex items-start gap-2.5">
+            <PixelUiIcon name="book" className="w-4 h-4 text-amber-800 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1 leading-relaxed">
+              <strong>Statut des planches du terroir :</strong> Les espèces botaniques et minéraux sont des <em>présences plausibles modélisées</em> à partir du biome et de la roche-mère locale (INPN / BRGM), et non des observations certifiées <em>in situ</em>.
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
             <div className="lg:col-span-7 grimoire-folio p-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
               {visibleCatalog.map((item) => {

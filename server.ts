@@ -99,6 +99,7 @@ interface RawPoi {
   officialLabel?: OfficialStateLabel;
   officialRef?: string;
   isSubterranean?: boolean;
+  epistemicStatus?: 'fait_documente' | 'reconstitution_hypothese' | 'legende_folklore';
 }
 
 type TrailNetwork = 'gr' | 'grp' | 'pr';
@@ -4758,32 +4759,93 @@ function enrichAndLinkPois(
 ): RawPoi[] {
   const merged: RawPoi[] = [];
 
+  const normalizeTitle = (str: string) =>
+    (str || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
   for (const candidate of allSourcesPois) {
     candidate.subType = candidate.subType.slice(0, 78);
     candidate.source = candidate.source.slice(0, 78);
-    const duplicate = merged.find(
-      (existing) => haversineMeters(existing.lat, existing.lng, candidate.lat, candidate.lng) < 38
-    );
-    if (duplicate) {
-      if (candidate.summary.length > duplicate.summary.length) {
-        duplicate.summary = `${candidate.summary} (Sources croisées : ${duplicate.source} & ${candidate.source})`.slice(
-          0,
-          2350
-        );
+    const candNorm = normalizeTitle(candidate.name);
+    const candIsTech =
+      candidate.source.toLowerCase().includes('bss') ||
+      candidate.subType.toLowerCase().includes('forage') ||
+      candidate.subType.toLowerCase().includes('piézom');
+
+    const duplicate = merged.find((existing) => {
+      const dist = haversineMeters(existing.lat, existing.lng, candidate.lat, candidate.lng);
+      if (dist < 32) return true;
+      if (dist < 85) {
+        const existNorm = normalizeTitle(existing.name);
+        if (candNorm && existNorm && (candNorm === existNorm || candNorm.includes(existNorm) || existNorm.includes(candNorm))) {
+          return true;
+        }
+        const existIsTech =
+          existing.source.toLowerCase().includes('bss') ||
+          existing.subType.toLowerCase().includes('forage') ||
+          existing.subType.toLowerCase().includes('piézom');
+        if (candIsTech && existIsTech && dist < 65) {
+          return true;
+        }
       }
-      if (!duplicate.source.includes(candidate.source)) {
-        duplicate.source = `${duplicate.source} + ${candidate.source}`.slice(0, 78);
+      return false;
+    });
+
+    if (duplicate) {
+      // Keep the most informative and descriptive authentic text without duplicate concatenations
+      if (candidate.summary.length > duplicate.summary.length) {
+        duplicate.summary = candidate.summary.slice(0, 2350);
+      }
+      const existingSources = duplicate.source.split(/[+·]/).map((s) => s.trim());
+      if (!existingSources.includes(candidate.source)) {
+        duplicate.source = `${duplicate.source} · ${candidate.source}`.slice(0, 78);
       }
       if (!duplicate.officialLabel && candidate.officialLabel) {
         duplicate.officialLabel = candidate.officialLabel;
         duplicate.officialRef = candidate.officialRef;
       }
-      if (candidate.category === 'legende') {
+      if (candidate.category === 'legende' && duplicate.category !== 'legende') {
         duplicate.category = 'legende';
         duplicate.subType = candidate.subType.slice(0, 78);
       }
-      duplicate.xpReward = Math.max(duplicate.xpReward, candidate.xpReward + 15);
+      duplicate.xpReward = Math.max(duplicate.xpReward, candidate.xpReward);
     } else {
+      // Determine epistemic status strictly according to documentary origin
+      const catL = candidate.category.toLowerCase();
+      const subL = candidate.subType.toLowerCase();
+      const nameL = candidate.name.toLowerCase();
+      const sumL = candidate.summary.toLowerCase();
+
+      if (
+        catL === 'legende' ||
+        subL.includes('légende') ||
+        subL.includes('folklore') ||
+        subL.includes('fée') ||
+        subL.includes('diable') ||
+        nameL.includes('fée') ||
+        nameL.includes('diable') ||
+        nameL.includes('vouivre') ||
+        sumL.includes('selon la légende') ||
+        sumL.includes('tradition populaire')
+      ) {
+        candidate.epistemicStatus = 'legende_folklore';
+      } else if (
+        subL.includes('reconstitution') ||
+        subL.includes('hypothèse') ||
+        subL.includes('voie antique supposée') ||
+        sumL.includes('tracé présumé') ||
+        sumL.includes('emplacement supposé')
+      ) {
+        candidate.epistemicStatus = 'reconstitution_hypothese';
+      } else {
+        candidate.epistemicStatus = 'fait_documente';
+      }
+
       merged.push(candidate);
     }
   }

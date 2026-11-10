@@ -9,6 +9,7 @@ import {
 } from '../supabase';
 import { addPhotoForPoi, deletePhotoById, getPhotosForPoi, StoredFieldPhoto } from '../photoStore';
 import { playStampSfx } from '../sound';
+import { extractVerifiableHook, getSafeObservationPrompt } from '../poiObservation';
 import {
   findSecretClueHostedOnPoi,
   isEntryFromSecretArchive,
@@ -20,11 +21,13 @@ import {
   CAIRN_TAG_META,
   CairnTag,
   CATEGORY_META,
+  EPISTEMIC_STATUS_META,
   ExplorerAppearance,
   ExplorerCairn,
   inferOfficialStateLabel,
   OFFICIAL_STATE_LABEL_META,
   PostcardSubject,
+  resolveEpistemicStatus,
   TrophyId,
   UnlockedEntry,
 } from '../types';
@@ -72,7 +75,7 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
   isRiddleSolved = false,
   onOpenRiddle,
   onBackToList,
-  backLabel = 'Retour aux feuillets',
+  backLabel = '← Continuer la promenade',
   sectorSecrets = [],
   secretState,
   onOpenSecretDecipherModal,
@@ -83,6 +86,7 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
   const [saving, setSaving] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState('');
   const [photoError, setPhotoError] = useState('');
+  const [loreExpanded, setLoreExpanded] = useState(false);
 
   // Asynchronous Explorer Cairns State
   const [cairns, setCairns] = useState<ExplorerCairn[]>([]);
@@ -96,12 +100,16 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
   const sealCode = computeArchiveSealCode(entry.poiId);
   const isVerifiedUser = Boolean(currentUser && currentUser.emailVerified);
 
+  const hook = extractVerifiableHook(entry);
+  const observation = getSafeObservationPrompt(entry);
+
   useEffect(() => {
     setNoteDraft(entry.personalNote);
     setSaveFeedback('');
     setPhotoError('');
     setCairnFeedback('');
     setCairnError('');
+    setLoreExpanded(false);
     getPhotosForPoi(entry.poiId).then(setPhotos);
   }, [entry.poiId, entry.personalNote]);
 
@@ -312,10 +320,6 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
                 <span className="text-amber-900 font-bold">{entry.eraLabel}</span>
               </>
             )}
-            <span aria-hidden="true">·</span>
-            <span className="font-mono tabular-nums text-emerald-800 font-bold">
-              +{entry.xpAwarded} XP
-            </span>
           </div>
           <h3 className="text-xl sm:text-2xl font-bold font-display text-[#23170e] leading-tight break-words">
             {entry.name}
@@ -340,9 +344,20 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
             const official = inferOfficialStateLabel(entry.source, entry.subType);
             const isSecret = secretState ? isEntryFromSecretArchive(entry, secretState) : entry.subType.startsWith('✦ Lieu Caché');
             const isLiveEvt = isEntryFromLiveEvent(entry);
-            if (!official && !isSecret && !isLiveEvt) return null;
+            const epKey = resolveEpistemicStatus(entry);
+            const epMeta = EPISTEMIC_STATUS_META[epKey];
+
             return (
               <div className="flex flex-wrap items-center gap-2 pt-1">
+                {/* Epistemic Status (Fait documenté vs Hypothèse vs Légende) */}
+                <span
+                  title={epMeta.tooltipDesc}
+                  className={`px-2 py-0.5 text-[11px] font-bold border-2 ${epMeta.badgeClass} inline-flex items-center gap-1 shadow-xs`}
+                >
+                  <span className="font-mono">{epMeta.iconSymbol}</span>
+                  <span>{epMeta.badgeLabel}</span>
+                </span>
+
                 {official && (
                   <span
                     className={`px-2.5 py-0.5 text-[11px] font-bold border-2 ${OFFICIAL_STATE_LABEL_META[official].badgeClass}`}
@@ -405,91 +420,165 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
         );
       })()}
 
-      {/* Waterway Context */}
-      {entry.nearWaterway && (
-        <div className="text-xs text-sky-950 bg-sky-100/80 border-2 border-sky-800 px-3.5 sm:px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-2 min-w-0">
-            <PixelUiIcon name="water" className="w-4 h-4 shrink-0" />
-            <span className="break-words">
-              Relié au réseau hydrologique :{' '}
-              <strong>{entry.waterwayName || 'Cours d’eau local'}</strong>
-            </span>
-          </span>
-          <span className="text-sky-900 font-mono tabular-nums font-bold shrink-0">&lt; 185 m</span>
-        </div>
-      )}
-
-      {/* Safety / Conservation Notice */}
-      {entry.safetyNotice && (
-        <div className="text-xs text-amber-950 bg-amber-100/90 border-2 border-amber-800 px-3.5 sm:px-4 py-3 flex items-start gap-2.5">
-          <PixelUiIcon name="warning" className="w-4 h-4 mt-0.5 shrink-0" />
-          <p className="leading-relaxed font-medium break-words">{entry.safetyNotice}</p>
-        </div>
-      )}
-
-      {/* Encyclopedic Lore */}
-      <div className="space-y-3">
-        <p className="text-[15px] text-[#2b1d12] leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">
-          {entry.summary}
-        </p>
-        {entry.externalUrl && (
-          <a
-            href={entry.externalUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-xs font-bold text-rose-800 hover:text-rose-950 underline underline-offset-4 transition-colors"
-          >
-            <PixelUiIcon name="link" className="w-3.5 h-3.5 text-rose-800" />
-            <span>Consulter le manuscrit source ({entry.source})</span>
-          </a>
-        )}
-      </div>
-
-      {/* Connected POIs */}
-      {entry.relatedPoiIds.length > 0 && (
-        <div className="pt-4 border-t-2 border-[#c89d62] space-y-3">
-          <h4 className="text-base font-bold font-display text-[#23170e] flex items-center gap-2">
-            <PixelUiIcon name="radar" className="w-4 h-4" />
-            <span>Échos & lieux connexes sur ce territoire</span>
-          </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {entry.relatedPoiIds.map((relId, idx) => {
-              const isRelUnlocked = unlockedIds.has(relId);
-              const rawTitle = entry.relatedPoiTitles[idx] || 'Point connexe';
-              return (
-                <button
-                  key={relId}
-                  type="button"
-                  onClick={() => onNavigateToRelatedPoi(relId)}
-                  className="text-left p-3 bg-[#ecd8b1] border-2 border-[#2b1d12] hover:bg-[#fff6e3] hover:border-rose-700 hover:-translate-y-0.5 transition-transform duration-150 jrpg-shadow flex items-center justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-[#23170e] truncate">
-                      {isRelUnlocked ? rawTitle : '? Signal connexe voilé'}
-                    </div>
-                    <div className="text-xs text-[#6b4e31] mt-0.5">
-                      {isRelUnlocked ? 'Ouvrir sa page au Carnet' : 'Localiser sur la carte 16-bit'}
-                    </div>
-                  </div>
-                  <PixelUiIcon name="cursor" className="w-4 h-4" />
-                </button>
-              );
-            })}
+      {/* 1. Verifiable Hook ("Saviez-vous que… ?") */}
+      {hook && (
+        <div className="p-3.5 sm:p-4 bg-[#fbf2dd] border-2 border-[#d97706]/80 shadow-sm flex items-start gap-3">
+          <div className="w-7 h-7 bg-amber-400 border border-[#2b1a0e] flex items-center justify-center shrink-0 font-bold text-sm text-[#2b1a0e] select-none">
+            ?
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-[#92400e]">
+              Curiosité vérifiable
+            </div>
+            <p className="text-sm font-semibold text-[#24160c] leading-snug break-words">
+              {hook}
+            </p>
           </div>
         </div>
       )}
+
+      {/* 2. Gentle Real-World Observation Cue ("Le regard de l'arpenteur") */}
+      {observation && (
+        <div className="p-3.5 sm:p-4 bg-[#eef6ed] border-2 border-emerald-800/70 shadow-sm flex items-start gap-3">
+          <div className="w-7 h-7 bg-emerald-700 border border-emerald-950 flex items-center justify-center shrink-0 text-amber-200 select-none">
+            <PixelUiIcon name="radar" className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-900">
+              Le regard de l’arpenteur · Détail à observer
+            </div>
+            <p className="text-xs font-medium text-[#13301a] leading-relaxed break-words">
+              {observation.prompt}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Safety Notice (always prominent if present) */}
+      {entry.safetyNotice && (
+        <div className="text-xs text-amber-950 bg-amber-100/90 border-2 border-amber-800 px-3.5 sm:px-4 py-3 flex items-start gap-2.5">
+          <PixelUiIcon name="warning" className="w-4 h-4 mt-0.5 shrink-0" />
+          <div className="space-y-1">
+            <p className="leading-relaxed font-medium break-words">{entry.safetyNotice}</p>
+            <p className="text-[11px] text-[#78350f] font-normal leading-snug">
+              Observation sécurisée : ce site peut être archivé depuis la voie publique dans un rayon
+              de 80 m sans franchir de clôture ni pénétrer sur un terrain privé.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Collapsible "En savoir plus" (Lore, sources, hydrology & connected POIs) */}
+      <div className="border-2 border-[#b89565] bg-[#ecd8b1]/60">
+        <button
+          type="button"
+          onClick={() => setLoreExpanded((prev) => !prev)}
+          className="w-full min-h-[44px] px-3.5 sm:px-4 py-2.5 bg-[#f1e0be] hover:bg-[#faeed6] flex items-center justify-between gap-3 text-left transition-colors cursor-pointer"
+        >
+          <span className="text-xs font-bold text-[#24160c] flex items-center gap-2">
+            <PixelUiIcon name="book" className="w-4 h-4 text-amber-800 shrink-0" />
+            <span>En savoir plus · Contexte, sources & hydrologie</span>
+          </span>
+          <span className="text-xs font-mono font-bold text-[#78542d] shrink-0">
+            {loreExpanded ? '▲ Réduire' : '▼ Déplier'}
+          </span>
+        </button>
+
+        {loreExpanded && (
+          <div className="p-3.5 sm:p-5 border-t-2 border-[#b89565] bg-[#fffaf0] space-y-4 text-xs text-[#2b1d12]">
+            {/* Waterway Context */}
+            {entry.nearWaterway && (
+              <div className="text-xs text-sky-950 bg-sky-100/80 border border-sky-800 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <PixelUiIcon name="water" className="w-4 h-4 shrink-0" />
+                  <span className="break-words">
+                    Relié au réseau hydrologique :{' '}
+                    <strong>{entry.waterwayName || 'Cours d’eau local'}</strong>
+                  </span>
+                </span>
+                <span className="text-sky-900 font-mono tabular-nums font-bold shrink-0">&lt; 185 m</span>
+              </div>
+            )}
+
+            {/* Encyclopedic Lore Summary */}
+            <div className="space-y-2">
+              <p className="text-[14px] text-[#2b1d12] leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">
+                {entry.summary || 'Relevé topographique consigné sans notice complémentaire.'}
+              </p>
+              {entry.externalUrl && (
+                <a
+                  href={entry.externalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-xs font-bold text-rose-800 hover:text-rose-950 underline underline-offset-4 transition-colors pt-1"
+                >
+                  <PixelUiIcon name="link" className="w-3.5 h-3.5 text-rose-800" />
+                  <span>Consulter le manuscrit source ({entry.source})</span>
+                </a>
+              )}
+            </div>
+
+            {/* Connected POIs */}
+            {entry.relatedPoiIds.length > 0 && (
+              <div className="pt-3 border-t border-[#c89d62]/60 space-y-2.5">
+                <h4 className="text-xs font-bold font-display uppercase tracking-wider text-[#54361d] flex items-center gap-1.5">
+                  <PixelUiIcon name="radar" className="w-3.5 h-3.5" />
+                  <span>Échos & lieux connexes sur ce territoire</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {entry.relatedPoiIds.map((relId, idx) => {
+                    const isRelUnlocked = unlockedIds.has(relId);
+                    const rawTitle = entry.relatedPoiTitles[idx] || 'Point connexe';
+                    return (
+                      <button
+                        key={relId}
+                        type="button"
+                        onClick={() => onNavigateToRelatedPoi(relId)}
+                        className="text-left p-2.5 bg-[#ecd8b1] border border-[#2b1d12] hover:bg-[#fff6e3] hover:border-rose-700 transition-colors flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-[#23170e] truncate">
+                            {isRelUnlocked ? rawTitle : '? Signal connexe voilé'}
+                          </div>
+                          <div className="text-[11px] text-[#6b4e31]">
+                            {isRelUnlocked ? 'Ouvrir au Carnet' : 'Localiser sur la carte'}
+                          </div>
+                        </div>
+                        <PixelUiIcon name="cursor" className="w-3.5 h-3.5 shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Explorer's Personal Field Notes & Photos */}
       <div className="pt-4 border-t-2 border-[#c89d62] space-y-4">
         <div className="flex items-center justify-between gap-4">
           <h4 className="text-base font-bold font-display text-[#23170e] flex items-center gap-2">
             <PixelUiIcon name="quill" className="w-4 h-4" />
-            <span>Notes personnelles & clichés de terrain</span>
+            <span>Notes personnelles &amp; clichés de terrain</span>
           </h4>
           {saveFeedback && (
             <span className="text-xs text-emerald-800 font-bold">{saveFeedback}</span>
           )}
         </div>
+
+        {/* Prominent display of the explorer's own observation when sealed */}
+        {entry.personalNote && (
+          <div className="p-3.5 bg-[#fbf5e8] border-2 border-[#8c653b] text-[#24160c] space-y-1 relative">
+            <div className="text-[10px] uppercase font-bold text-[#6b4928] flex items-center gap-1.5 font-mono">
+              <PixelUiIcon name="quill" className="w-3.5 h-3.5" />
+              <span>Observation de l’explorateur · {formattedDate}</span>
+            </div>
+            <p className="text-sm font-serif italic leading-relaxed text-[#23170e] whitespace-pre-line select-text">
+              « {entry.personalNote} »
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleSaveNote} className="space-y-3">
           <textarea
@@ -527,28 +616,40 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
         {photoError && <p className="text-xs text-rose-800 font-bold">{photoError}</p>}
 
         {photos.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
-            {photos.map((ph) => (
-              <div
-                key={ph.id}
-                className="group relative aspect-[4/3] overflow-hidden border-2 border-[#2b1d12] bg-[#241710] jrpg-shadow"
-              >
-                <img
-                  src={ph.dataUrl}
-                  alt={`Cliché de terrain — ${entry.name}`}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleDeletePhoto(ph.id)}
-                  aria-label="Supprimer cette photo"
-                  className="absolute top-2 right-2 w-9 h-9 sm:w-auto sm:h-auto sm:p-1.5 flex items-center justify-center bg-[#241710]/95 border border-amber-400 text-[#fffbeb] hover:text-rose-300 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+          <div className="space-y-2 pt-1">
+            <div className="text-xs font-bold text-[#54361d] flex items-center gap-1.5">
+              <PixelUiIcon name="camera" className="w-3.5 h-3.5" />
+              <span>Clichés de terrain ({photos.length})</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {photos.map((ph) => (
+                <div
+                  key={ph.id}
+                  className="group relative aspect-[4/3] overflow-hidden border-2 border-[#2b1d12] bg-[#241710] jrpg-shadow"
                 >
-                  <PixelUiIcon name="trash" className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                </button>
-              </div>
-            ))}
+                  <img
+                    src={ph.dataUrl}
+                    alt={`Cliché de terrain — ${entry.name}`}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleDeletePhoto(ph.id)}
+                    aria-label="Supprimer cette photo"
+                    className="absolute top-2 right-2 w-9 h-9 sm:w-auto sm:h-auto sm:p-1.5 flex items-center justify-center bg-[#241710]/95 border border-amber-400 text-[#fffbeb] hover:text-rose-300 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                  >
+                    <PixelUiIcon name="trash" className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                  </button>
+                  <div className="absolute bottom-0 inset-x-0 bg-black/65 px-2 py-1 text-[10px] text-amber-100 truncate">
+                    {new Date(ph.createdAtIso).toLocaleDateString('fr-FR', {
+                      day: 'numeric',
+                      month: 'short',
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -694,6 +795,17 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
             </form>
           </div>
         )}
+      </div>
+
+      {/* 6. Discreet XP & Guild Progression Badge (Secondary footer) */}
+      <div className="pt-3.5 border-t-2 border-[#c89d62]/60 flex flex-wrap items-center justify-between gap-2 text-xs text-[#6b4e31]">
+        <div className="flex items-center gap-1.5 font-medium">
+          <PixelGuildIcon category={entry.category} className="w-4 h-4 text-amber-800 shrink-0" />
+          <span>Arpentage consigné au Grimoire · {cat.label}</span>
+        </div>
+        <div className="font-mono text-emerald-800 font-bold bg-[#ecd8b1] px-2.5 py-1 border border-[#8c673d] tabular-nums">
+          +{entry.xpAwarded} XP Guilde
+        </div>
       </div>
     </motion.article>
   );

@@ -43,6 +43,7 @@ export interface NarrativeQuest {
   slotKey: 'chronique_pierres' | 'pacte_ondes' | 'murmures_vivant';
   title: string;
   subtitle: string;
+  epistemicDisclaimerFr: string;
   focusCategory: ExplorationCategory;
   localityLabel: string;
   totalRouteMeters: number;
@@ -160,23 +161,28 @@ function pickInterconnectedTrio(
   const scoreNext = (from: PoiItem, cand: PoiItem, excludeIds: Set<string>): number => {
     if (excludeIds.has(cand.id)) return -1e9;
     const dist = haversineMeters(from.lat, from.lng, cand.lat, cand.lng);
+    // RoadMap Lot 4: Strict accessible pedestrian bounds (50m - 900m per leg)
+    if (dist < 50 || dist > 900) return -1e9;
+
     let score = 0;
-    // Ideal narrative walk leg: 85m to 850m
-    if (dist >= 75 && dist <= 900) score += 60;
-    else if (dist >= 40 && dist <= 1500) score += 30;
-    else score -= Math.min(40, dist / 120);
+    // Ideal narrative walk leg: 75m to 650m
+    if (dist >= 75 && dist <= 650) score += 60;
+    else score += 25;
 
     if (from.relatedPoiIds.includes(cand.id) || cand.relatedPoiIds.includes(from.id)) {
-      score += 55;
+      score += 60;
     }
     if (from.waterwayName && cand.waterwayName && from.waterwayName === cand.waterwayName) {
-      score += 35;
+      score += 40;
     }
     if (candidates.some((c) => c.id === cand.id)) {
-      score += 28;
+      score += 35;
+    }
+    if (cand.category === from.category) {
+      score += 25;
     }
     if (cand.eraLabel && from.eraLabel && cand.eraLabel !== from.eraLabel) {
-      score += 12; // rich temporal progression
+      score += 15; // rich temporal progression
     }
     return score;
   };
@@ -191,7 +197,8 @@ function pickInterconnectedTrio(
       act2 = cand;
     }
   }
-  if (!act2) return null;
+  // Require accessible and thematically relevant intermediate link (minimum score 20)
+  if (!act2 || bestScore2 < 20) return null;
   used.add(act2.id);
 
   let act3: PoiItem | null = null;
@@ -203,7 +210,13 @@ function pickInterconnectedTrio(
       act3 = cand;
     }
   }
-  if (!act3) return null;
+  // Require accessible and thematically relevant final link (minimum score 20)
+  if (!act3 || bestScore3 < 20) return null;
+
+  // Maximum cumulative pedestrian route: 1750m (~20-25 min stroll)
+  const leg12 = haversineMeters(act1.lat, act1.lng, act2.lat, act2.lng);
+  const leg23 = haversineMeters(act2.lat, act2.lng, act3.lat, act3.lng);
+  if (leg12 + leg23 > 1750) return null;
 
   return [act1, act2, act3];
 }
@@ -264,13 +277,15 @@ export function generateSectorNarrativeQuests(params: {
     quests.push({
       id: `nq_${sectorKey}_pierres_${sanitizeKeyPart(p1.id)}`,
       slotKey: 'chronique_pierres',
-      title: `Le Serment des Bâtisseurs de ${placeName}`,
-      subtitle: 'Trilogie Historique · Trois jalons à relier dans l’ordre des siècles',
+      title: `Le Fil des Bâtisseurs de ${placeName}`,
+      subtitle: 'Itinéraire Thématique d’Arpentage · 3 témoins rapprochés par le Grimoire',
+      epistemicDisclaimerFr:
+        'Parcours thématique composé par votre Grimoire : les trois lieux sont réels et documentés in situ, mais leur rapprochement constitue une proposition d’arpentage libre et non une filiation historique attestée.',
       focusCategory: 'histoire',
       localityLabel: placeName,
       totalRouteMeters: leg12 + leg23,
-      prologueFr: `Un feuillet décousu des archives de ${placeName} évoque trois repères liés par la même mémoire bâtie sur un socle de ${litho}. Pour reconstituer la chronique sans briser le fil des âges, vous devez impérativement rallier le Début, le Milieu puis le Dénouement dans cet ordre précis.`,
-      epilogueFr: `Les trois sceaux de ${placeName} sont désormais réunis ! De « ${p1.name} » jusqu’à « ${p3.name} » en passant par « ${p2.name} », vous avez rétabli la chaîne mémorielle qui unit les fondations de ${litho} aux œuvres humaines. Votre nom est inscrit parmi les Tisserands des Récits.`,
+      prologueFr: `Votre Grimoire associe trois témoins patrimoniaux de ${placeName} pour composer un fil de promenade thématique sur le socle de ${litho}. Les lieux sont tous réels et documentés : cheminez librement du Début au Dénouement pour en explorer les correspondances architecturales.`,
+      epilogueFr: `Les trois témoins de ${placeName} sont désormais visités ! De « ${p1.name} » jusqu’à « ${p3.name} » en passant par « ${p2.name} », vous avez relié à pied les fondations de ${litho} aux œuvres humaines locales. Votre carnet s’enrichit de cette trilogie d’arpentage.`,
       rewardPreview: {
         xpFinaleBonus: 180,
         trophyId: 'tisserand_recits',
@@ -361,13 +376,15 @@ export function generateSectorNarrativeQuests(params: {
     quests.push({
       id: `nq_${sectorKey}_ondes_${sanitizeKeyPart(p1.id)}`,
       slotKey: 'pacte_ondes',
-      title: `Le Chant du Socle et de l’Onde`,
-      subtitle: `Trilogie Géographique · Du socle (${periodLabel}) au fil de l’eau`,
+      title: `Le Dialogue du Socle et de l’Onde`,
+      subtitle: `Itinéraire Géographique d’Arpentage · Du socle (${periodLabel}) au fil de l’eau`,
+      epistemicDisclaimerFr:
+        'Parcours géographique composé par votre Grimoire : rapprochement topographique libre pour lire les pentes et l’écoulement, sans filiation historique formelle.',
       focusCategory: 'geographie',
       localityLabel: placeName,
       totalRouteMeters: leg12 + leg23,
-      prologueFr: `Sous les pas des habitants de ${placeName}, la roche (${litho}) guide depuis des millénaires la course de ${waterThread}. Suivez dans l’ordre strict les trois stations topographiques pour lire comment la pente et l’eau ont dessiné le paysage.`,
-      epilogueFr: `Du point d’éveil${alt1 !== null ? ` (${Math.round(alt1)} m d’altitude)` : ''} jusqu’au terme${alt3 !== null ? ` (${Math.round(alt3)} m)` : ''}, vous avez déchiffré le dialogue silencieux entre le socle minéral et ${waterThread}. La Guilde de Géologie salue votre lecture du terrain !`,
+      prologueFr: `Votre Grimoire rapproche trois stations topographiques pour donner à observer la roche (${litho}), la pente et la course de ${waterThread}. Suivez dans l’ordre ces trois points pour lire comment le socle géologique et l’eau façonnent le relief.`,
+      epilogueFr: `Du point d’éveil${alt1 !== null ? ` (${Math.round(alt1)} m d’altitude)` : ''} jusqu’au terme${alt3 !== null ? ` (${Math.round(alt3)} m)` : ''}, vous avez parcouru le dialogue entre le socle minéral et ${waterThread}. La Guilde de Géologie salue votre lecture du terrain !`,
       rewardPreview: {
         xpFinaleBonus: 180,
         trophyId: 'maitre_chroniques',
@@ -458,12 +475,14 @@ export function generateSectorNarrativeQuests(params: {
       id: `nq_${sectorKey}_murmures_${sanitizeKeyPart(p1.id)}`,
       slotKey: 'murmures_vivant',
       title: `Les Murmures de la Futaie & des Contes`,
-      subtitle: 'Trilogie Sylvestre & Légendaire · Trois haltes initiatiques ordonnées',
+      subtitle: 'Itinéraire Écologique & Légendaire · 3 haltes d’arpentage libre',
+      epistemicDisclaimerFr:
+        'Parcours sensible composé par votre Grimoire : rapprochement évocateur entre refuges naturels et mémoire populaire locale, sans lien de causalité historique affirmé.',
       focusCategory: p1.category === 'legende' ? 'legende' : 'ecosysteme',
       localityLabel: placeName,
       totalRouteMeters: leg12 + leg23,
-      prologueFr: `Les anciens carnets de veille de ${placeName} racontent qu’un cerf blanc apparaît à qui sait écouter successivement les refuges du vivant et les lieux chargés de contes. Respectez scrupuleusement l’ordre des trois haltes pour ne pas effaroucher la mémoire des bois.`,
-      epilogueFr: `Les trois murmures de ${placeName} se répondent enfin ! En reliant dans l’ordre « ${p1.name} », « ${p2.name} » et « ${p3.name} », vous avez réconcilié l’observation naturaliste et l’imaginaire poétique des anciens veilleurs.`,
+      prologueFr: `Votre Grimoire compose une boucle contemplative reliant les refuges du vivant et les lieux chargés de contes à ${placeName}. Une promenade sensible pour observer la flore, guetter les petits habitants des bois et redécouvrir le folklore du terroir.`,
+      epilogueFr: `Les trois murmures de ${placeName} se répondent enfin ! En reliant dans l’ordre « ${p1.name} », « ${p2.name} » et « ${p3.name} », vous avez accordé votre pas à l’observation naturaliste et à l’imaginaire poétique du pays.`,
       rewardPreview: {
         xpFinaleBonus: 180,
         trophyId: 'maitre_chroniques',

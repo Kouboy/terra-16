@@ -82,6 +82,9 @@ export const WalkingChallengesView: React.FC<WalkingChallengesViewProps> = ({
             <p className="text-xs text-amber-800/90 mt-1 leading-relaxed">
               Arpentez le monde réel pour débloquer des parures, coiffes, reliques et compagnons exclusifs.
             </p>
+            <div className="mt-1 text-[11px] text-emerald-800 font-medium">
+              Activité entièrement facultative · Aucune pénalité, perte de série ou obligation d’assiduité.
+            </div>
           </div>
 
           {/* Aggregate Odometer Stats Cartouche */}

@@ -414,12 +414,12 @@ export const OFFICIAL_STATE_LABEL_META: Record<
 };
 
 export function inferOfficialStateLabel(
-  source: string,
-  subType = '',
+  source?: string | null,
+  subType?: string | null,
   explicit?: OfficialStateLabel
 ): OfficialStateLabel | null {
   if (explicit) return explicit;
-  const hay = `${source} ${subType}`.toLowerCase();
+  const hay = `${source || ''} ${subType || ''}`.toLowerCase();
   if (hay.includes('maison des illustres') || hay.includes('maisons des illustres')) {
     return 'maison_illustres';
   }
@@ -442,6 +442,57 @@ export function inferOfficialStateLabel(
     return 'datatourisme';
   }
   return null;
+}
+
+export type PoiSignificanceTier = 'remarquable' | 'notable' | 'technique';
+
+export function classifyPoiSignificanceTier(poi?: Partial<PoiItem> | null): PoiSignificanceTier {
+  if (!poi) return 'notable';
+  const nameL = (typeof poi.name === 'string' ? poi.name : '').toLowerCase();
+  const subL = (typeof poi.subType === 'string' ? poi.subType : '').toLowerCase();
+  const srcL = (typeof poi.source === 'string' ? poi.source : '').toLowerCase();
+
+  if (poi.officialLabel || inferOfficialStateLabel(srcL, subL)) {
+    return 'remarquable';
+  }
+
+  // Primary landmarks (châteaux, églises, menhirs, abbayes, cascades, grottes, arbres remarquables)
+  if (
+    subL.includes('château') ||
+    subL.includes('abbaye') ||
+    subL.includes('église') ||
+    subL.includes('cathédrale') ||
+    subL.includes('menhir') ||
+    subL.includes('dolmen') ||
+    subL.includes('arbre remarquable') ||
+    subL.includes('cascade') ||
+    subL.includes('grotte') ||
+    subL.includes('ruine') ||
+    subL.includes('oppidum') ||
+    nameL.includes('menhir') ||
+    nameL.includes('dolmen') ||
+    nameL.includes('château')
+  ) {
+    return 'remarquable';
+  }
+
+  // Purely technical or dense geological/engineering sensors
+  if (
+    srcL.includes('bss') ||
+    srcL.includes('piézom') ||
+    srcL.includes('forage') ||
+    srcL.includes('hub-eau') ||
+    srcL.includes('hydrométrie') ||
+    srcL.includes('station hydrométrique') ||
+    srcL.includes('cartofriches') ||
+    subL.includes('forage') ||
+    subL.includes('piézomètre') ||
+    subL.includes('débitmètre')
+  ) {
+    return 'technique';
+  }
+
+  return 'notable';
 }
 
 export interface PoiItem {
@@ -467,6 +518,98 @@ export interface PoiItem {
   isSubterranean?: boolean;
   officialLabel?: OfficialStateLabel;
   officialRef?: string;
+  epistemicStatus?: EpistemicStatus;
+}
+
+export type EpistemicStatus = 'fait_documente' | 'reconstitution_hypothese' | 'legende_folklore';
+
+export interface EpistemicStatusMeta {
+  key: EpistemicStatus;
+  badgeLabel: string;
+  badgeClass: string;
+  iconSymbol: string;
+  shortDefinition: string;
+  tooltipDesc: string;
+}
+
+export const EPISTEMIC_STATUS_META: Record<EpistemicStatus, EpistemicStatusMeta> = {
+  fait_documente: {
+    key: 'fait_documente',
+    badgeLabel: 'Fait documenté',
+    badgeClass: 'bg-[#ecfdf5] text-emerald-950 border-emerald-700',
+    iconSymbol: '✓',
+    shortDefinition: 'Archives & inventaires officiels',
+    tooltipDesc: 'Relevé attesté dans les archives ministérielles (Mérimée, BSS, INPN) ou géodésiques IGN.',
+  },
+  reconstitution_hypothese: {
+    key: 'reconstitution_hypothese',
+    badgeLabel: 'Hypothèse / Reconstitution',
+    badgeClass: 'bg-[#fffbeb] text-amber-950 border-amber-700',
+    iconSymbol: '~',
+    shortDefinition: 'Tracé déduit ou estimation',
+    tooltipDesc: 'Déduction cartographique, archéologique ou toponymique plausible non attestée in situ.',
+  },
+  legende_folklore: {
+    key: 'legende_folklore',
+    badgeLabel: 'Légende & Récit oral',
+    badgeClass: 'bg-[#faf5ff] text-purple-950 border-purple-700',
+    iconSymbol: '✦',
+    shortDefinition: 'Tradition populaire & mémoire',
+    tooltipDesc: 'Récits transmis par tradition orale, toponymie légendaire ou mémoire des conteurs.',
+  },
+};
+
+export function resolveEpistemicStatus(poi: {
+  category?: string;
+  source?: string;
+  subType?: string;
+  officialLabel?: string;
+  summary?: string;
+  name?: string;
+  epistemicStatus?: EpistemicStatus;
+}): EpistemicStatus {
+  if (poi.epistemicStatus) return poi.epistemicStatus;
+
+  const cat = (poi.category || '').toLowerCase();
+  const sub = (poi.subType || '').toLowerCase();
+  const name = (poi.name || '').toLowerCase();
+  const sum = (poi.summary || '').toLowerCase();
+
+  // 1. Légendes & récits oraux
+  if (
+    cat === 'legende' ||
+    sub.includes('légende') ||
+    sub.includes('folklore') ||
+    sub.includes('fée') ||
+    sub.includes('diable') ||
+    sub.includes('vouivre') ||
+    sub.includes('miracle') ||
+    name.includes('croix des fées') ||
+    name.includes('trou du diable') ||
+    name.includes('fontaine miraculeuse') ||
+    sum.includes('raconte la légende') ||
+    sum.includes('selon la légende') ||
+    sum.includes('tradition populaire')
+  ) {
+    return 'legende_folklore';
+  }
+
+  // 2. Reconstitutions, hypothèses archéologiques ou tracés déduits
+  if (
+    sub.includes('reconstitution') ||
+    sub.includes('hypothèse') ||
+    sub.includes('estimé') ||
+    sub.includes('voie antique supposée') ||
+    sum.includes('tracé présumé') ||
+    sum.includes('emplacement supposé') ||
+    sum.includes('reconstitution plausible') ||
+    sum.includes('hypothèse archéologique')
+  ) {
+    return 'reconstitution_hypothese';
+  }
+
+  // 3. Fait documenté
+  return 'fait_documente';
 }
 
 export type TerrainKind =
@@ -695,6 +838,7 @@ export interface UnlockedEntry {
   personalNote: string;
   photoCount: number;
   discoveredAtIso: string;
+  epistemicStatus?: EpistemicStatus;
 }
 
 export type TrophyId =
@@ -760,6 +904,7 @@ export interface ExplorerProgress {
   familiarId?: ExplorerFamiliarId;
   pinnedTrophyId?: TrophyId | '';
   walkedMeters?: number;
+  simulatedWalkedMeters?: number;
   nightFeatsCount?: number;
   stormFeatsCount?: number;
   completedContractsCount?: number;

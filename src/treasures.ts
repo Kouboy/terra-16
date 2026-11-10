@@ -569,9 +569,12 @@ export function spawnWorldArchivistChests(params: {
 
   for (const cand of candidates) {
     const bucket = cand.isSubterranean ? selectedSub : selectedSurface;
-    const maxCount = cand.isSubterranean ? 4 : 5;
+    // Lot 4: Low-intensity chests; do not artificially flood sparsely documented areas
+    const maxSurface = pois.length < 5 ? 1 : Math.min(2, Math.max(1, Math.floor(pois.length / 8)));
+    const maxSub = subterranean.length < 3 ? 1 : 2;
+    const maxCount = cand.isSubterranean ? maxSub : maxSurface;
     if (bucket.length >= maxCount) continue;
-    const minSpacing = cand.isSubterranean ? 360 : 340;
+    const minSpacing = cand.isSubterranean ? 480 : 500;
     if (bucket.some((ex) => haversineMeters(ex.lat, ex.lng, cand.lat, cand.lng) < minSpacing)) {
       continue;
     }

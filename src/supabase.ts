@@ -1121,6 +1121,19 @@ export async function deletePoiCairnInCloud(uidRaw: string, poiIdRaw: string): P
   await supabase.from('cairns').delete().eq('id', cairnId);
 }
 
+export async function upvoteCairnInCloud(cairnIdRaw: string): Promise<void> {
+  if (!supabase || !isSupabaseConfigured) return;
+  const cairnId = cairnIdRaw.trim();
+  try {
+    const { error } = await supabase.rpc('increment_cairn_upvote', { target_cairn_id: cairnId });
+    if (error) {
+      console.warn('[Supabase] increment_cairn_upvote rpc fallback:', error.message);
+    }
+  } catch {
+    // Graceful offline or unconfigured handling
+  }
+}
+
 // ----------------------------------------------------------------------------
 // 8. GÉOCACHES & LOGS
 // ----------------------------------------------------------------------------
@@ -1303,6 +1316,19 @@ export async function signGeocacheLogbookInCloud(params: {
   const logId = `${cacheId}_${uid}_${Date.now()}`;
   const message = params.note || params.logMessage || 'Visite inscrite sur le carnet.';
 
+  // Attempt atomic secure RPC call
+  try {
+    const { error: rpcErr } = await supabase.rpc('record_geocache_log', {
+      target_cache_id: cacheId,
+      p_finder_id: uid,
+      p_finder_name: clampStr(params.finderCallsign.trim(), 1, 60, 'Explorateur'),
+      p_message: clampStr(message.trim(), 1, 280, 'Visite inscrite sur le carnet.'),
+    });
+    if (!rpcErr) return;
+  } catch {
+    // Fall back to direct insertion if RPC is not provisioned
+  }
+
   await supabase.from('geocache_logs').insert({
     id: logId,
     geocache_id: cacheId,
@@ -1312,10 +1338,14 @@ export async function signGeocacheLogbookInCloud(params: {
     created_at: new Date().toISOString(),
   });
 
-  // Increment finder_count on geocache
-  const { data: cache } = await supabase.from('geocaches').select('finder_count').eq('id', cacheId).single();
-  if (cache) {
-    await supabase.from('geocaches').update({ finder_count: (cache.finder_count || 0) + 1 }).eq('id', cacheId);
+  // Increment finder_count on geocache if owner or allowed
+  try {
+    const { data: cache } = await supabase.from('geocaches').select('finder_count').eq('id', cacheId).single();
+    if (cache) {
+      await supabase.from('geocaches').update({ finder_count: (cache.finder_count || 0) + 1 }).eq('id', cacheId);
+    }
+  } catch {
+    // Graceful
   }
 }
 
