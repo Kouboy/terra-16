@@ -268,6 +268,17 @@ export async function signOutExplorer(): Promise<void> {
   await supabase.auth.signOut();
 }
 
+export async function resetExplorerPasswordWithEmail(email: string): Promise<void> {
+  if (!supabase || !isSupabaseConfigured) {
+    throw new Error('Supabase n’est pas configuré.');
+  }
+  const cleanEmail = email.trim();
+  const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);
+  if (error) {
+    throw new Error(formatSupabaseAuthErrorFr(error));
+  }
+}
+
 export function onSupabaseAuthStateChange(
   callback: (user: ExplorerAuthUser | null) => void
 ): () => void {

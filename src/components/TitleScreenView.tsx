@@ -5,6 +5,7 @@ import {
   verifyExplorerEmailOtp,
   signInExplorerWithPassword,
   signUpExplorerWithPassword,
+  resetExplorerPasswordWithEmail,
   type ExplorerAuthUser as User,
 } from '../supabase';
 import {
@@ -98,7 +99,6 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [callsignDraft, setCallsignDraft] = useState(explorerCallsign || 'Éclaireur');
   const [isEmbarking, setIsEmbarking] = useState(false);
-  const [signingInGoogle, setSigningInGoogle] = useState(false);
 
   // Open-Source Supabase Direct Authentication
   const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
@@ -113,6 +113,20 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
   useEffect(() => {
     setCallsignDraft(explorerCallsign || 'Éclaireur');
   }, [explorerCallsign]);
+
+  useEffect(() => {
+    if (user && supabaseModalOpen) {
+      setAuthFeedback({
+        text: `✨ Connexion réussie (${user.email || user.displayName || 'Éclaireur'}) ! Synchronisation en cours…`,
+      });
+      const timer = window.setTimeout(() => {
+        setSupabaseModalOpen(false);
+        setOtpSent(false);
+        setAuthOtpCode('');
+      }, 850);
+      return () => window.clearTimeout(timer);
+    }
+  }, [user, supabaseModalOpen]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -703,18 +717,6 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
     }, 340);
   };
 
-  const handleGoogleSignInAndEnter = async () => {
-    if (signingInGoogle) return;
-    commitCallsign();
-    playTitleSelectSfx(muted);
-    setSigningInGoogle(true);
-    try {
-      await onGoogleAuth();
-    } finally {
-      setSigningInGoogle(false);
-    }
-  };
-
   const handleSendEmailOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!authEmail.trim() || isSubmittingAuth) return;
@@ -724,12 +726,12 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
       await signInExplorerWithEmailOtp(authEmail.trim());
       setOtpSent(true);
       setAuthFeedback({
-        text: 'Code magique envoyé à ' + authEmail.trim() + ' ! Entrez le code à 6 chiffres reçu dans votre boîte de messagerie.',
+        text: '✉️ Email envoyé à ' + authEmail.trim() + ' ! Cliquez directement sur le lien "Sign In" dans le courriel reçu pour vous connecter.',
       });
       playTitleSelectSfx(muted);
     } catch (err) {
       setAuthFeedback({
-        text: err instanceof Error ? err.message : 'Impossible d’envoyer le code par courriel.',
+        text: err instanceof Error ? err.message : 'Impossible d’envoyer le lien par courriel.',
         isError: true,
       });
     } finally {
@@ -805,6 +807,33 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
     } catch (err) {
       setAuthFeedback({
         text: err instanceof Error ? err.message : 'Erreur lors de la création du compte.',
+        isError: true,
+      });
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!authEmail.trim() || isSubmittingAuth) {
+      setAuthFeedback({
+        text: 'Veuillez d’abord renseigner votre adresse email ci-dessus pour recevoir le lien de réinitialisation.',
+        isError: true,
+      });
+      return;
+    }
+    setIsSubmittingAuth(true);
+    setAuthFeedback(null);
+    try {
+      await resetExplorerPasswordWithEmail(authEmail.trim());
+      playTitleSelectSfx(muted);
+      setAuthFeedback({
+        text: `Un courriel avec un lien pour réinitialiser votre mot de passe a été envoyé à ${authEmail.trim()}. Consultez votre boîte de réception.`,
+        isError: false,
+      });
+    } catch (err) {
+      setAuthFeedback({
+        text: err instanceof Error ? err.message : 'Impossible d’envoyer le lien de réinitialisation.',
         isError: true,
       });
     } finally {
@@ -1150,54 +1179,77 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
                             className="w-full min-h-[40px] px-3 py-1.5 bg-[#fffdf7] border-2 border-[#6b4928] text-xs font-semibold text-[#24160c] focus:outline-none focus:border-[#2b1a0e]"
                           />
                         </div>
-                        <p className="text-[10px] text-[#6b4928] leading-tight">
-                          Aucun mot de passe à retenir. Supabase vous envoie un code à 6 chiffres par courriel pour vous connecter instantanément.
-                        </p>
+                        <div className="p-2 bg-[#ecd8b1] border border-[#8c653b] text-[11px] text-[#422510] space-y-1">
+                          <p className="font-bold flex items-center gap-1 text-[#24160c]">
+                            <span>✨</span>
+                            <span>Connexion rapide en 1 clic :</span>
+                          </p>
+                          <p className="leading-tight text-[10.5px]">
+                            Supabase vous envoie un courriel contenant un bouton <strong className="text-[#991b1b]">« Sign In »</strong>. Cliquez simplement dessus dans votre boîte mail pour vous connecter sans mot de passe !
+                          </p>
+                        </div>
                         <button
                           type="submit"
                           disabled={isSubmittingAuth || !authEmail.trim()}
                           className="w-full min-h-[42px] px-4 py-2 font-bold text-xs bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow flex items-center justify-center gap-2"
                         >
                           <PixelUiIcon name="scroll" className="w-4 h-4 shrink-0" />
-                          <span>{isSubmittingAuth ? 'Envoi en cours…' : 'Recevoir mon code magique par email'}</span>
+                          <span>{isSubmittingAuth ? 'Envoi en cours…' : 'M’envoyer le lien de connexion'}</span>
                         </button>
                       </form>
                     ) : (
-                      <form onSubmit={handleVerifyEmailOtp} className="space-y-2.5">
-                        <div>
-                          <label className="block text-[11px] font-bold text-[#3b2312] mb-1">
-                            Code à 6 chiffres reçu par email
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            maxLength={8}
-                            value={authOtpCode}
-                            onChange={(e) => setAuthOtpCode(e.target.value)}
-                            placeholder="123456"
-                            className="w-full min-h-[44px] px-3 py-1.5 bg-[#fffdf7] border-2 border-[#6b4928] text-center tracking-widest text-lg font-bold text-[#24160c] focus:outline-none focus:border-[#2b1a0e]"
-                          />
+                      <div className="space-y-3">
+                        {/* Primary path: Click Sign In link in email */}
+                        <div className="p-3 bg-amber-100/90 border-2 border-amber-600 text-[#2b1a0e] space-y-2">
+                          <div className="flex items-center gap-1.5 font-bold text-xs text-[#991b1b]">
+                            <span>📬</span>
+                            <span className="truncate">Courriel envoyé à {authEmail}</span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed">
+                            👉 <strong>Cliquez directement sur le bouton « Sign In » (ou le lien)</strong> dans l’email que vous venez de recevoir.
+                          </p>
+                          <p className="text-[10px] text-[#6b4928] italic leading-tight">
+                            Pas besoin de code ! Dès votre clic dans le courriel, votre session sera validée automatiquement et cette fenêtre se fermera toute seule.
+                          </p>
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOtpSent(false);
-                              setAuthFeedback(null);
-                            }}
-                            className="min-h-[40px] px-2 py-1 bg-[#ecd8b1] hover:bg-amber-100 text-[#24160c] font-bold text-xs border border-[#2b1a0e]"
-                          >
-                            Changer d’email
-                          </button>
-                          <button
-                            type="submit"
-                            disabled={isSubmittingAuth || !authOtpCode.trim()}
-                            className="min-h-[40px] px-3 py-1 bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-[#24160c] font-bold text-xs border-2 border-[#2b1a0e] jrpg-shadow"
-                          >
-                            {isSubmittingAuth ? 'Vérification…' : 'Valider &amp; Entrer'}
-                          </button>
-                        </div>
-                      </form>
+
+                        {/* Fallback path: Numeric code if template configured */}
+                        <form onSubmit={handleVerifyEmailOtp} className="space-y-2 pt-1 border-t border-[#8c653b]/40">
+                          <div>
+                            <label className="block text-[10px] font-bold text-[#5c3717] mb-1">
+                              (Optionnel) Saisir un code numérique à 6 chiffres :
+                            </label>
+                            <input
+                              type="text"
+                              maxLength={8}
+                              value={authOtpCode}
+                              onChange={(e) => setAuthOtpCode(e.target.value)}
+                              placeholder="123456"
+                              className="w-full min-h-[38px] px-3 py-1 bg-[#fffdf7] border-2 border-[#6b4928] text-center tracking-widest text-base font-bold text-[#24160c] focus:outline-none focus:border-[#2b1a0e]"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOtpSent(false);
+                                setAuthFeedback(null);
+                                setAuthOtpCode('');
+                              }}
+                              className="min-h-[38px] px-2 py-1 bg-[#ecd8b1] hover:bg-amber-100 text-[#24160c] font-bold text-xs border border-[#2b1a0e]"
+                            >
+                              Changer d’email
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isSubmittingAuth || !authOtpCode.trim()}
+                              className="min-h-[38px] px-3 py-1 bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-[#24160c] font-bold text-xs border-2 border-[#2b1a0e] jrpg-shadow"
+                            >
+                              {isSubmittingAuth ? 'Vérification…' : 'Valider le code'}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
                     )}
                   </div>
                 )}
@@ -1231,6 +1283,26 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
                         placeholder="••••••••"
                         className="w-full min-h-[38px] px-3 py-1.5 bg-[#fffdf7] border-2 border-[#6b4928] text-xs font-semibold text-[#24160c] focus:outline-none focus:border-[#2b1a0e]"
                       />
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] pt-0.5">
+                      <button
+                        type="button"
+                        onClick={handleResetPassword}
+                        disabled={isSubmittingAuth}
+                        className="text-[#78350f] hover:text-[#991b1b] underline font-medium cursor-pointer"
+                      >
+                        Mot de passe oublié ?
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('otp');
+                          setAuthFeedback(null);
+                        }}
+                        className="text-[#6b4928] hover:text-[#24160c] font-bold cursor-pointer"
+                      >
+                        Ou sans mot de passe ▸
+                      </button>
                     </div>
                     <div className="grid grid-cols-2 gap-2 pt-1">
                       <button
