@@ -1,0 +1,18 @@
+# Render Blueprint configuration for Terra 16
+# Documentation: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: terra-16
+    runtime: node
+    plan: free
+    region: frankfurt # Serveur proche de la France pour réduire la latence
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.18.0
+      - key: VITE_SUPABASE_URL
+        value: https://iiuavileukbczktzqdbs.supabase.co
+      - key: VITE_SUPABASE_ANON_KEY
+        value: sb_publishable_LvefQjGqsWeE9sLtspBhLQ_cWKgzZu-

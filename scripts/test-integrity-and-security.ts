@@ -69,14 +69,18 @@ assert(
   'Les défis pédestres compétitifs (défis de marche) ne progressent que sur la marche GPS réelle'
 );
 
+assert(
+  appContent.includes('const [simulationMode] = useState<boolean>(false);'),
+  'Le mode GPS Réel est actif par défaut (simulationMode = false)'
+);
+
 // 3. Audit Sécurité et respect des lieux
 const recapPath = path.resolve('src/components/WalkRecapModal.tsx');
 const recapContent = fs.readFileSync(recapPath, 'utf-8');
 
 assert(
-  recapContent.includes('Arpentage Virtuel (Mode Simulation)') &&
-  recapContent.includes('Marche Réelle Vérifiée (GPS)'),
-  'Le récapitulatif de promenade explicite clairement la distinction entre mode simulé et GPS réel'
+  recapContent.includes('Marche Réelle Vérifiée'),
+  'Le récapitulatif de promenade certifie la marche réelle vérifiée par GPS'
 );
 
 assert(

@@ -86,39 +86,26 @@ export const WalkRecapModal: React.FC<WalkRecapModalProps> = ({
         </div>
 
         {/* Mode Integrity Status Banner */}
-        <div
-          className={`p-2.5 border text-xs flex items-center justify-between gap-3 ${
-            isSimulatedLocation
-              ? 'bg-amber-100/80 border-amber-600/60 text-[#451a03]'
-              : 'bg-emerald-100/80 border-emerald-600/60 text-[#064e3b]'
-          }`}
-        >
+        <div className="p-2.5 border text-xs flex items-center justify-between gap-3 bg-emerald-100/80 border-emerald-600/60 text-[#064e3b]">
           <div className="flex items-center gap-2">
-            <PixelUiIcon name={isSimulatedLocation ? 'boot' : 'gps'} className="w-4 h-4 shrink-0" />
+            <PixelUiIcon name="gps" className="w-4 h-4 shrink-0" />
             <div className="leading-snug">
-              <span className="font-bold">
-                {isSimulatedLocation
-                  ? 'Arpentage Virtuel (Mode Simulation)'
-                  : 'Marche Réelle Vérifiée (GPS)'}
-              </span>
+              <span className="font-bold">Marche Réelle Vérifiée (GPS de Terrain)</span>
               <p className="text-[11px] opacity-90">
-                {isSimulatedLocation
-                  ? 'Distance et dénivelé simulés pour tester et explorer la carte sans altérer vos classements pédestres réels.'
-                  : 'Déplacement physique enregistré in situ : vos pas alimentent vos défis de marche réels.'}
+                Déplacement physique enregistré in situ : vos pas alimentent vos défis et votre carnet
+                d’arpentage.
               </p>
             </div>
           </div>
           <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border border-current shrink-0">
-            {isSimulatedLocation ? 'Simulateur' : 'GPS Terrain'}
+            GPS Terrain
           </span>
         </div>
 
         {/* Walking Metrics Cartouches */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
           <div className="p-2.5 bg-[#ecd8b1] border border-[#8c653b]">
-            <div className="text-[10px] uppercase font-bold text-[#6b4928]">
-              {isSimulatedLocation ? 'Distance simulée' : 'Distance marchée'}
-            </div>
+            <div className="text-[10px] uppercase font-bold text-[#6b4928]">Distance marchée</div>
             <div className="text-base sm:text-lg font-bold font-mono text-[#24160c]">
               {formatMeters(sessionMeters)}
             </div>

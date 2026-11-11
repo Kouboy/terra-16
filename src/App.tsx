@@ -696,8 +696,9 @@ export default function App() {
     lat: PRESET_LOCATIONS[0].lat,
     lng: PRESET_LOCATIONS[0].lng,
   });
-  const [simulationMode, setSimulationMode] = useState<boolean>(true);
-  const [gpsStatus, setGpsStatus] = useState<string>('Marche Simulée active');
+  const [simulationMode] = useState<boolean>(false);
+  const [gpsPermissionState, setGpsPermissionState] = useState<'prompt' | 'granted' | 'denied' | 'unavailable'>('prompt');
+  const [gpsStatus, setGpsStatus] = useState<string>('Acquisition du signal satellite GPS…');
   const [walkQueue, setWalkQueue] = useState<Array<{ lat: number; lng: number }>>([]);
   const [expeditionStops, setExpeditionStops] = useState<PoiItem[]>([]);
   const [closeCustomLoop, setCloseCustomLoop] = useState<boolean>(true);
@@ -1935,15 +1936,39 @@ export default function App() {
     };
   }, []);
 
-  // Real GPS Watch
-  useEffect(() => {
-    if (simulationMode) {
-      setGpsStatus('Marche Simulée (rues/ponts au clic, D-Pad ou ZQSD)');
+  // Real GPS acquisition helper callable on demand (recentering / manual prompt)
+  const requestGpsAuthorization = useCallback(() => {
+    if (!('geolocation' in navigator)) {
+      setGpsStatus('Module GPS non supporté par ce navigateur');
+      setGpsPermissionState('unavailable');
       return;
     }
+    setGpsStatus('Acquisition du signal satellite GPS…');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setWalkQueue([]);
+        setPlayerPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGpsStatus(`GPS verrouillé (±${Math.round(pos.coords.accuracy)} m)`);
+        setGpsPermissionState('granted');
+      },
+      (err) => {
+        console.warn('[GPS] Error getting position:', err);
+        if (err.code === 1) {
+          setGpsStatus('Accès GPS refusé : activez la géolocalisation');
+          setGpsPermissionState('denied');
+        } else {
+          setGpsStatus('Signal satellite GPS en cours de calage…');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 12000 }
+    );
+  }, []);
+
+  // Real GPS Watch - active automatically to force real-world exploration
+  useEffect(() => {
     if (!('geolocation' in navigator)) {
-      setGpsStatus('GPS non disponible — retour en Marche Simulée');
-      setSimulationMode(true);
+      setGpsStatus('Module GPS non disponible sur cet appareil');
+      setGpsPermissionState('unavailable');
       return;
     }
 
@@ -1953,15 +1978,22 @@ export default function App() {
         setWalkQueue([]);
         setPlayerPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setGpsStatus(`GPS verrouillé (±${Math.round(pos.coords.accuracy)} m)`);
+        setGpsPermissionState('granted');
       },
-      () => {
-        setGpsStatus('Signal GPS indisponible — passez en Marche Simulée');
+      (err) => {
+        console.warn('[GPS] Watch error:', err);
+        if (err.code === 1) {
+          setGpsStatus('Accès GPS refusé : activez la géolocalisation');
+          setGpsPermissionState('denied');
+        } else {
+          setGpsStatus('Recherche du signal satellite GPS…');
+        }
       },
-      { enableHighAccuracy: true, maximumAge: 4000, timeout: 12000 }
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [simulationMode]);
+  }, []);
 
   const handlePlayerSurfaceChange = useCallback((surface: SurfaceType, nearWater: boolean) => {
     playerSurfaceRef.current = { surface, nearWater };
@@ -2729,7 +2761,6 @@ export default function App() {
   };
 
   const teleportToLocation = (lat: number, lng: number) => {
-    setSimulationMode(true);
     setWalkQueue([]);
     setExpeditionStops([]);
     setActiveRoadLoop(null);
@@ -3241,10 +3272,9 @@ export default function App() {
   const handleWalkRoadLoop = useCallback((loop: PlannedRoadLoop | null) => {
     if (!loop || loop.waypoints.length === 0) return;
     setSubterraneanMode(false);
-    setSimulationMode(true);
     setActiveRoadLoop(loop);
     setDashedTracesEnabled(true);
-    setWalkQueue(loop.waypoints);
+    setWalkQueue([]);
     setMobileDrawer('none');
     setDesktopToolbarPanel('none');
     setActiveTab('carte');
@@ -3254,12 +3284,10 @@ export default function App() {
     if (!customRoadLoop) return;
     setActiveRoadLoop(customRoadLoop);
     setDashedTracesEnabled(true);
-    if (simulationMode) {
-      setWalkQueue(customRoadLoop.waypoints);
-    }
+    setWalkQueue([]);
     setMobileDrawer('none');
     setDesktopToolbarPanel('none');
-  }, [customRoadLoop, simulationMode]);
+  }, [customRoadLoop]);
 
   const handleCraftAlchemyRecipe = useCallback(
     (recipe: AlchemyRecipe) => {
@@ -5913,22 +5941,14 @@ export default function App() {
               ))}
             </ol>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            <div className="pt-1">
               <button
                 type="button"
                 onClick={() => handleShowRoadLoopOnMap(loop)}
-                className="min-h-[42px] px-3 py-2 text-xs font-bold bg-[#ecd8b1] hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight"
+                className="w-full min-h-[44px] px-3 py-2 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-2 text-center cursor-pointer"
               >
-                <PixelUiIcon name="gps" className="w-3.5 h-3.5 shrink-0" />
-                <span>Tracer sur carte (GPS)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleWalkRoadLoop(loop)}
-                className="min-h-[42px] px-3 py-2 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 text-center leading-tight"
-              >
-                <PixelUiIcon name="boot" className="w-3.5 h-3.5 shrink-0" />
-                <span>Marcher la boucle</span>
+                <PixelUiIcon name="gps" className="w-4 h-4 shrink-0" />
+                <span>Tracer l’itinéraire sur la carte (Guide GPS)</span>
               </button>
             </div>
 
@@ -6016,10 +6036,10 @@ export default function App() {
           <button
             type="button"
             onClick={launchExpeditionLoop}
-            className="flex-1 min-h-[42px] px-3 py-2 text-xs font-bold bg-amber-300 hover:bg-amber-200 text-[#24160c] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
+            className="flex-1 min-h-[44px] px-3 py-2 text-xs font-bold bg-[#991b1b] hover:bg-[#b91c1c] text-[#fffbeb] border-2 border-[#2b1a0e] jrpg-shadow inline-flex items-center justify-center gap-2 cursor-pointer"
           >
-            <PixelUiIcon name={simulationMode ? 'boot' : 'gps'} className="w-3.5 h-3.5" />
-            <span>{simulationMode ? 'Marcher la boucle' : 'Tracer sur carte'}</span>
+            <PixelUiIcon name="gps" className="w-4 h-4 shrink-0" />
+            <span>Tracer le parcours (GPS)</span>
           </button>
           <button
             type="button"
@@ -6027,7 +6047,7 @@ export default function App() {
               setExpeditionStops([]);
               if (activeRoadLoop?.presetId === 'custom') setActiveRoadLoop(null);
             }}
-            className="min-h-[42px] px-3 py-2 text-xs font-bold bg-[#ecd8b1] hover:bg-[#fffbeb] text-[#24160c] border-2 border-[#6b4928] whitespace-nowrap shrink-0"
+            className="min-h-[44px] px-3 py-2 text-xs font-bold bg-[#ecd8b1] hover:bg-[#fffbeb] text-[#24160c] border-2 border-[#6b4928] whitespace-nowrap shrink-0 cursor-pointer"
           >
             Vider
           </button>
@@ -7305,18 +7325,13 @@ export default function App() {
               <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setSimulationMode((s) => !s)}
-                  aria-label={simulationMode ? 'Passer en GPS Réel' : 'Passer en Marche Simulée'}
-                  className={`min-h-[44px] min-w-[44px] px-2.5 sm:px-3 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 active:scale-95 cursor-pointer ${
-                    simulationMode
-                      ? 'bg-amber-300 text-[#24160c]'
-                      : 'bg-[#991b1b] text-[#fffbeb]'
-                  }`}
+                  onClick={requestGpsAuthorization}
+                  aria-label="Recentrer sur la position GPS réelle"
+                  className="min-h-[44px] min-w-[44px] px-2.5 sm:px-3 py-1.5 text-xs font-bold bg-[#991b1b] text-[#fffbeb] hover:bg-[#b91c1c] border-2 border-[#2b1a0e] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 active:scale-95 cursor-pointer"
+                  title="Signal satellite GPS en direct"
                 >
-                  <PixelUiIcon name={simulationMode ? 'boot' : 'gps'} className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">
-                    {simulationMode ? 'Simulé' : 'GPS Réel'}
-                  </span>
+                  <PixelUiIcon name="gps" className="w-4 h-4 shrink-0" />
+                  <span className="hidden sm:inline">GPS Réel</span>
                 </button>
 
                 <button
@@ -8797,32 +8812,15 @@ export default function App() {
                 <div className="hidden lg:block space-y-2.5 shrink-0">
                   <div className="flex flex-wrap items-center justify-between gap-2.5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <div className="flex items-center bg-[#f8edd6] border-2 border-[#2b1a0e] jrpg-shadow">
-                        <button
-                          type="button"
-                          onClick={() => setSimulationMode(false)}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
-                            !simulationMode
-                              ? 'bg-[#991b1b] text-[#fffbeb]'
-                              : 'text-[#54361d] hover:bg-[#ecd8b1]'
-                          }`}
-                        >
-                          <PixelUiIcon name="gps" className="w-3.5 h-3.5" />
-                          <span>GPS Réel</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSimulationMode(true)}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border-l-2 border-[#2b1a0e] transition-colors whitespace-nowrap shrink-0 ${
-                            simulationMode
-                              ? 'bg-amber-300 text-[#24160c]'
-                              : 'text-[#54361d] hover:bg-[#ecd8b1]'
-                          }`}
-                        >
-                          <PixelUiIcon name="boot" className="w-3.5 h-3.5" />
-                          <span>Marche Simulée</span>
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={requestGpsAuthorization}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-[#991b1b] text-[#fffbeb] hover:bg-[#b91c1c] border-2 border-[#2b1a0e] jrpg-shadow transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                        title="Acquisition satellite GPS en direct"
+                      >
+                        <PixelUiIcon name="gps" className="w-3.5 h-3.5" />
+                        <span>GPS Réel Actif</span>
+                      </button>
 
                       <button
                         type="button"
@@ -9567,16 +9565,13 @@ export default function App() {
                       <div className="lg:hidden absolute inset-x-2 bottom-2 z-20 grid grid-cols-5 gap-1.5">
                         <button
                           type="button"
-                          onClick={() => setSimulationMode((s) => !s)}
-                          className={`min-h-[46px] px-1 py-1.5 text-xs font-bold border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5 ${
-                            simulationMode
-                              ? 'bg-amber-300 text-[#24160c]'
-                              : 'bg-[#991b1b] text-[#fffbeb]'
-                          }`}
+                          onClick={requestGpsAuthorization}
+                          className="min-h-[46px] px-1 py-1.5 text-xs font-bold bg-[#991b1b] text-[#fffbeb] hover:bg-[#b91c1c] border-2 border-[#2b1a0e] jrpg-shadow flex flex-col items-center justify-center gap-0.5 cursor-pointer"
+                          title="Recentrer sur le signal GPS réel"
                         >
-                          <PixelUiIcon name={simulationMode ? 'boot' : 'gps'} className="w-4 h-4 shrink-0" />
+                          <PixelUiIcon name="gps" className="w-4 h-4 shrink-0" />
                           <span className="text-[10px] leading-none truncate max-w-full">
-                            {simulationMode ? 'Simulé' : 'GPS Réel'}
+                            GPS Réel
                           </span>
                         </button>
 
