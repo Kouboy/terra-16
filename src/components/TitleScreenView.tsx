@@ -23,14 +23,9 @@ import {
   resolveCalendarSeasonVisuals,
 } from '../astronomyAndSeasons';
 import { playTitleEmbarkSfx, playTitleSelectSfx } from '../sound';
-import {
-  resolveEffectiveTimeOfDay,
-  type ExplorerAppearance,
-  type ExplorerOutfitId,
-  type TimeOfDayMode,
-  type WeatherInfo,
-} from '../types';
+import { resolveEffectiveTimeOfDay, type ExplorerAppearance, type ExplorerOutfitId, type TimeOfDayMode, type WeatherInfo } from '../types';
 import { PixelCornerRivets, PixelUiIcon } from './PixelIcons';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 
 interface TitleScreenViewProps {
   user: User | null;
@@ -99,6 +94,10 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [callsignDraft, setCallsignDraft] = useState(explorerCallsign || 'Éclaireur');
   const [isEmbarking, setIsEmbarking] = useState(false);
+
+  // In-App PWA Install State
+  const { isInstallable, isInstalled, isIOS, isAndroid, promptInstall } = usePWAInstall();
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
 
   // Open-Source Supabase Direct Authentication
   const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
@@ -1495,6 +1494,24 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
               </span>
             </button>
 
+            {!isInstalled && (
+              <button
+                type="button"
+                onClick={async () => {
+                  playTitleSelectSfx(muted);
+                  if (isInstallable) {
+                    await promptInstall();
+                  } else {
+                    setInstallGuideOpen(true);
+                  }
+                }}
+                className="min-h-[44px] px-3.5 py-2 text-xs sm:text-sm font-bold bg-[#382012] hover:bg-[#4d2c19] text-amber-200 border-2 border-[#d97706] jrpg-shadow inline-flex items-center justify-center gap-2 sm:col-span-2 transition-transform duration-150 active:translate-y-0.5"
+              >
+                <PixelUiIcon name="install" className="w-4 h-4 shrink-0 text-amber-300" />
+                <span>Installer l’App Terra 16 (Plein écran &amp; Écran éveillé)</span>
+              </button>
+            )}
+
             {!user ? (
               <button
                 type="button"
@@ -1535,6 +1552,87 @@ export const TitleScreenView: React.FC<TitleScreenViewProps> = ({
               className="w-4 h-4 accent-[#991b1b] shrink-0"
             />
           </label>
+
+          {/* In-App PWA Install Modal Guide (iOS Safari, Android Chrome, Desktop) */}
+          {installGuideOpen && (
+            <div className="fixed inset-0 z-[130] bg-black/80 flex items-center justify-center p-3 sm:p-4">
+              <div className="bg-[#f5e6cb] border-4 border-[#2b1a0e] max-w-md w-full p-4 space-y-3.5 text-[#24160c] shadow-2xl jrpg-shadow relative">
+                <div className="flex items-center justify-between border-b-2 border-[#8c653b] pb-2">
+                  <div className="flex items-center gap-2">
+                    <PixelUiIcon name="install" className="w-5 h-5 text-amber-800" />
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base leading-tight text-[#24160c]">
+                        Installer l’Application Terra 16
+                      </h3>
+                      <p className="text-[10px] sm:text-xs text-[#6b4928]">
+                        Expérience native 100 % plein écran, écran éveillé &amp; GPS fluide
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInstallGuideOpen(false)}
+                    className="w-8 h-8 flex items-center justify-center bg-[#ecd8b1] hover:bg-rose-200 text-[#24160c] font-bold text-sm border-2 border-[#2b1a0e]"
+                    aria-label="Fermer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {isIOS ? (
+                  <div className="p-3 bg-[#ecd8b1] border-2 border-[#6b4928] space-y-2 text-xs">
+                    <div className="font-bold text-sm text-[#991b1b] flex items-center gap-1.5">
+                      <span>🍎</span>
+                      <span>Sur iPhone / iPad (Safari) :</span>
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1.5 font-medium leading-relaxed text-[#24160c]">
+                      <li>
+                        Appuyez sur le bouton <strong>Partager</strong> (icône carré avec flèche vers le haut) dans la barre de Safari.
+                      </li>
+                      <li>
+                        Faites défiler le menu vers le bas et touchez <strong>« Sur l'écran d'accueil »</strong>.
+                      </li>
+                      <li>
+                        Touchez <strong>« Ajouter »</strong> en haut à droite.
+                      </li>
+                    </ol>
+                    <p className="text-[11px] text-[#6b4928] italic pt-1 border-t border-[#8c653b]/40">
+                      L’icône Terra 16 apparaîtra directement sur votre écran d’accueil et se lancera en plein écran sans les barres du navigateur !
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-[#ecd8b1] border-2 border-[#6b4928] space-y-2 text-xs">
+                    <div className="font-bold text-sm text-[#991b1b] flex items-center gap-1.5">
+                      <span>🤖</span>
+                      <span>Sur Android ou Ordinateur (Chrome / Edge / Brave) :</span>
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1.5 font-medium leading-relaxed text-[#24160c]">
+                      <li>
+                        Ouvrez le menu du navigateur (les <strong>trois petits points ⋮</strong> en haut à droite).
+                      </li>
+                      <li>
+                        Sélectionnez <strong>« Installer l’application »</strong> ou <strong>« Ajouter à l’écran d’accueil »</strong>.
+                      </li>
+                      <li>
+                        Confirmez en touchant <strong>« Installer »</strong>.
+                      </li>
+                    </ol>
+                    <p className="text-[11px] text-[#6b4928] italic pt-1 border-t border-[#8c653b]/40">
+                      L'application sera installée localement et accessible directement comme une application mobile native.
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setInstallGuideOpen(false)}
+                  className="w-full min-h-[40px] px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-[#24160c] font-bold text-xs border-2 border-[#2b1a0e] jrpg-shadow"
+                >
+                  Compris, fermer le guide
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

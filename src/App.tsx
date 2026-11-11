@@ -696,7 +696,7 @@ export default function App() {
     lat: PRESET_LOCATIONS[0].lat,
     lng: PRESET_LOCATIONS[0].lng,
   });
-  const [simulationMode] = useState<boolean>(false);
+  const [simulationMode, setSimulationMode] = useState<boolean>(false);
   const [gpsPermissionState, setGpsPermissionState] = useState<'prompt' | 'granted' | 'denied' | 'unavailable'>('prompt');
   const [gpsStatus, setGpsStatus] = useState<string>('Acquisition du signal satellite GPS…');
   const [walkQueue, setWalkQueue] = useState<Array<{ lat: number; lng: number }>>([]);
@@ -2435,6 +2435,11 @@ export default function App() {
       }
     }
 
+    // Le mode planificateur de balades sert exclusivement à élaborer des parcours : aucun point ni XP attribué
+    if (simulationMode) {
+      return;
+    }
+
     const stepMoved = haversineMeters(prevPos.lat, prevPos.lng, playerPos.lat, playerPos.lng);
     const useSegmentSweep = stepMoved > 1 && stepMoved <= 240;
 
@@ -3589,6 +3594,18 @@ export default function App() {
   // Harvest a real-bedrock botanical sketch or geological hand-specimen on the 16-bit map
   const handleHarvestSpecimen = useCallback(
     (node: WorldSpecimenNode) => {
+      if (simulationMode) {
+        showDiscoveryToast({
+          kicker: 'Mode Planificateur de Balade',
+          name: node.lithologyLabel || 'Spécimen repéré',
+          category: 'geographie',
+          eraLabel: 'Préparation',
+          xpAwarded: 0,
+          poiId: node.nodeId,
+          subtitle: 'Rendez-vous sur place à pied avec le GPS réel pour collecter ce spécimen.',
+        });
+        return;
+      }
       if (harvestedSpecimenNodes.has(node.nodeId)) return;
       setHarvestedSpecimenNodes((prev) => {
         const next = new Set(prev);
@@ -3781,6 +3798,18 @@ export default function App() {
 
   const handleOpenArchivistChest = useCallback(
     (chest: WorldArchivistChestNode) => {
+      if (simulationMode) {
+        showDiscoveryToast({
+          kicker: 'Mode Planificateur de Balade',
+          name: chest.title || 'Coffre repéré',
+          category: chest.category,
+          eraLabel: 'Préparation',
+          xpAwarded: 0,
+          poiId: chest.chestId,
+          subtitle: 'Rendez-vous sur place à pied avec le GPS réel pour ouvrir ce coffre d’archiviste.',
+        });
+        return;
+      }
       if (openedChestIdSet.has(chest.chestId)) {
         setCarnetView('tresors');
         if (isFullscreenMap) {
@@ -8066,6 +8095,33 @@ export default function App() {
                 </span>
               </button>
 
+              <button
+                type="button"
+                onClick={() => {
+                  if (simulationMode) {
+                    setSimulationMode(false);
+                    requestGpsAuthorization();
+                  } else {
+                    setSimulationMode(true);
+                  }
+                }}
+                title={
+                  simulationMode
+                    ? 'Mode Planificateur de Balade actif (Préparation d’itinéraire, 0 XP) — Cliquez pour repasser en Balade Réelle GPS'
+                    : 'Mode Balade Réelle GPS actif (Progression & XP) — Cliquez pour passer en Planificateur de Balade'
+                }
+                className={`min-h-[36px] sm:min-h-[38px] px-2 sm:px-2.5 py-1.5 text-xs font-bold border-2 inline-flex items-center justify-center gap-1.5 jrpg-shadow whitespace-nowrap shrink-0 transition-colors ${
+                  simulationMode
+                    ? 'bg-amber-400 text-[#24160c] border-[#2b1a0e] hover:bg-amber-300'
+                    : 'bg-[#28160d] text-emerald-300 border-[#059669] hover:bg-[#382012]'
+                }`}
+              >
+                <PixelUiIcon name={simulationMode ? 'map' : 'radar'} className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {simulationMode ? '🗺️ Planificateur (0 XP)' : '🛰️ Balade GPS'}
+                </span>
+              </button>
+
               {!isInstalled && (
                 <button
                   type="button"
@@ -8079,8 +8135,8 @@ export default function App() {
                   }`}
                 >
                   <PixelUiIcon name="install" className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">
-                    {isAndroid ? 'Installer Android' : 'Installer'}
+                  <span>
+                    {isAndroid ? 'Installer App' : 'Installer'}
                   </span>
                 </button>
               )}
@@ -8111,6 +8167,32 @@ export default function App() {
             : 'flex-1 w-full max-w-[1400px] mx-auto px-2.5 sm:px-6 py-3 sm:py-5 pb-24 md:pb-6 space-y-3.5 sm:space-y-5'
         }
       >
+        {simulationMode && (
+          <div className="bg-[#28160d] text-amber-200 border-2 border-amber-500 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2.5 jrpg-shadow shrink-0 z-30">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🗺️</span>
+              <div>
+                <div className="font-bold text-amber-300">
+                  Mode Planificateur de Balade actif (Préparation d’itinéraire)
+                </div>
+                <div className="text-[11px] text-amber-100/90 leading-tight">
+                  Repérez la contrée et tracez vos boucles (0 point &amp; 0 XP). Pour progresser et valider des découvertes réelles, activez la Balade GPS !
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSimulationMode(false);
+                requestGpsAuthorization();
+              }}
+              className="min-h-[34px] px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs border-2 border-emerald-400 jrpg-shadow shrink-0 inline-flex items-center gap-1.5"
+            >
+              <PixelUiIcon name="radar" className="w-3.5 h-3.5" />
+              <span>▶️ Partir en Balade Réelle (GPS)</span>
+            </button>
+          </div>
+        )}
         {authError && !isMapUiFolded && (
           <div className="grimoire-folio-crimson px-4 py-2.5 text-xs text-rose-950 flex items-center justify-between gap-4 shrink-0">
             <span className="inline-flex items-center gap-2 font-semibold">

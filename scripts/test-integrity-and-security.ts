@@ -70,7 +70,7 @@ assert(
 );
 
 assert(
-  appContent.includes('const [simulationMode] = useState<boolean>(false);'),
+  appContent.includes('const [simulationMode, setSimulationMode] = useState<boolean>(false);'),
   'Le mode GPS Réel est actif par défaut (simulationMode = false)'
 );
 
