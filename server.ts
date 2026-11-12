@@ -99,7 +99,11 @@ interface RawPoi {
   officialLabel?: OfficialStateLabel;
   officialRef?: string;
   isSubterranean?: boolean;
-  epistemicStatus?: 'fait_documente' | 'reconstitution_hypothese' | 'legende_folklore';
+  epistemicStatus?:
+    | 'fait_documente'
+    | 'information_a_confirmer'
+    | 'reconstitution_hypothese'
+    | 'legende_folklore';
 }
 
 type TrailNetwork = 'gr' | 'grp' | 'pr';
@@ -4778,21 +4782,81 @@ function enrichAndLinkPois(
       candidate.subType.toLowerCase().includes('piézom');
 
     const duplicate = merged.find((existing) => {
+      // 1. Same official archival reference -> definite duplicate
+      if (
+        candidate.officialRef &&
+        existing.officialRef &&
+        candidate.officialRef === existing.officialRef
+      ) {
+        return true;
+      }
+
       const dist = haversineMeters(existing.lat, existing.lng, candidate.lat, candidate.lng);
-      if (dist < 32) return true;
-      if (dist < 85) {
-        const existNorm = normalizeTitle(existing.name);
-        if (candNorm && existNorm && (candNorm === existNorm || candNorm.includes(existNorm) || existNorm.includes(candNorm))) {
+      if (dist > 85) return false;
+
+      const existNorm = normalizeTitle(existing.name);
+      const existIsTech =
+        existing.source.toLowerCase().includes('bss') ||
+        existing.subType.toLowerCase().includes('forage') ||
+        existing.subType.toLowerCase().includes('piézom');
+
+      const existCat = existing.category.toLowerCase();
+      const candCat = candidate.category.toLowerCase();
+      const existSub = existing.subType.toLowerCase();
+      const candSub = candidate.subType.toLowerCase();
+
+      // Incompatible neighboring heritage archetypes: do NOT merge distinct objects (e.g. lavoir vs fontaine, croix vs église)
+      const isWaterPairConflict =
+        (candSub.includes('lavoir') && existSub.includes('fontaine')) ||
+        (candSub.includes('fontaine') && existSub.includes('lavoir'));
+      const isReligiousPairConflict =
+        ((candSub.includes('croix') || candSub.includes('calvaire')) &&
+          (existSub.includes('église') || existSub.includes('chapelle') || existSub.includes('abbaye'))) ||
+        ((existSub.includes('croix') || existSub.includes('calvaire')) &&
+          (candSub.includes('église') || candSub.includes('chapelle') || candSub.includes('abbaye')));
+      const isBridgeWaterConflict =
+        (candSub.includes('pont') && existSub.includes('moulin')) ||
+        (candSub.includes('moulin') && existSub.includes('pont'));
+
+      if (isWaterPairConflict || isReligiousPairConflict || isBridgeWaterConflict) {
+        if (candNorm && existNorm && candNorm === existNorm) return true;
+        return false;
+      }
+
+      const hasDirectNameMatch =
+        candNorm.length >= 4 &&
+        existNorm.length >= 4 &&
+        (candNorm === existNorm || candNorm.includes(existNorm) || existNorm.includes(candNorm));
+
+      // Ultra-close (< 8m)
+      if (dist < 8) {
+        if (candCat === existCat || hasDirectNameMatch) return true;
+        return false;
+      }
+
+      // Close proximity (< 35m)
+      if (dist < 35) {
+        if (hasDirectNameMatch) return true;
+        if (candIsTech && existIsTech) return true;
+        if (
+          candCat === existCat &&
+          (candSub === existSub || candSub.includes(existSub) || existSub.includes(candSub))
+        ) {
           return true;
         }
-        const existIsTech =
-          existing.source.toLowerCase().includes('bss') ||
-          existing.subType.toLowerCase().includes('forage') ||
-          existing.subType.toLowerCase().includes('piézom');
+        return false;
+      }
+
+      // Medium proximity (35m - 85m)
+      if (dist < 85) {
+        if (hasDirectNameMatch && (candCat === existCat || candIsTech === existIsTech)) {
+          return true;
+        }
         if (candIsTech && existIsTech && dist < 65) {
           return true;
         }
       }
+
       return false;
     });
 
@@ -4808,18 +4872,38 @@ function enrichAndLinkPois(
       if (!duplicate.officialLabel && candidate.officialLabel) {
         duplicate.officialLabel = candidate.officialLabel;
         duplicate.officialRef = candidate.officialRef;
+        duplicate.epistemicStatus = 'fait_documente';
       }
       if (candidate.category === 'legende' && duplicate.category !== 'legende') {
         duplicate.category = 'legende';
         duplicate.subType = candidate.subType.slice(0, 78);
+        duplicate.epistemicStatus = 'legende_folklore';
       }
       duplicate.xpReward = Math.max(duplicate.xpReward, candidate.xpReward);
     } else {
-      // Determine epistemic status strictly according to documentary origin
+      // Determine epistemic status strictly according to authentic documentary origin
       const catL = candidate.category.toLowerCase();
       const subL = candidate.subType.toLowerCase();
       const nameL = candidate.name.toLowerCase();
       const sumL = candidate.summary.toLowerCase();
+      const srcL = candidate.source.toLowerCase();
+
+      const hasDocumentaryProof =
+        Boolean(candidate.officialLabel) ||
+        Boolean(candidate.officialRef) ||
+        srcL.includes('mérimée') ||
+        srcL.includes('merimee') ||
+        srcL.includes('palissy') ||
+        srcL.includes('bss') ||
+        srcL.includes('brgm') ||
+        srcL.includes('inpn') ||
+        srcL.includes('mnhn') ||
+        srcL.includes('ign') ||
+        subL.includes('monument historique') ||
+        subL.includes('repère de nivellement') ||
+        sumL.includes('inventaire général') ||
+        sumL.includes('base mérimée') ||
+        sumL.includes('base palissy');
 
       if (
         catL === 'legende' ||
@@ -4842,8 +4926,10 @@ function enrichAndLinkPois(
         sumL.includes('emplacement supposé')
       ) {
         candidate.epistemicStatus = 'reconstitution_hypothese';
-      } else {
+      } else if (hasDocumentaryProof) {
         candidate.epistemicStatus = 'fait_documente';
+      } else {
+        candidate.epistemicStatus = 'information_a_confirmer';
       }
 
       merged.push(candidate);

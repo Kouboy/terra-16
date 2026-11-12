@@ -231,30 +231,24 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
     return s;
   }, [entries, sectorPois]);
 
-  // Chronicle summary insights
+  // Chronicle summary insights: prioritize explorer field observations and photos
   const chronicleStats = useMemo(() => {
     if (entries.length === 0) {
       return {
         firstDate: 'Aucune découverte',
         latestDate: 'En attente de terrain',
-        favoriteGuild: 'À révéler',
-        topSource: 'Aucune archive',
+        notesCount: 0,
+        photosCount: 0,
       };
     }
     const sortedAsc = [...entries].sort((a, b) => a.discoveredAtIso.localeCompare(b.discoveredAtIso));
-    const catCounts = new Map<ExplorationCategory, number>();
-    const srcCounts = new Map<string, number>();
-    for (const e of entries) {
-      catCounts.set(e.category, (catCounts.get(e.category) || 0) + 1);
-      srcCounts.set(e.source, (srcCounts.get(e.source) || 0) + 1);
-    }
-    const bestCat = Array.from(catCounts.entries()).sort((a, b) => b[1] - a[1])[0];
-    const bestSrc = Array.from(srcCounts.entries()).sort((a, b) => b[1] - a[1])[0];
+    const totalNotes = entries.filter((e) => e.personalNote.trim().length > 0).length;
+    const totalPhotos = entries.reduce((acc, e) => acc + (e.photoCount || 0), 0);
     return {
       firstDate: formatFrenchDate(sortedAsc[0].discoveredAtIso),
       latestDate: formatFrenchDate(sortedAsc[sortedAsc.length - 1].discoveredAtIso),
-      favoriteGuild: bestCat ? `${CATEGORY_META[bestCat[0]].shortLabel} (${bestCat[1]})` : '—',
-      topSource: bestSrc ? `${bestSrc[0]} (${bestSrc[1]})` : '—',
+      notesCount: totalNotes,
+      photosCount: totalPhotos,
     };
   }, [entries]);
 
@@ -1440,51 +1434,44 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                 </div>
               </div>
               <div className="min-w-0 overflow-hidden p-3 bg-[#f8edd6] border border-[#8c653b]">
-                <div className="text-[#6b4928] font-semibold truncate">Dernier sceau brisé</div>
+                <div className="text-[#6b4928] font-semibold truncate">Dernier lieu exploré</div>
                 <div className="font-mono font-bold text-[#24160c] mt-1 break-words">
                   {chronicleStats.latestDate}
                 </div>
               </div>
               <div className="min-w-0 overflow-hidden p-3 bg-[#f8edd6] border border-[#8c653b]">
-                <div className="text-[#6b4928] font-semibold truncate">Guilde de prédilection</div>
+                <div className="text-[#6b4928] font-semibold truncate">Notes de terrain</div>
                 <div className="font-bold text-amber-950 mt-1 break-words">
-                  {chronicleStats.favoriteGuild}
+                  {chronicleStats.notesCount} consignée{chronicleStats.notesCount > 1 ? 's' : ''}
                 </div>
               </div>
               <div className="min-w-0 overflow-hidden p-3 bg-[#f8edd6] border border-[#8c653b]">
-                <div className="text-[#6b4928] font-semibold truncate">Archive la plus explorée</div>
-                <div className="font-bold text-[#24160c] truncate mt-1">
-                  {chronicleStats.topSource}
+                <div className="text-[#6b4928] font-semibold truncate">Clichés de terrain</div>
+                <div className="font-bold text-emerald-950 truncate mt-1">
+                  {chronicleStats.photosCount} scellé{chronicleStats.photosCount > 1 ? 's' : ''}
                 </div>
               </div>
             </div>
 
-            {/* Stratum Coverage Checklist */}
-            <div className="pt-1 space-y-2">
-              <div className="text-xs font-bold text-[#24160c]">
-                Empreinte stratigraphique ({unlockedStrataSet.size} / {STRATUM_ORDER.length} époques
-                découvertes)
-              </div>
-              <ParchmentScrollStrip fadeColorFrom="vellum" innerClassName="gap-2">
-                {STRATUM_ORDER.map((st) => {
-                  const hasIt = unlockedStrataSet.has(st);
-                  return (
+            {/* Horizons temporels rencontrés (présentation sobre sans incitation au remplissage) */}
+            {unlockedStrataSet.size > 0 && (
+              <div className="pt-1 space-y-2">
+                <div className="text-xs font-bold text-[#24160c]">
+                  Horizons temporels rencontrés ({unlockedStrataSet.size} époque{unlockedStrataSet.size > 1 ? 's' : ''})
+                </div>
+                <ParchmentScrollStrip fadeColorFrom="vellum" innerClassName="gap-2">
+                  {STRATUM_ORDER.filter((st) => unlockedStrataSet.has(st)).map((st) => (
                     <div
                       key={st}
-                      className={`px-2.5 py-1.5 border text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-                        hasIt
-                          ? 'bg-[#ecfdf5] border-emerald-800 text-emerald-950 font-bold'
-                          : 'bg-[#ecd8b1]/60 border-[#8c653b] text-[#6b4928]'
-                      }`}
+                      className="px-2.5 py-1.5 border text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 bg-[#ecfdf5] border-emerald-800 text-emerald-950 font-bold"
                     >
                       <PixelStratumIcon stratum={st} className="w-3.5 h-3.5" />
                       <span>{STRATUM_META[st].short}</span>
-                      {hasIt && <span>✓</span>}
                     </div>
-                  );
-                })}
-              </ParchmentScrollStrip>
-            </div>
+                  ))}
+                </ParchmentScrollStrip>
+              </div>
+            )}
           </div>
 
           {/* Filterable Chronological Log */}
@@ -1517,7 +1504,7 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
                       : 'bg-[#ecd8b1] text-[#54361d] hover:bg-[#fffbeb]'
                   }`}
                 >
-                  Annotés ({annotatedCount})
+                  Notes & Clichés ({annotatedCount})
                 </button>
                 {CATEGORY_ORDER.map((cat) => (
                   <button
@@ -1580,8 +1567,22 @@ export const ExplorerProfileView: React.FC<ExplorerProfileViewProps> = ({
 
                         <div className="text-xs text-[#54361d] truncate">
                           {entry.subType} · Source : {entry.source}
-                          {entry.photoCount > 0 ? ` · ${entry.photoCount} photo(s)` : ''}
                         </div>
+
+                        {(entry.photoCount > 0 || entry.personalNote.trim().length > 0) && (
+                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                            {entry.personalNote.trim().length > 0 && (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-[#fef3c7] border border-[#d97706] text-[#78350f] inline-flex items-center gap-1 shadow-xs">
+                                ✎ Note consignée
+                              </span>
+                            )}
+                            {entry.photoCount > 0 && (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-[#ecfdf5] border border-emerald-800 text-emerald-950 inline-flex items-center gap-1 shadow-xs">
+                                📷 {entry.photoCount} cliché{entry.photoCount > 1 ? 's' : ''} scellé{entry.photoCount > 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                        )}
 
                         {entry.personalNote.trim().length > 0 && (
                           <p className="text-xs italic text-[#3b2312] bg-[#f8edd6] border border-[#c89d62] px-2.5 py-1.5 mt-1 line-clamp-2">

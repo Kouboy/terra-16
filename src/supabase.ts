@@ -1075,6 +1075,7 @@ export function subscribeToPoiCairns(
           poiName: c.poi_name || '',
           tag: c.tag as CairnTag,
           message: c.message,
+          upvotes: c.upvotes || 0,
           createdAtIso: c.created_at,
         }))
       );
@@ -1132,16 +1133,19 @@ export async function deletePoiCairnInCloud(uidRaw: string, poiIdRaw: string): P
   await supabase.from('cairns').delete().eq('id', cairnId);
 }
 
-export async function upvoteCairnInCloud(cairnIdRaw: string): Promise<void> {
-  if (!supabase || !isSupabaseConfigured) return;
+export async function upvoteCairnInCloud(cairnIdRaw: string): Promise<boolean> {
+  if (!supabase || !isSupabaseConfigured) return false;
   const cairnId = cairnIdRaw.trim();
   try {
-    const { error } = await supabase.rpc('increment_cairn_upvote', { target_cairn_id: cairnId });
+    const { data, error } = await supabase.rpc('increment_cairn_upvote', { target_cairn_id: cairnId });
     if (error) {
-      console.warn('[Supabase] increment_cairn_upvote rpc fallback:', error.message);
+      console.warn('[Supabase] increment_cairn_upvote:', error.message);
+      return false;
     }
-  } catch {
-    // Graceful offline or unconfigured handling
+    return Boolean(data);
+  } catch (err) {
+    console.warn('[Supabase] increment_cairn_upvote network error:', err);
+    return false;
   }
 }
 
@@ -1320,43 +1324,28 @@ export async function signGeocacheLogbookInCloud(params: {
   finderAppearance?: ExplorerAppearance;
   logMessage?: string;
   note?: string;
-}): Promise<void> {
-  if (!supabase || !isSupabaseConfigured) return;
+}): Promise<boolean> {
+  if (!supabase || !isSupabaseConfigured) return false;
   const uid = params.uidRaw.trim();
   const cacheId = params.cacheIdRaw.trim();
-  const logId = `${cacheId}_${uid}_${Date.now()}`;
   const message = params.note || params.logMessage || 'Visite inscrite sur le carnet.';
 
-  // Attempt atomic secure RPC call
+  // Atomic secure RPC call with server-side identity verification & anti-spoofing
   try {
-    const { error: rpcErr } = await supabase.rpc('record_geocache_log', {
+    const { data, error: rpcErr } = await supabase.rpc('record_geocache_log', {
       target_cache_id: cacheId,
       p_finder_id: uid,
       p_finder_name: clampStr(params.finderCallsign.trim(), 1, 60, 'Explorateur'),
       p_message: clampStr(message.trim(), 1, 280, 'Visite inscrite sur le carnet.'),
     });
-    if (!rpcErr) return;
-  } catch {
-    // Fall back to direct insertion if RPC is not provisioned
-  }
-
-  await supabase.from('geocache_logs').insert({
-    id: logId,
-    geocache_id: cacheId,
-    owner_id: uid,
-    finder_name: clampStr(params.finderCallsign.trim(), 1, 60, 'Explorateur'),
-    log_message: clampStr(message.trim(), 1, 280, 'Visite inscrite sur le carnet.'),
-    created_at: new Date().toISOString(),
-  });
-
-  // Increment finder_count on geocache if owner or allowed
-  try {
-    const { data: cache } = await supabase.from('geocaches').select('finder_count').eq('id', cacheId).single();
-    if (cache) {
-      await supabase.from('geocaches').update({ finder_count: (cache.finder_count || 0) + 1 }).eq('id', cacheId);
+    if (rpcErr) {
+      console.warn('[Supabase] record_geocache_log RPC error:', rpcErr.message);
+      return false;
     }
-  } catch {
-    // Graceful
+    return Boolean(data ?? true);
+  } catch (err) {
+    console.warn('[Supabase] record_geocache_log network error:', err);
+    return false;
   }
 }
 

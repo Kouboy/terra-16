@@ -633,15 +633,19 @@ export const GeocacheModal: React.FC<{
     setErrorMsg(null);
     setStatusMsg(null);
     try {
-      await signGeocacheLogbookInCloud({
+      const ok = await signGeocacheLogbookInCloud({
         uidRaw: currentUser.uid,
         cacheIdRaw: cache.id,
         finderCallsign: explorerCallsign || 'Explorateur',
         finderAppearance: explorerAppearance,
         note: cleanNote,
       });
-      onClaimGeocacheDiscovery(cache);
-      setStatusMsg('Signature gravée dans le registre des découvreurs !');
+      if (ok) {
+        onClaimGeocacheDiscovery(cache);
+        setStatusMsg('Signature gravée dans le registre des découvreurs !');
+      } else {
+        setErrorMsg('Impossible d’enregistrer la signature (vérifiez la session ou signature déjà récente).');
+      }
     } catch {
       setErrorMsg('Impossible d’enregistrer la signature dans le registre nuage.');
     } finally {

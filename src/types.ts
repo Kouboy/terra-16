@@ -248,6 +248,7 @@ export interface ExplorerCairn {
   poiName: string;
   tag: CairnTag;
   message: string;
+  upvotes?: number;
   createdAtIso: string;
 }
 
@@ -451,32 +452,10 @@ export function classifyPoiSignificanceTier(poi?: Partial<PoiItem> | null): PoiS
   const nameL = (typeof poi.name === 'string' ? poi.name : '').toLowerCase();
   const subL = (typeof poi.subType === 'string' ? poi.subType : '').toLowerCase();
   const srcL = (typeof poi.source === 'string' ? poi.source : '').toLowerCase();
+  const sumL = (typeof poi.summary === 'string' ? poi.summary : '').toLowerCase();
+  const cat = poi.category;
 
-  if (poi.officialLabel || inferOfficialStateLabel(srcL, subL)) {
-    return 'remarquable';
-  }
-
-  // Primary landmarks (châteaux, églises, menhirs, abbayes, cascades, grottes, arbres remarquables)
-  if (
-    subL.includes('château') ||
-    subL.includes('abbaye') ||
-    subL.includes('église') ||
-    subL.includes('cathédrale') ||
-    subL.includes('menhir') ||
-    subL.includes('dolmen') ||
-    subL.includes('arbre remarquable') ||
-    subL.includes('cascade') ||
-    subL.includes('grotte') ||
-    subL.includes('ruine') ||
-    subL.includes('oppidum') ||
-    nameL.includes('menhir') ||
-    nameL.includes('dolmen') ||
-    nameL.includes('château')
-  ) {
-    return 'remarquable';
-  }
-
-  // Purely technical or dense geological/engineering sensors
+  // 1. Purely technical or dense geological/engineering sensors (subtle low-salience copper beacon)
   if (
     srcL.includes('bss') ||
     srcL.includes('piézom') ||
@@ -490,6 +469,64 @@ export function classifyPoiSignificanceTier(poi?: Partial<PoiItem> | null): PoiS
     subL.includes('débitmètre')
   ) {
     return 'technique';
+  }
+
+  // 2. Local curiosities with rich lore, legends, folklore or evocative oral history
+  // (P2 refinement: "Une petite curiosité locale bien racontée doit pouvoir émerger")
+  const hasRichLore =
+    cat === 'legende' ||
+    subL.includes('légende') ||
+    subL.includes('folklore') ||
+    subL.includes('curiosité') ||
+    subL.includes('mystère') ||
+    subL.includes('miraculeuse') ||
+    subL.includes('pierre à') ||
+    subL.includes('fée') ||
+    subL.includes('diable') ||
+    nameL.includes('légende') ||
+    nameL.includes('fée') ||
+    nameL.includes('diable') ||
+    nameL.includes('miraculeuse') ||
+    nameL.includes('sorcière');
+
+  const hasSubstantialStorytelling =
+    sumL.length >= 130 &&
+    (sumL.includes('selon') ||
+      sumL.includes('légende') ||
+      sumL.includes('raconte') ||
+      sumL.includes('mystère') ||
+      sumL.includes('autrefois') ||
+      sumL.includes('siècle') ||
+      sumL.includes('tradition') ||
+      sumL.includes('mémoire') ||
+      sumL.includes('origine'));
+
+  if (hasRichLore || hasSubstantialStorytelling) {
+    return 'remarquable';
+  }
+
+  // 3. Major architectural or natural landmarks (châteaux, cathédrales, abbayes, mégalithes majeurs, cascades)
+  if (
+    subL.includes('château') ||
+    subL.includes('abbaye') ||
+    subL.includes('cathédrale') ||
+    subL.includes('menhir') ||
+    subL.includes('dolmen') ||
+    subL.includes('arbre remarquable') ||
+    subL.includes('cascade') ||
+    subL.includes('oppidum') ||
+    nameL.includes('menhir') ||
+    nameL.includes('dolmen') ||
+    nameL.includes('château')
+  ) {
+    return 'remarquable';
+  }
+
+  // 4. Classified monuments (Monument Historique or Musée de France)
+  // Note: DataTourisme alone does NOT make a site remarquable; it remains notable
+  const official = poi.officialLabel || inferOfficialStateLabel(srcL, subL);
+  if (official === 'monument_historique' || official === 'musee_de_france') {
+    return 'remarquable';
   }
 
   return 'notable';
@@ -521,7 +558,11 @@ export interface PoiItem {
   epistemicStatus?: EpistemicStatus;
 }
 
-export type EpistemicStatus = 'fait_documente' | 'reconstitution_hypothese' | 'legende_folklore';
+export type EpistemicStatus =
+  | 'fait_documente'
+  | 'information_a_confirmer'
+  | 'reconstitution_hypothese'
+  | 'legende_folklore';
 
 export interface EpistemicStatusMeta {
   key: EpistemicStatus;
@@ -540,6 +581,14 @@ export const EPISTEMIC_STATUS_META: Record<EpistemicStatus, EpistemicStatusMeta>
     iconSymbol: '✓',
     shortDefinition: 'Archives & inventaires officiels',
     tooltipDesc: 'Relevé attesté dans les archives ministérielles (Mérimée, BSS, INPN) ou géodésiques IGN.',
+  },
+  information_a_confirmer: {
+    key: 'information_a_confirmer',
+    badgeLabel: 'Information à confirmer',
+    badgeClass: 'bg-[#f4efe6] text-stone-900 border-stone-500',
+    iconSymbol: '?',
+    shortDefinition: 'Relevé cartographique non corroboré',
+    tooltipDesc: 'Signalement issu de la cartographie libre ou du cadastre, sans notice archivistique corroborée ni confirmation in situ.',
   },
   reconstitution_hypothese: {
     key: 'reconstitution_hypothese',
@@ -564,6 +613,7 @@ export function resolveEpistemicStatus(poi: {
   source?: string;
   subType?: string;
   officialLabel?: string;
+  officialRef?: string;
   summary?: string;
   name?: string;
   epistemicStatus?: EpistemicStatus;
@@ -574,6 +624,7 @@ export function resolveEpistemicStatus(poi: {
   const sub = (poi.subType || '').toLowerCase();
   const name = (poi.name || '').toLowerCase();
   const sum = (poi.summary || '').toLowerCase();
+  const src = (poi.source || '').toLowerCase();
 
   // 1. Légendes & récits oraux
   if (
@@ -608,8 +659,30 @@ export function resolveEpistemicStatus(poi: {
     return 'reconstitution_hypothese';
   }
 
-  // 3. Fait documenté
-  return 'fait_documente';
+  // 3. Fait documenté : réservé aux éléments rattachables à une source identifiée et vérifiée
+  const hasDocumentaryProof =
+    Boolean(poi.officialLabel) ||
+    Boolean(poi.officialRef) ||
+    src.includes('mérimée') ||
+    src.includes('merimee') ||
+    src.includes('palissy') ||
+    src.includes('bss') ||
+    src.includes('brgm') ||
+    src.includes('inpn') ||
+    src.includes('mnhn') ||
+    src.includes('ign') ||
+    sub.includes('monument historique') ||
+    sub.includes('repère de nivellement') ||
+    sum.includes('inventaire général') ||
+    sum.includes('base mérimée') ||
+    sum.includes('base palissy');
+
+  if (hasDocumentaryProof) {
+    return 'fait_documente';
+  }
+
+  // 4. Par défaut pour les relevés sans caution archivistique vérifiable
+  return 'information_a_confirmer';
 }
 
 export type TerrainKind =

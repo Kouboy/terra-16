@@ -127,6 +127,15 @@ create table if not exists public.cairns (
 );
 create index if not exists idx_cairns_poi on public.cairns(poi_id);
 
+-- 5b. SALUTATIONS DE CAIRNS (Traçabilité & unicité d'un vote par explorateur)
+create table if not exists public.cairn_upvotes (
+  cairn_id text not null references public.cairns(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (cairn_id, user_id)
+);
+create index if not exists idx_cairn_upvotes_user on public.cairn_upvotes(user_id);
+
 -- 6. GÉOCACHES & CAPSULES TEMPORELLES ENFOUIES
 create table if not exists public.geocaches (
   id text primary key,
@@ -266,6 +275,14 @@ create policy "cairns_update_own" on public.cairns for update using (auth.uid() 
 drop policy if exists "cairns_delete_own" on public.cairns;
 create policy "cairns_delete_own" on public.cairns for delete using (auth.uid() = owner_id);
 
+-- Cairn Upvotes policies
+alter table public.cairn_upvotes enable row level security;
+drop policy if exists "cairn_upvotes_select_all" on public.cairn_upvotes;
+create policy "cairn_upvotes_select_all" on public.cairn_upvotes for select using (true);
+
+drop policy if exists "cairn_upvotes_insert_own" on public.cairn_upvotes;
+create policy "cairn_upvotes_insert_own" on public.cairn_upvotes for insert with check (auth.uid() = user_id);
+
 -- Geocaches policies
 drop policy if exists "geocaches_select_all" on public.geocaches;
 create policy "geocaches_select_all" on public.geocaches for select using (true);
@@ -351,36 +368,145 @@ end $$;
 -- 10. FONCTIONS RPC SÉCURISÉES (Incrémentation atomique & intégrité des données)
 -- ============================================================================
 
--- Permet aux visiteurs d'upvoter un cairn sans avoir le droit de modifier son texte ou son auteur
+-- Permet aux explorateurs authentifiés de saluer un cairn une seule fois sans pouvoir modifier son contenu ni voter pour leur propre cairn
 create or replace function public.increment_cairn_upvote(target_cairn_id text)
-returns void language plpgsql security definer as $$
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_cairn_owner uuid;
 begin
-  update public.cairns
-  set upvotes = upvotes + 1
+  -- 1. Contrôle strict de l'authentification
+  if v_user_id is null then
+    raise exception 'Authentification requise pour saluer un cairn' using errcode = '42501';
+  end if;
+
+  -- 2. Vérification de l'existence et du propriétaire
+  select owner_id into v_cairn_owner
+  from public.cairns
   where id = target_cairn_id;
+
+  if not found then
+    raise exception 'Cairn introuvable' using errcode = 'P0002';
+  end if;
+
+  if v_cairn_owner = v_user_id then
+    raise exception 'Impossible de saluer son propre cairn' using errcode = '23514';
+  end if;
+
+  -- 3. Inscription idempotente du vote (unicité par explorateur et cairn)
+  insert into public.cairn_upvotes (cairn_id, user_id, created_at)
+  values (target_cairn_id, v_user_id, now())
+  on conflict (cairn_id, user_id) do nothing;
+
+  -- 4. Si premier vote effectif, incrémentation du compteur
+  if found then
+    update public.cairns
+    set upvotes = upvotes + 1
+    where id = target_cairn_id;
+    return true;
+  end if;
+
+  return false;
 end;
 $$;
 
--- Permet d'inscrire une signature et d'incrémenter finder_count sans exposer l'édition directe de la géocache
+revoke execute on function public.increment_cairn_upvote(text) from public, anon;
+grant execute on function public.increment_cairn_upvote(text) to authenticated;
+
+-- Permet d'inscrire une signature authentifiée sur le registre d'une géocache avec intégrité de l'identité
 create or replace function public.record_geocache_log(
   target_cache_id text,
   p_finder_id uuid,
   p_finder_name text,
   p_message text
 )
-returns void language plpgsql security definer as $$
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_cache_owner uuid;
+  v_already_found boolean;
+  v_sanitized_name text;
+  v_sanitized_msg text;
+  v_log_id text;
 begin
-  insert into public.geocache_logs (id, geocache_id, owner_id, finder_name, log_message, created_at)
+  -- 1. Contrôle strict de l'authentification
+  if v_user_id is null then
+    raise exception 'Authentification requise pour signer une géocache' using errcode = '42501';
+  end if;
+
+  -- 2. Vérification de conformité de l'identité client (anti-spoofing)
+  if p_finder_id is not null and p_finder_id <> v_user_id then
+    raise exception 'Identité non conforme : l''identifiant ne correspond pas au compte connecté' using errcode = '42501';
+  end if;
+
+  -- 3. Vérification de l'existence de la géocache
+  select owner_id into v_cache_owner
+  from public.geocaches
+  where id = target_cache_id;
+
+  if not found then
+    raise exception 'Géocache introuvable' using errcode = 'P0002';
+  end if;
+
+  -- 4. Limitation anti-spam : refuser les soumissions répétées à moins de 15 secondes
+  if exists (
+    select 1 from public.geocache_logs
+    where geocache_id = target_cache_id
+      and owner_id = v_user_id
+      and created_at > now() - interval '15 seconds'
+  ) then
+    raise exception 'Signature récente déjà enregistrée, veuillez patienter un instant' using errcode = '23505';
+  end if;
+
+  v_sanitized_name := coalesce(nullif(trim(p_finder_name), ''), 'Explorateur');
+  v_sanitized_msg := coalesce(nullif(trim(p_message), ''), 'Visite inscrite sur le carnet.');
+  v_log_id := target_cache_id || '_' || v_user_id::text || '_' || extract(epoch from now())::bigint::text;
+
+  -- 5. Insertion du log avec l'identité réelle v_user_id
+  insert into public.geocache_logs (
+    id,
+    geocache_id,
+    owner_id,
+    finder_name,
+    log_message,
+    created_at
+  )
   values (
-    target_cache_id || '_' || p_finder_id::text || '_' || extract(epoch from now())::bigint::text,
+    v_log_id,
     target_cache_id,
-    p_finder_id,
-    p_finder_name,
-    p_message,
+    v_user_id,
+    substr(v_sanitized_name, 1, 60),
+    substr(v_sanitized_msg, 1, 280),
     now()
   );
-  update public.geocaches
-  set finder_count = finder_count + 1
-  where id = target_cache_id;
+
+  -- 6. Incrémentation de finder_count uniquement si première découverte et non propriétaire
+  if v_cache_owner <> v_user_id then
+    select exists (
+      select 1 from public.geocache_logs
+      where geocache_id = target_cache_id
+        and owner_id = v_user_id
+        and id <> v_log_id
+    ) into v_already_found;
+
+    if not v_already_found then
+      update public.geocaches
+      set finder_count = finder_count + 1
+      where id = target_cache_id;
+    end if;
+  end if;
+
+  return true;
 end;
 $$;
+
+revoke execute on function public.record_geocache_log(text, uuid, text, text) from public, anon;
+grant execute on function public.record_geocache_log(text, uuid, text, text) to authenticated;

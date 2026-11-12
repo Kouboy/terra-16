@@ -8,27 +8,65 @@ export interface ObservationCuriosity {
 }
 
 /**
- * Extracts a concise, verifiable hook ("Saviez-vous que... ?")
- * based on authentic summary text and archival metadata,
- * avoiding sensationalist filler or invented facts.
+ * Extracts a gentle, authentic curiosity note based on authentic summary text and archival metadata.
+ * Does not force trivia on trivial sentences ("Le saviez-vous ?"). Returns null if no authentic curiosity is present.
  */
 export function extractVerifiableHook(entry: UnlockedEntry | PoiItem): string | null {
   const summary = (entry.summary || '').trim();
-  if (!summary || summary.length < 15) return null;
+  if (!summary || summary.length < 25) return null;
 
   // Split into first complete sentence
   const sentenceMatch = summary.match(/^([^.!?\n]+[.!?])/);
-  let firstSentence = sentenceMatch ? sentenceMatch[1].trim() : summary.slice(0, 140).trim();
+  let firstSentence = sentenceMatch ? sentenceMatch[1].trim() : summary.slice(0, 160).trim();
 
-  // Clean trailing punctuation for hook injection
+  // Clean trailing punctuation
   firstSentence = firstSentence.replace(/[.!?]+$/, '');
 
-  // If the sentence is already concise and factual, present as a gentle hook
-  if (firstSentence.length >= 20 && firstSentence.length <= 180) {
+  const lower = firstSentence.toLowerCase();
+
+  // Discard banal administrative or locative introductory sentences
+  if (
+    lower.startsWith('il s’agit') ||
+    lower.startsWith("il s'agit") ||
+    lower.startsWith('édifice situé') ||
+    lower.startsWith('monument situé') ||
+    lower.startsWith('situé sur la commune') ||
+    lower.startsWith('située sur la commune') ||
+    lower.startsWith('ce lieu se trouve') ||
+    lower.startsWith('cette commune')
+  ) {
+    return null;
+  }
+
+  // Only retain when sentence carries genuine architectural, historical, natural or legendary substance
+  const hasSubstance =
+    lower.includes('siècle') ||
+    lower.includes('édifié') ||
+    lower.includes('construit') ||
+    lower.includes('classé') ||
+    lower.includes('inscrit') ||
+    lower.includes('architect') ||
+    lower.includes('sculpt') ||
+    lower.includes('voûte') ||
+    lower.includes('pierre') ||
+    lower.includes('granite') ||
+    lower.includes('calcaire') ||
+    lower.includes('source') ||
+    lower.includes('légende') ||
+    lower.includes('tradition') ||
+    lower.includes('mémoire') ||
+    lower.includes('vestige') ||
+    lower.includes('fouille') ||
+    lower.includes('époque') ||
+    /\b(1[0-9]{3}|20[0-2][0-9])\b/.test(lower);
+
+  if (!hasSubstance) return null;
+
+  if (firstSentence.length >= 25 && firstSentence.length <= 180) {
     if (/^saviez-vous/i.test(firstSentence)) {
       return `${firstSentence} ?`;
     }
-    return `Le saviez-vous ? ${firstSentence}.`;
+    return `${firstSentence}.`;
   }
 
   return null;
@@ -37,6 +75,8 @@ export function extractVerifiableHook(entry: UnlockedEntry | PoiItem): string | 
 /**
  * Provides a gentle, safe, and authentic observation prompt for the real world.
  * Strictly respects rule: "Si aucun détail pertinent n'est connu, ne pas en inventer."
+ * Formulates invitations as open suggestions ("Regardez si...", "Observez comment...")
+ * and insists on observation from public paths without trespassing or taking samples.
  */
 export function getSafeObservationPrompt(entry: UnlockedEntry | PoiItem): {
   prompt: string;
@@ -58,7 +98,7 @@ export function getSafeObservationPrompt(entry: UnlockedEntry | PoiItem): {
   ) {
     return {
       prompt:
-        'Ouvrez l’œil sur la margelle de pierre taillée : observez les rigoles d’écoulement d’eau ou les entailles creusées par le frottement répété des seaux et des cordes.',
+        'Depuis le chemin, regardez comment l’eau est captée et guidée : observez si la maçonnerie porte des rigoles d’écoulement, d’éventuelles entailles d’usage sur la pierre ou un bassin de décantation.',
       category: 'eau',
     };
   }
@@ -74,7 +114,7 @@ export function getSafeObservationPrompt(entry: UnlockedEntry | PoiItem): {
   ) {
     return {
       prompt:
-        'Observez le profil des piles et les avant-becs maçonnés, conçus pour fendre le courant de l’eau et dévier les bois flottants.',
+        'Regardez comment l’ouvrage franchit le cours d’eau : observez le profil des piles, cherchez si des avant-becs ont été aménagés contre le courant, ou comment les matériaux (pierre, fer ou maçonnerie) s’accordent au lit de la rivière.',
       category: 'eau',
     };
   }
@@ -93,7 +133,7 @@ export function getSafeObservationPrompt(entry: UnlockedEntry | PoiItem): {
   ) {
     return {
       prompt:
-        'Repérez l’orientation du chevet (traditionnellement axé vers le levant) et cherchez sur les blocs de soubassement d’éventuelles marques de tâcherons gravées par les tailleurs de pierre.',
+        'Depuis l’espace public, regardez si le chevet est orienté vers le levant et observez les assises de maçonnerie : on y discerne parfois d’anciennes marques de tailleurs de pierre ou des réemplois de matériaux.',
       category: 'architecture',
     };
   }
@@ -111,7 +151,7 @@ export function getSafeObservationPrompt(entry: UnlockedEntry | PoiItem): {
   ) {
     return {
       prompt:
-        'Notez l’épaisseur apparente des maçonneries, la forme des ouvertures (archères, canonnières) et les reprises de taille entre différentes époques de construction.',
+        'Depuis la voie publique, observez comment l’édifice tire parti du relief naturel et cherchez d’éventuelles ouvertures défensives (archères, canonnières) ou des reprises de construction entre différentes époques.',
       category: 'histoire',
     };
   }
@@ -127,7 +167,7 @@ export function getSafeObservationPrompt(entry: UnlockedEntry | PoiItem): {
   ) {
     return {
       prompt:
-        'Examinez la nature de la roche (souvent du granite ou grès local transporté sur site) et la présence de cupules ou de lichens centenaires sur la face la moins exposée au vent.',
+        'Observez la nature de la roche et sa texture : regardez si les faces abritées accueillent des lichens ou des aspérités singulières, en veillant à observer à distance sans altérer le monument.',
       category: 'histoire',
     };
   }
@@ -143,7 +183,7 @@ export function getSafeObservationPrompt(entry: UnlockedEntry | PoiItem): {
   ) {
     return {
       prompt:
-        'Levez les yeux vers le houppier pour apprécier l’envergure des branches maîtresses et observez l’écorce à hauteur d’homme, refuge d’une micro-faune et de mousses précieuses.',
+        'Depuis le sentier, levez les yeux vers le houppier pour apprécier l’élancement des branches et observez l’écorce à hauteur du regard, sans prélever ni fragiliser le végétal.',
       category: 'nature',
     };
   }
@@ -159,7 +199,7 @@ export function getSafeObservationPrompt(entry: UnlockedEntry | PoiItem): {
   ) {
     return {
       prompt:
-        'Prenez quelques secondes pour regarder au loin sans l’écran : identifiez les lignes de crêtes, les vallons boisés et la façon dont les habitations se sont installées le long du relief.',
+        'Prenez quelques instants pour observer le paysage sans l’écran : identifiez les lignes de crêtes, les vallons boisés et la manière dont les voies de communication et les habitations s’adaptent au relief.',
       category: 'paysage',
     };
   }
@@ -175,7 +215,7 @@ export function getSafeObservationPrompt(entry: UnlockedEntry | PoiItem): {
   ) {
     return {
       prompt:
-        'Si vous êtes sur place, cherchez un médaillon en fonte ou bronze scellé dans la maçonnerie basse (souvent à environ 50 cm du sol) portant la marque du nivellement général.',
+        'Depuis la voie publique, regardez si un disque ou clou en fonte/bronze est scellé dans le soubassement. Si le repère se situe sur une propriété privée ou un édifice clos, n’entrez pas et respectez les limites du domaine public.',
       category: 'technique',
     };
   }

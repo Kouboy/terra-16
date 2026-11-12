@@ -86,26 +86,44 @@ export const WalkRecapModal: React.FC<WalkRecapModalProps> = ({
         </div>
 
         {/* Mode Integrity Status Banner */}
-        <div className="p-2.5 border text-xs flex items-center justify-between gap-3 bg-emerald-100/80 border-emerald-600/60 text-[#064e3b]">
-          <div className="flex items-center gap-2">
-            <PixelUiIcon name="gps" className="w-4 h-4 shrink-0" />
-            <div className="leading-snug">
-              <span className="font-bold">Marche Réelle Vérifiée (GPS de Terrain)</span>
-              <p className="text-[11px] opacity-90">
-                Déplacement physique enregistré in situ : vos pas alimentent vos défis et votre carnet
-                d’arpentage.
-              </p>
+        {isSimulatedLocation ? (
+          <div className="p-2.5 border text-xs flex items-center justify-between gap-3 bg-amber-100/90 border-amber-600/60 text-[#78350f]">
+            <div className="flex items-center gap-2">
+              <PixelUiIcon name="map" className="w-4 h-4 shrink-0 text-amber-800" />
+              <div className="leading-snug">
+                <span className="font-bold">Parcours de Reconnaissance (Planificateur)</span>
+                <p className="text-[11px] opacity-90">
+                  Itinéraire tracé sur la carte pour préparer une balade. Aucun point, XP ni défi physique validé.
+                </p>
+              </div>
             </div>
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border border-current shrink-0">
+              Simulation
+            </span>
           </div>
-          <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border border-current shrink-0">
-            GPS Terrain
-          </span>
-        </div>
+        ) : (
+          <div className="p-2.5 border text-xs flex items-center justify-between gap-3 bg-emerald-100/80 border-emerald-600/60 text-[#064e3b]">
+            <div className="flex items-center gap-2">
+              <PixelUiIcon name="gps" className="w-4 h-4 shrink-0" />
+              <div className="leading-snug">
+                <span className="font-bold">Balade sur le Terrain (Suivi GPS)</span>
+                <p className="text-[11px] opacity-90">
+                  Déplacement suivi par les coordonnées de votre appareil pour accompagner votre promenade.
+                </p>
+              </div>
+            </div>
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border border-current shrink-0">
+              Suivi GPS
+            </span>
+          </div>
+        )}
 
         {/* Walking Metrics Cartouches */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
           <div className="p-2.5 bg-[#ecd8b1] border border-[#8c653b]">
-            <div className="text-[10px] uppercase font-bold text-[#6b4928]">Distance marchée</div>
+            <div className="text-[10px] uppercase font-bold text-[#6b4928]">
+              {isSimulatedLocation ? 'Distance planifiée' : 'Distance parcourue'}
+            </div>
             <div className="text-base sm:text-lg font-bold font-mono text-[#24160c]">
               {formatMeters(sessionMeters)}
             </div>
@@ -116,14 +134,19 @@ export const WalkRecapModal: React.FC<WalkRecapModalProps> = ({
               +{sessionElevGainM} m
             </div>
           </div>
-          <div className="p-2.5 bg-[#ecd8b1] border border-[#8c653b]">
-            <div className="text-[10px] uppercase font-bold text-[#6b4928]">Temps estimé</div>
+          <div
+            className="p-2.5 bg-[#ecd8b1] border border-[#8c653b]"
+            title="Estimation indicative calculée sur une allure moyenne de 4 km/h (non mesurée)"
+          >
+            <div className="text-[10px] uppercase font-bold text-[#6b4928]">Temps estimé (~4 km/h)</div>
             <div className="text-base sm:text-lg font-bold font-mono text-[#24160c]">
-              {sessionMeters >= 30 ? `${estimatedWalkMinutes || 1} min` : 'En pause'}
+              {sessionMeters >= 30 ? `~${estimatedWalkMinutes || 1} min` : 'En pause'}
             </div>
           </div>
           <div className="p-2.5 bg-[#ecd8b1] border border-[#8c653b]">
-            <div className="text-[10px] uppercase font-bold text-[#6b4928]">Découvertes</div>
+            <div className="text-[10px] uppercase font-bold text-[#6b4928]">
+              {isSimulatedLocation ? 'Repères survolés' : 'Découvertes'}
+            </div>
             <div className="text-base sm:text-lg font-bold font-mono text-[#24160c]">
               {sessionEntries.length}
             </div>

@@ -5,6 +5,7 @@ import {
   deletePoiCairnInCloud,
   subscribeToPoiCairns,
   upsertPoiCairnInCloud,
+  upvoteCairnInCloud,
   type ExplorerAuthUser as User,
 } from '../supabase';
 import { addPhotoForPoi, deletePhotoById, getPhotosForPoi, StoredFieldPhoto } from '../photoStore';
@@ -95,6 +96,7 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
   const [cairnBusy, setCairnBusy] = useState(false);
   const [cairnFeedback, setCairnFeedback] = useState('');
   const [cairnError, setCairnError] = useState('');
+  const [upvotedCairnIds, setUpvotedCairnIds] = useState<Set<string>>(new Set());
 
   const cat = CATEGORY_META[entry.category] || CATEGORY_META.histoire;
   const sealCode = computeArchiveSealCode(entry.poiId);
@@ -226,6 +228,30 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
     }
   };
 
+  const handleUpvoteCairn = async (cairnId: string) => {
+    if (!currentUser) {
+      if (onRequestCloudSignIn) onRequestCloudSignIn();
+      return;
+    }
+    setCairnBusy(true);
+    setCairnError('');
+    try {
+      const ok = await upvoteCairnInCloud(cairnId);
+      if (ok) {
+        setUpvotedCairnIds((prev) => new Set(prev).add(cairnId));
+        setCairnFeedback('Cairn salué !');
+        window.setTimeout(() => setCairnFeedback(''), 2200);
+      } else {
+        setCairnError('Déjà salué ou action non autorisée.');
+        window.setTimeout(() => setCairnError(''), 2200);
+      }
+    } catch {
+      setCairnError('Impossible de saluer ce cairn.');
+    } finally {
+      setCairnBusy(false);
+    }
+  };
+
   const formattedDate = new Date(entry.discoveredAtIso).toLocaleDateString('fr-FR', {
     day: 'numeric',
     month: 'long',
@@ -298,15 +324,15 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
         </div>
       </div>
 
-      {/* Header with 16-bit Guild Emblem + Procedural Crimson Ink Archive Stamp */}
-      <div className="flex flex-col sm:flex-row sm:items-start gap-4 pb-5 border-b-2 border-[#c89d62]">
+      {/* Header: 16-bit Guild Emblem, category & era subtitle, and Name */}
+      <div className="flex flex-col sm:flex-row sm:items-start gap-3.5 pb-4 border-b-2 border-[#c89d62]">
         <ResilientPixelImage
           src={cat.emblemSrc}
           alt={cat.label}
           fallbackLabel={cat.shortLabel}
-          className="w-20 h-20 border-2 border-[#2b1d12] jrpg-shadow shrink-0"
+          className="w-16 h-16 sm:w-20 sm:h-20 border-2 border-[#2b1d12] jrpg-shadow shrink-0"
         />
-        <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-[#5c4028]">
             <span className={`inline-flex items-center gap-1.5 font-bold ${cat.mapTextClass}`}>
               <PixelGuildIcon category={entry.category} className="w-4 h-4" />
@@ -324,103 +350,10 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
           <h3 className="text-xl sm:text-2xl font-bold font-display text-[#23170e] leading-tight break-words">
             {entry.name}
           </h3>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[#6b4e31] font-mono tabular-nums">
-            <span>
-              {entry.lat.toFixed(4)}° N, {entry.lng.toFixed(4)}° E
-            </span>
-            {altitudeMeters !== null && altitudeMeters !== undefined && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="text-emerald-900 font-bold">Alt. {Math.round(altitudeMeters)} m</span>
-              </>
-            )}
-            <span aria-hidden="true">·</span>
-            <span className="font-sans">Découvert le {formattedDate}</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-sans">Archive : {entry.source}</span>
-          </div>
-
-          {(() => {
-            const official = inferOfficialStateLabel(entry.source, entry.subType);
-            const isSecret = secretState ? isEntryFromSecretArchive(entry, secretState) : entry.subType.startsWith('✦ Lieu Caché');
-            const isLiveEvt = isEntryFromLiveEvent(entry);
-            const epKey = resolveEpistemicStatus(entry);
-            const epMeta = EPISTEMIC_STATUS_META[epKey];
-
-            return (
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                {/* Epistemic Status (Fait documenté vs Hypothèse vs Légende) */}
-                <span
-                  title={epMeta.tooltipDesc}
-                  className={`px-2 py-0.5 text-[11px] font-bold border-2 ${epMeta.badgeClass} inline-flex items-center gap-1 shadow-xs`}
-                >
-                  <span className="font-mono">{epMeta.iconSymbol}</span>
-                  <span>{epMeta.badgeLabel}</span>
-                </span>
-
-                {official && (
-                  <span
-                    className={`px-2.5 py-0.5 text-[11px] font-bold border-2 ${OFFICIAL_STATE_LABEL_META[official].badgeClass}`}
-                  >
-                    ★ {OFFICIAL_STATE_LABEL_META[official].fullTitle}
-                  </span>
-                )}
-                {isSecret && (
-                  <span className="px-2.5 py-0.5 text-[11px] font-bold bg-[#2e1065] text-amber-300 border-2 border-[#fde047]">
-                    ✦ ARCHIVE SECRÈTE DÉVOILÉE
-                  </span>
-                )}
-                {isLiveEvt && (
-                  <span className="px-2.5 py-0.5 text-[11px] font-bold bg-[#4c0519] text-amber-200 border-2 border-[#fbbf24]">
-                    ✦ CHRONIQUE D’ÉVÉNEMENT VIVANT
-                  </span>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-
-        {/* Procedural Crimson Ink Archive Stamp + Optional Golden Scholar Seal */}
-        <div className="self-start sm:self-center shrink-0 flex items-center gap-2">
-          {isRiddleSolved && (
-            <div
-              className="px-2.5 py-2 border-2 border-amber-700 bg-amber-100/90 text-amber-950 font-mono text-center rotate-1 select-none"
-              aria-label="Sceau d’Or d’Érudit obtenu"
-            >
-              <div className="text-[9px] font-bold tracking-widest uppercase">Sceau d’Or</div>
-              <div className="text-xs font-bold">★ ÉRUDIT ★</div>
-              <div className="text-[9px] font-sans font-semibold">Énigme résolue</div>
-            </div>
-          )}
-          <div
-            className="px-3 py-2 border-2 border-rose-900/90 bg-rose-50/70 text-rose-900 font-mono text-center -rotate-2 select-none"
-            aria-label={`Sceau d’archive ${sealCode}`}
-          >
-            <div className="text-[9px] font-bold tracking-widest uppercase">Sceau d’Archive</div>
-            <div className="text-xs font-bold tabular-nums">{sealCode}</div>
-            <div className="text-[9px] font-sans font-semibold">{cat.shortLabel}</div>
-          </div>
         </div>
       </div>
 
-      {/* Hosted Sympathetic-Ink Clue Banner (if this POI holds a marginalia clue for a Secret Site) */}
-      {(() => {
-        if (!secretState || !onOpenSecretDecipherModal || sectorSecrets.length === 0) return null;
-        const hosted = findSecretClueHostedOnPoi(entry.poiId, sectorSecrets);
-        if (!hosted) return null;
-        return (
-          <SympatheticInkClueBanner
-            site={hosted.site}
-            clue={hosted.clue}
-            secretState={secretState}
-            unlockedIds={unlockedIds}
-            onOpenDecipherModal={onOpenSecretDecipherModal}
-            onFocusSecretOnMap={onFocusSecretOnMap}
-          />
-        );
-      })()}
-
-      {/* 1. Verifiable Hook ("Saviez-vous que… ?") */}
+      {/* 1. Verifiable Hook ("Piste de curiosité") - immediately below title */}
       {hook && (
         <div className="p-3.5 sm:p-4 bg-[#fbf2dd] border-2 border-[#d97706]/80 shadow-sm flex items-start gap-3">
           <div className="w-7 h-7 bg-amber-400 border border-[#2b1a0e] flex items-center justify-center shrink-0 font-bold text-sm text-[#2b1a0e] select-none">
@@ -428,7 +361,7 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
           </div>
           <div className="min-w-0 flex-1 space-y-1">
             <div className="text-[11px] font-bold uppercase tracking-wider text-[#92400e]">
-              Curiosité vérifiable
+              Piste de curiosité
             </div>
             <p className="text-sm font-semibold text-[#24160c] leading-snug break-words">
               {hook}
@@ -437,7 +370,7 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
         </div>
       )}
 
-      {/* 2. Gentle Real-World Observation Cue ("Le regard de l'arpenteur") */}
+      {/* 2. Gentle Real-World Observation Cue ("Le regard de l'arpenteur") - immediately below hook */}
       {observation && (
         <div className="p-3.5 sm:p-4 bg-[#eef6ed] border-2 border-emerald-800/70 shadow-sm flex items-start gap-3">
           <div className="w-7 h-7 bg-emerald-700 border border-emerald-950 flex items-center justify-center shrink-0 text-amber-200 select-none">
@@ -467,6 +400,111 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
           </div>
         </div>
       )}
+
+      {/* Hosted Sympathetic-Ink Clue Banner (if this POI holds a marginalia clue for a Secret Site) */}
+      {(() => {
+        if (!secretState || !onOpenSecretDecipherModal || sectorSecrets.length === 0) return null;
+        const hosted = findSecretClueHostedOnPoi(entry.poiId, sectorSecrets);
+        if (!hosted) return null;
+        return (
+          <SympatheticInkClueBanner
+            site={hosted.site}
+            clue={hosted.clue}
+            secretState={secretState}
+            unlockedIds={unlockedIds}
+            onOpenDecipherModal={onOpenSecretDecipherModal}
+            onFocusSecretOnMap={onFocusSecretOnMap}
+          />
+        );
+      })()}
+
+      {/* 4. Secondary Documentary & Archival Zone: Coordinates, Badges & Seals */}
+      <div className="p-3 sm:p-4 bg-[#ecd8b1]/50 border border-[#b89565] space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="space-y-1.5 min-w-0">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-[#6b4e31]">
+              Repères d’archive & Coordonnées
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[#54361d] font-mono tabular-nums">
+              <span>
+                {entry.lat.toFixed(4)}° N, {entry.lng.toFixed(4)}° E
+              </span>
+              {altitudeMeters !== null && altitudeMeters !== undefined && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-emerald-900 font-bold">Alt. {Math.round(altitudeMeters)} m</span>
+                </>
+              )}
+              <span aria-hidden="true">·</span>
+              <span className="font-sans">Découvert le {formattedDate}</span>
+              <span aria-hidden="true">·</span>
+              <span className="font-sans">Archive : {entry.source}</span>
+            </div>
+
+            {(() => {
+              const official = inferOfficialStateLabel(entry.source, entry.subType);
+              const isSecret = secretState ? isEntryFromSecretArchive(entry, secretState) : entry.subType.startsWith('✦ Lieu Caché');
+              const isLiveEvt = isEntryFromLiveEvent(entry);
+              const epKey = resolveEpistemicStatus(entry);
+              const epMeta = EPISTEMIC_STATUS_META[epKey];
+
+              return (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {/* Epistemic Status (Fait documenté vs Information à confirmer vs Hypothèse vs Légende) */}
+                  <span
+                    title={epMeta.tooltipDesc}
+                    className={`px-2 py-0.5 text-[11px] font-bold border-2 ${epMeta.badgeClass} inline-flex items-center gap-1 shadow-xs`}
+                  >
+                    <span className="font-mono">{epMeta.iconSymbol}</span>
+                    <span>{epMeta.badgeLabel}</span>
+                  </span>
+
+                  {official && (
+                    <span
+                      className={`px-2.5 py-0.5 text-[11px] font-bold border-2 ${OFFICIAL_STATE_LABEL_META[official].badgeClass}`}
+                    >
+                      ★ {OFFICIAL_STATE_LABEL_META[official].fullTitle}
+                    </span>
+                  )}
+                  {isSecret && (
+                    <span className="px-2.5 py-0.5 text-[11px] font-bold bg-[#2e1065] text-amber-300 border-2 border-[#fde047]">
+                      ✦ ARCHIVE SECRÈTE DÉVOILÉE
+                    </span>
+                  )}
+                  {isLiveEvt && (
+                    <span className="px-2.5 py-0.5 text-[11px] font-bold bg-[#4c0519] text-amber-200 border-2 border-[#fbbf24]">
+                      ✦ CHRONIQUE D’ÉVÉNEMENT VIVANT
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Procedural Crimson Ink Archive Stamp + Optional Golden Scholar Seal */}
+          <div className="shrink-0 flex items-center gap-2 self-start md:self-center">
+            {isRiddleSolved && (
+              <div
+                className="px-2.5 py-1.5 border-2 border-amber-700 bg-amber-100/90 text-amber-950 font-mono text-center rotate-1 select-none"
+                aria-label="Sceau d’Or d’Érudit obtenu"
+              >
+                <div className="text-[8px] font-bold tracking-widest uppercase">Sceau d’Or</div>
+                <div className="text-xs font-bold">★ ÉRUDIT ★</div>
+                <div className="text-[8px] font-sans font-semibold">Énigme résolue</div>
+              </div>
+            )}
+            <div
+              className="px-2.5 py-1.5 border-2 border-rose-900/90 bg-rose-50/70 text-rose-900 font-mono text-center -rotate-2 select-none"
+              aria-label={`Sceau d’archive ${sealCode}`}
+            >
+              <div className="text-[8px] font-bold tracking-widest uppercase">Sceau d’Archive</div>
+              <div className="text-xs font-bold tabular-nums">{sealCode}</div>
+              <div className="text-[8px] font-sans font-semibold">{cat.shortLabel}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
 
       {/* 4. Collapsible "En savoir plus" (Lore, sources, hydrology & connected POIs) */}
       <div className="border-2 border-[#b89565] bg-[#ecd8b1]/60">
@@ -734,7 +772,7 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
                           </div>
                           <div className="flex items-center gap-2 font-mono text-[#6b4928]">
                             <span>{new Date(c.createdAtIso).toLocaleDateString('fr-FR')}</span>
-                            {isMine && (
+                            {isMine ? (
                               <button
                                 type="button"
                                 onClick={handleDeleteMyCairn}
@@ -742,6 +780,23 @@ export const EntryDetailPanel: React.FC<EntryDetailPanelProps> = ({
                                 className="text-rose-800 hover:text-rose-950 font-sans font-bold underline"
                               >
                                 Retirer
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleUpvoteCairn(c.id)}
+                                disabled={cairnBusy || upvotedCairnIds.has(c.id)}
+                                className={`font-sans font-bold text-xs inline-flex items-center gap-1 transition-colors ${
+                                  upvotedCairnIds.has(c.id)
+                                    ? 'text-emerald-800 font-semibold cursor-default'
+                                    : 'text-[#6b4928] hover:text-[#24160c] hover:underline cursor-pointer'
+                                }`}
+                                title={currentUser ? 'Saluer ce cairn' : 'Connectez-vous pour saluer ce cairn'}
+                              >
+                                <span>{upvotedCairnIds.has(c.id) ? '✓ Salué' : 'Saluer'}</span>
+                                {Boolean(c.upvotes && c.upvotes > 0) && (
+                                  <span className="font-mono">({c.upvotes})</span>
+                                )}
                               </button>
                             )}
                           </div>

@@ -115,9 +115,9 @@ function compassDirectionFr(fromLat: number, fromLng: number, toLat: number, toL
 }
 
 function approxStepDistanceFr(meters: number): string {
-  if (meters < 120) return `à une centaine de mètres`;
-  const rounded = Math.round(meters / 25) * 25;
-  return `à environ ${rounded} m`;
+  if (meters < 120) return `à une centaine de mètres à vol d’oiseau`;
+  const rounded = Math.round(meters / 50) * 50;
+  return `à environ ${rounded} m à vol d’oiseau`;
 }
 
 function sanitizeKeyPart(input: string): string {
@@ -131,18 +131,59 @@ function sanitizeKeyPart(input: string): string {
 }
 
 /**
+ * Filters out unsafe, inaccessible or private sites from narrative walking quests.
+ * Never guides explorers toward dangerous pits, non-touristic chasms, or private grounds.
+ */
+function isSafeAccessibleCandidate(p: PoiItem): boolean {
+  if (p.isSubterranean) {
+    const subL = (p.subType || '').toLowerCase();
+    const isTouristic =
+      subL.includes('aménagé') ||
+      subL.includes('visite') ||
+      subL.includes('touristique') ||
+      subL.includes('grotte ornée');
+    if (!isTouristic) return false;
+  }
+  if (p.safetyNotice) {
+    const snL = p.safetyNotice.toLowerCase();
+    if (
+      snL.includes('danger') ||
+      snL.includes('interdit') ||
+      snL.includes('privé') ||
+      snL.includes('pénétration interdite') ||
+      snL.includes('gouffre') ||
+      snL.includes('éboulis') ||
+      snL.includes('abrupt') ||
+      snL.includes('chute') ||
+      snL.includes('escalade')
+    ) {
+      return false;
+    }
+  }
+  const nameL = (p.name || '').toLowerCase();
+  const subL = (p.subType || '').toLowerCase();
+  if (nameL.includes('propriété privée') || subL.includes('privé')) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Picks an interconnected trio of distinct POIs prioritizing shared `relatedPoiIds`,
- * shared waterways, walkable intermediate distances (60m - 1200m), and thematic coherence.
+ * shared waterways, walkable intermediate distances (50m - 900m), and thematic coherence.
  */
 function pickInterconnectedTrio(
   candidates: PoiItem[],
   fallbackPool: PoiItem[],
   usedStartIds: Set<string>
 ): [PoiItem, PoiItem, PoiItem] | null {
+  const safeCandidates = candidates.filter(isSafeAccessibleCandidate);
+  const safeFallback = fallbackPool.filter(isSafeAccessibleCandidate);
+
   const mergedMap = new Map<string, PoiItem>();
-  for (const p of candidates) mergedMap.set(p.id, p);
+  for (const p of safeCandidates) mergedMap.set(p.id, p);
   if (mergedMap.size < 3) {
-    for (const p of fallbackPool) {
+    for (const p of safeFallback) {
       mergedMap.set(p.id, p);
       if (mergedMap.size >= 14) break;
     }
@@ -151,7 +192,7 @@ function pickInterconnectedTrio(
   if (pool.length < 3) return null;
 
   // Choose Act I (start) preferring candidates not yet used as start
-  const preferredStarts = candidates.filter((p) => !usedStartIds.has(p.id));
+  const preferredStarts = safeCandidates.filter((p) => !usedStartIds.has(p.id));
   const act1 =
     preferredStarts[0] ||
     pool.find((p) => !usedStartIds.has(p.id)) ||
@@ -197,8 +238,8 @@ function pickInterconnectedTrio(
       act2 = cand;
     }
   }
-  // Require accessible and thematically relevant intermediate link (minimum score 20)
-  if (!act2 || bestScore2 < 20) return null;
+  // Require accessible and thematically relevant intermediate link (minimum score 30)
+  if (!act2 || bestScore2 < 30) return null;
   used.add(act2.id);
 
   let act3: PoiItem | null = null;
@@ -210,8 +251,8 @@ function pickInterconnectedTrio(
       act3 = cand;
     }
   }
-  // Require accessible and thematically relevant final link (minimum score 20)
-  if (!act3 || bestScore3 < 20) return null;
+  // Require accessible and thematically relevant final link (minimum score 30)
+  if (!act3 || bestScore3 < 30) return null;
 
   // Maximum cumulative pedestrian route: 1750m (~20-25 min stroll)
   const leg12 = haversineMeters(act1.lat, act1.lng, act2.lat, act2.lng);
@@ -278,13 +319,13 @@ export function generateSectorNarrativeQuests(params: {
       id: `nq_${sectorKey}_pierres_${sanitizeKeyPart(p1.id)}`,
       slotKey: 'chronique_pierres',
       title: `Le Fil des Bâtisseurs de ${placeName}`,
-      subtitle: 'Itinéraire Thématique d’Arpentage · 3 témoins rapprochés par le Grimoire',
+      subtitle: `Itinéraire Thématique Facultatif · 3 témoins (~${Math.round((leg12 + leg23) / 50) * 50} m à vol d’oiseau)`,
       epistemicDisclaimerFr:
-        'Parcours thématique composé par votre Grimoire : les trois lieux sont réels et documentés in situ, mais leur rapprochement constitue une proposition d’arpentage libre et non une filiation historique attestée.',
+        'Parcours thématique entièrement facultatif composé par votre Grimoire : les trois lieux sont réels et documentés, mais les distances indiquées sont estimées à vol d’oiseau. Adaptez toujours votre trajet aux voies et sentiers publics réellement praticables, sans jamais forcer un passage dangereux ni franchir de clôture privée. Vous pouvez interrompre ou abandonner cet itinéraire à tout moment sans aucune pénalité.',
       focusCategory: 'histoire',
       localityLabel: placeName,
       totalRouteMeters: leg12 + leg23,
-      prologueFr: `Votre Grimoire associe trois témoins patrimoniaux de ${placeName} pour composer un fil de promenade thématique sur le socle de ${litho}. Les lieux sont tous réels et documentés : cheminez librement du Début au Dénouement pour en explorer les correspondances architecturales.`,
+      prologueFr: `Votre Grimoire associe trois témoins patrimoniaux de ${placeName} pour composer une proposition de promenade thématique sur le socle de ${litho}. Les lieux sont tous réels et documentés : cheminez librement selon les sentiers praticables pour en explorer les correspondances architecturales.`,
       epilogueFr: `Les trois témoins de ${placeName} sont désormais visités ! De « ${p1.name} » jusqu’à « ${p3.name} » en passant par « ${p2.name} », vous avez relié à pied les fondations de ${litho} aux œuvres humaines locales. Votre carnet s’enrichit de cette trilogie d’arpentage.`,
       rewardPreview: {
         xpFinaleBonus: 180,
@@ -377,13 +418,13 @@ export function generateSectorNarrativeQuests(params: {
       id: `nq_${sectorKey}_ondes_${sanitizeKeyPart(p1.id)}`,
       slotKey: 'pacte_ondes',
       title: `Le Dialogue du Socle et de l’Onde`,
-      subtitle: `Itinéraire Géographique d’Arpentage · Du socle (${periodLabel}) au fil de l’eau`,
+      subtitle: `Itinéraire Géographique Facultatif · 3 stations (~${Math.round((leg12 + leg23) / 50) * 50} m à vol d’oiseau)`,
       epistemicDisclaimerFr:
-        'Parcours géographique composé par votre Grimoire : rapprochement topographique libre pour lire les pentes et l’écoulement, sans filiation historique formelle.',
+        'Parcours géographique entièrement facultatif composé par votre Grimoire : rapprochement topographique libre pour lire les pentes et l’écoulement. Les distances sont estimées à vol d’oiseau ; suivez toujours les chemins publics praticables sans vous exposer à des pentes raides ni pénétrer sur un terrain privé. Vous pouvez abandonner ou suspendre cette marche à tout moment sans pénalité.',
       focusCategory: 'geographie',
       localityLabel: placeName,
       totalRouteMeters: leg12 + leg23,
-      prologueFr: `Votre Grimoire rapproche trois stations topographiques pour donner à observer la roche (${litho}), la pente et la course de ${waterThread}. Suivez dans l’ordre ces trois points pour lire comment le socle géologique et l’eau façonnent le relief.`,
+      prologueFr: `Votre Grimoire rapproche trois stations topographiques pour donner à observer la roche (${litho}), la pente et la course de ${waterThread}. Suivez librement ces trois points le long des chemins publics pour lire comment le socle géologique et l’eau façonnent le relief.`,
       epilogueFr: `Du point d’éveil${alt1 !== null ? ` (${Math.round(alt1)} m d’altitude)` : ''} jusqu’au terme${alt3 !== null ? ` (${Math.round(alt3)} m)` : ''}, vous avez parcouru le dialogue entre le socle minéral et ${waterThread}. La Guilde de Géologie salue votre lecture du terrain !`,
       rewardPreview: {
         xpFinaleBonus: 180,
@@ -475,13 +516,13 @@ export function generateSectorNarrativeQuests(params: {
       id: `nq_${sectorKey}_murmures_${sanitizeKeyPart(p1.id)}`,
       slotKey: 'murmures_vivant',
       title: `Les Murmures de la Futaie & des Contes`,
-      subtitle: 'Itinéraire Écologique & Légendaire · 3 haltes d’arpentage libre',
+      subtitle: `Itinéraire Écologique & Légendaire Facultatif · 3 haltes (~${Math.round((leg12 + leg23) / 50) * 50} m à vol d’oiseau)`,
       epistemicDisclaimerFr:
-        'Parcours sensible composé par votre Grimoire : rapprochement évocateur entre refuges naturels et mémoire populaire locale, sans lien de causalité historique affirmé.',
+        'Parcours sensible entièrement facultatif composé par votre Grimoire : rapprochement évocateur entre refuges naturels et mémoire populaire locale. Les distances sont indicatives (à vol d’oiseau) : progressez sur les sentiers publics balisés, dans le respect de la faune et de la flore, sans franchir de clôture. Vous pouvez abandonner cet itinéraire à tout moment sans aucune pénalité.',
       focusCategory: p1.category === 'legende' ? 'legende' : 'ecosysteme',
       localityLabel: placeName,
       totalRouteMeters: leg12 + leg23,
-      prologueFr: `Votre Grimoire compose une boucle contemplative reliant les refuges du vivant et les lieux chargés de contes à ${placeName}. Une promenade sensible pour observer la flore, guetter les petits habitants des bois et redécouvrir le folklore du terroir.`,
+      prologueFr: `Votre Grimoire compose une boucle contemplative facultative reliant les refuges du vivant et les lieux chargés de contes à ${placeName}. Une promenade sensible pour observer la flore, guetter les petits habitants des bois et redécouvrir le folklore du terroir.`,
       epilogueFr: `Les trois murmures de ${placeName} se répondent enfin ! En reliant dans l’ordre « ${p1.name} », « ${p2.name} » et « ${p3.name} », vous avez accordé votre pas à l’observation naturaliste et à l’imaginaire poétique du pays.`,
       rewardPreview: {
         xpFinaleBonus: 180,

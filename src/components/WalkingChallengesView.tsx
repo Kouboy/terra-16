@@ -16,7 +16,6 @@ interface WalkingChallengesViewProps {
   progress: ExplorerProgress;
   onClaimReward: (challengeId: string) => void;
   onEquipCosmetic?: (slot: keyof ExplorerAppearance, itemId: string) => void;
-  onSimulateWalkStep?: (addedMeters: number) => void;
   isSimulatedLocation?: boolean;
 }
 
@@ -36,7 +35,6 @@ export const WalkingChallengesView: React.FC<WalkingChallengesViewProps> = ({
   progress,
   onClaimReward,
   onEquipCosmetic,
-  onSimulateWalkStep,
   isSimulatedLocation,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodFilter>('all');
@@ -121,28 +119,6 @@ export const WalkingChallengesView: React.FC<WalkingChallengesViewProps> = ({
           <span>
             Cette année : <strong className="text-amber-950">{formatDistanceKm(walkingState.metrics.annualMeters)}</strong>
           </span>
-
-          {/* Quick test stepper in simulation mode to test distance & claim flows */}
-          {isSimulatedLocation && onSimulateWalkStep && (
-            <div className="ml-auto flex items-center gap-1.5 pt-1 sm:pt-0">
-              <button
-                type="button"
-                onClick={() => onSimulateWalkStep(500)}
-                className="px-2 py-1 text-[11px] font-sans font-semibold bg-amber-200/90 hover:bg-amber-300 text-amber-950 border border-amber-900/40 active:translate-y-px transition-colors min-h-[32px]"
-                title="Ajouter 500 mètres de marche pour tester la jauge"
-              >
-                +500 m test
-              </button>
-              <button
-                type="button"
-                onClick={() => onSimulateWalkStep(2500)}
-                className="px-2 py-1 text-[11px] font-sans font-semibold bg-amber-300 hover:bg-amber-400 text-amber-950 border border-amber-900/50 active:translate-y-px transition-colors min-h-[32px]"
-                title="Ajouter 2,5 km pour tester le franchissement de palier"
-              >
-                +2,5 km test
-              </button>
-            </div>
-          )}
         </div>
       </div>
 

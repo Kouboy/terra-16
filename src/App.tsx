@@ -748,18 +748,17 @@ export default function App() {
   ]);
   const [sessionMeters, setSessionMeters] = useState<number>(0);
   const [sessionElevGainM, setSessionElevGainM] = useState<number>(0);
+  const [sessionSimulatedMeters, setSessionSimulatedMeters] = useState<number>(0);
+  const [sessionSimulatedElevGainM, setSessionSimulatedElevGainM] = useState<number>(0);
   const [showWalkRecapModal, setShowWalkRecapModal] = useState<boolean>(false);
   const [sessionUnlockedPoiIds, setSessionUnlockedPoiIds] = useState<string[]>([]);
   const [carnetListFilter, setCarnetListFilter] = useState<'all' | 'annotated'>('all');
-  const lastStepMetricRef = useRef<{ lat: number; lng: number; alt: number | null }>({
+  const lastStepMetricRef = useRef<{ lat: number; lng: number; alt: number | null } | null>({
     lat: PRESET_LOCATIONS[0].lat,
     lng: PRESET_LOCATIONS[0].lng,
     alt: null,
   });
-  const prevUnlockPosRef = useRef<{ lat: number; lng: number }>({
-    lat: PRESET_LOCATIONS[0].lat,
-    lng: PRESET_LOCATIONS[0].lng,
-  });
+  const prevUnlockPosRef = useRef<{ lat: number; lng: number } | null>(null);
   const playerSurfaceRef = useRef<{ surface: SurfaceType; nearWater: boolean }>({
     surface: 'stone',
     nearWater: false,
@@ -1598,11 +1597,19 @@ export default function App() {
   useEffect(() => {
     const prev = lastStepMetricRef.current;
     const curAlt = sampleElevationMeters(elevation, playerPos.lat, playerPos.lng);
+    if (!prev) {
+      lastStepMetricRef.current = { lat: playerPos.lat, lng: playerPos.lng, alt: curAlt };
+      return;
+    }
     const d = haversineMeters(prev.lat, prev.lng, playerPos.lat, playerPos.lng);
 
     if (d >= 9 && d <= 650) {
       const roundedStep = Math.round(d);
-      setSessionMeters((m) => m + roundedStep);
+      if (simulationMode) {
+        setSessionSimulatedMeters((m) => m + roundedStep);
+      } else {
+        setSessionMeters((m) => m + roundedStep);
+      }
       setProgress((p) => ({
         ...p,
         walkedMeters: simulationMode ? p.walkedMeters || 0 : (p.walkedMeters || 0) + roundedStep,
@@ -1632,7 +1639,12 @@ export default function App() {
       }
 
       if (prev.alt !== null && curAlt !== null && curAlt > prev.alt + 0.6) {
-        setSessionElevGainM((g) => g + Math.round(curAlt - prev.alt!));
+        const gain = Math.round(curAlt - prev.alt);
+        if (simulationMode) {
+          setSessionSimulatedElevGainM((g) => g + gain);
+        } else {
+          setSessionElevGainM((g) => g + gain);
+        }
       }
       setBreadcrumbTrail((trail) => {
         const next = [...trail, { lat: playerPos.lat, lng: playerPos.lng }];
@@ -1642,7 +1654,7 @@ export default function App() {
     } else if (d > 650) {
       lastStepMetricRef.current = { lat: playerPos.lat, lng: playerPos.lng, alt: curAlt };
     } else if (prev.alt === null && curAlt !== null) {
-      lastStepMetricRef.current = { ...prev, alt: curAlt };
+      lastStepMetricRef.current = { lat: prev.lat, lng: prev.lng, alt: curAlt };
     }
   }, [playerPos.lat, playerPos.lng, elevation, simulationMode]);
 
@@ -1936,6 +1948,8 @@ export default function App() {
     };
   }, []);
 
+  const activeWatchTokenRef = useRef<number>(0);
+
   // Real GPS acquisition helper callable on demand (recentering / manual prompt)
   const requestGpsAuthorization = useCallback(() => {
     if (!('geolocation' in navigator)) {
@@ -1943,15 +1957,18 @@ export default function App() {
       setGpsPermissionState('unavailable');
       return;
     }
+    const token = ++activeWatchTokenRef.current;
     setGpsStatus('Acquisition du signal satellite GPS…');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (token !== activeWatchTokenRef.current) return;
         setWalkQueue([]);
         setPlayerPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setGpsStatus(`GPS verrouillé (±${Math.round(pos.coords.accuracy)} m)`);
         setGpsPermissionState('granted');
       },
       (err) => {
+        if (token !== activeWatchTokenRef.current) return;
         console.warn('[GPS] Error getting position:', err);
         if (err.code === 1) {
           setGpsStatus('Accès GPS refusé : activez la géolocalisation');
@@ -1964,23 +1981,32 @@ export default function App() {
     );
   }, []);
 
-  // Real GPS Watch - active automatically to force real-world exploration
+  // Real GPS Watch - active strictly during Real GPS Walk mode (!simulationMode)
   useEffect(() => {
+    if (simulationMode) {
+      setGpsStatus('Planificateur de balade : GPS suspendu (reconnaissance)');
+      activeWatchTokenRef.current++;
+      return;
+    }
+
     if (!('geolocation' in navigator)) {
       setGpsStatus('Module GPS non disponible sur cet appareil');
       setGpsPermissionState('unavailable');
       return;
     }
 
-    setGpsStatus('Acquisition du signal satellite GPS…');
+    const token = ++activeWatchTokenRef.current;
+    setGpsStatus('Balade GPS : acquisition du signal satellite…');
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
+        if (token !== activeWatchTokenRef.current) return;
         setWalkQueue([]);
         setPlayerPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setGpsStatus(`GPS verrouillé (±${Math.round(pos.coords.accuracy)} m)`);
+        setGpsStatus(`GPS actif (±${Math.round(pos.coords.accuracy)} m)`);
         setGpsPermissionState('granted');
       },
       (err) => {
+        if (token !== activeWatchTokenRef.current) return;
         console.warn('[GPS] Watch error:', err);
         if (err.code === 1) {
           setGpsStatus('Accès GPS refusé : activez la géolocalisation');
@@ -1992,8 +2018,30 @@ export default function App() {
       { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
+    return () => {
+      activeWatchTokenRef.current++;
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [simulationMode]);
+
+  // Clean, isolated transition between Real GPS Walk and Planning Mode
+  const handleToggleSimulationMode = useCallback(
+    (targetMode?: boolean) => {
+      setSimulationMode((current) => {
+        const next = typeof targetMode === 'boolean' ? targetMode : !current;
+        setWalkQueue([]);
+        // Reset movement & proximity unlock anchors so geographic jump is never counted as steps
+        prevUnlockPosRef.current = null;
+        lastStepMetricRef.current = null;
+        suppressedPoiIdsUntilMoveRef.current.clear();
+        if (!next) {
+          requestGpsAuthorization();
+        }
+        return next;
+      });
+    },
+    [requestGpsAuthorization]
+  );
 
   const handlePlayerSurfaceChange = useCallback((surface: SurfaceType, nearWater: boolean) => {
     playerSurfaceRef.current = { surface, nearWater };
@@ -2436,7 +2484,7 @@ export default function App() {
     }
 
     // Le mode planificateur de balades sert exclusivement à élaborer des parcours : aucun point ni XP attribué
-    if (simulationMode) {
+    if (simulationMode || !prevPos) {
       return;
     }
 
@@ -2857,12 +2905,17 @@ export default function App() {
   };
 
   const handleResetWalkSession = useCallback(() => {
-    setSessionMeters(0);
-    setSessionElevGainM(0);
-    setSessionUnlockedPoiIds([]);
+    if (simulationMode) {
+      setSessionSimulatedMeters(0);
+      setSessionSimulatedElevGainM(0);
+    } else {
+      setSessionMeters(0);
+      setSessionElevGainM(0);
+      setSessionUnlockedPoiIds([]);
+    }
     setBreadcrumbTrail([{ lat: playerPos.lat, lng: playerPos.lng }]);
     setShowWalkRecapModal(false);
-  }, [playerPos.lat, playerPos.lng]);
+  }, [playerPos.lat, playerPos.lng, simulationMode]);
 
   const handleResetCharacter = useCallback(async () => {
     // Suppress immediate auto-unlock on POIs currently overlapping playerPos until player steps >= 8m
@@ -3320,18 +3373,18 @@ export default function App() {
         }
         return next;
       });
-      setCutIn({
-        id: `alchemy_${recipe.id}_${Date.now()}`,
-        kind: 'mission',
+      showDiscoveryToast({
         kicker:
           recipe.category === 'encre_carte'
-            ? 'Atelier d’Alchimie · Nouvelle Encre d’Enluminure !'
-            : 'Atelier d’Alchimie · Talisman & Aura de Familier forgés !',
-        title: recipe.nameFr,
-        subtitle: `+${craftXp} XP · ${recipe.effectSummaryFr}`,
+            ? 'Atelier d’Alchimie · Nouvelle Encre'
+            : 'Atelier d’Alchimie · Talisman forgé',
+        name: recipe.nameFr,
+        category: 'geographie',
+        xpAwarded: craftXp,
+        subtitle: recipe.effectSummaryFr,
       });
     },
-    [craftedAlchemyIds, muted, hapticsEnabled, user, cloudOnline, handleCloudSyncError]
+    [craftedAlchemyIds, muted, hapticsEnabled, user, cloudOnline, handleCloudSyncError, showDiscoveryToast]
   );
 
   const handleSelectFamiliarAura = useCallback(
@@ -3541,13 +3594,12 @@ export default function App() {
           }
           return next;
         });
-        setCutIn({
-          id: `bestiary_${npc.kind}_${Date.now()}`,
-          kind: 'discovery',
-          kicker: 'Nouvelle espèce consignée au Bestiaire !',
-          title: catMeta ? catMeta.name : npc.name,
-          subtitle: `+15 XP Écosystème · ${localAtmosphereLabel}`,
-          emblemSrc: CATEGORY_META.ecosysteme.emblemSrc,
+        showDiscoveryToast({
+          kicker: 'Bestiaire · Espèce consignée',
+          name: catMeta ? catMeta.name : npc.name,
+          category: 'ecosysteme',
+          xpAwarded: 15,
+          subtitle: localAtmosphereLabel,
         });
       } else if (isNewHuman) {
         setProgress((prev) => {
@@ -3571,6 +3623,7 @@ export default function App() {
       localAtmosphereLabel,
       muted,
       user,
+      showDiscoveryToast,
     ]
   );
 
@@ -3682,25 +3735,28 @@ export default function App() {
       }
 
       if (isFirstSpecimenPlate) {
-        setCutIn({
-          id: `spec_${node.specimenId}_${Date.now()}`,
-          kind: 'discovery',
+        showDiscoveryToast({
           kicker:
             node.domain === 'botanique'
-              ? 'Nouveau croquis consigné à l’Herbier !'
-              : 'Nouvel échantillon scellé à la Lithothèque !',
-          title: node.name,
-          subtitle: `+${xpGain} XP ${
-            node.domain === 'botanique' ? 'Écosystème' : 'Géographie'
-          } · ${lithologyDisplay}`,
-          emblemSrc:
-            node.domain === 'botanique'
-              ? CATEGORY_META.ecosysteme.emblemSrc
-              : CATEGORY_META.geographie.emblemSrc,
+              ? 'Herbier · Nouveau croquis'
+              : 'Lithothèque · Échantillon scellé',
+          name: node.name,
+          category: node.domain === 'botanique' ? 'ecosysteme' : 'geographie',
+          xpAwarded: xpGain,
+          subtitle: lithologyDisplay,
         });
       }
     },
-    [harvestedSpecimenNodes, specimens, muted, localAtmosphereLabel, user, cloudOnline, handleCloudSyncError]
+    [
+      harvestedSpecimenNodes,
+      specimens,
+      muted,
+      localAtmosphereLabel,
+      user,
+      cloudOnline,
+      handleCloudSyncError,
+      showDiscoveryToast,
+    ]
   );
 
   // Deterministic World Archivist Chests for the active real-world sector
@@ -4016,13 +4072,12 @@ export default function App() {
       return next;
     });
     playProximityChimeSfx(muted);
-    setCutIn({
-      id: `summit_step_${hitStep.id}`,
-      kind: 'discovery',
+    showDiscoveryToast({
       kicker: 'Étape de Triangulation validée',
-      title: hitStep.label,
+      name: hitStep.label,
+      category: 'geographie',
+      xpAwarded: 0,
       subtitle: `${hitStep.shortTag} atteint sur le terrain réel`,
-      emblemSrc: CATEGORY_META.geographie.emblemSrc,
     });
   }, [
     playerPos.lat,
@@ -4032,6 +4087,7 @@ export default function App() {
     claimedContracts,
     visitedContractSteps,
     muted,
+    showDiscoveryToast,
   ]);
 
   // Auto-claim completed Dynamic Sector Contracts
@@ -4991,21 +5047,26 @@ export default function App() {
         .slice(sealed + 1)
         .find((st) => st.poiId === latestEntry.poiId);
       if (outOfOrderStage && trackedNarrativeQuest?.id === quest.id) {
-        setCutIn({
-          id: `narrative_order_hint_${quest.id}_${outOfOrderStage.actNumber}_${Date.now()}`,
-          kind: 'discovery',
+        showDiscoveryToast({
           kicker: `Ordre du récit · ${quest.title}`,
-          title: latestEntry.name,
-          subtitle: `Ce lieu correspond à l’Acte ${outOfOrderStage.actNumber} : accomplissez d’abord l’Acte ${
-            sealed + 1
-          } dans l’ordre de l’histoire !`,
-          emblemSrc: CATEGORY_META[latestEntry.category].emblemSrc,
+          name: latestEntry.name,
+          category: latestEntry.category,
           poiId: latestEntry.poiId,
+          subtitle: `Étape liée à l’Acte ${outOfOrderStage.actNumber} : accomplissez d’abord l’Acte ${
+            sealed + 1
+          } dans l’ordre de l’histoire.`,
         });
         return;
       }
     }
-  }, [entries, sectorNarrativeQuests, trackedNarrativeQuest, narrativeState, handleSealNarrativeStage]);
+  }, [
+    entries,
+    sectorNarrativeQuests,
+    trackedNarrativeQuest,
+    narrativeState,
+    handleSealNarrativeStage,
+    showDiscoveryToast,
+  ]);
 
   const handleSelectActiveNarrativeQuest = useCallback(
     (questId: string | null, focusStage?: NarrativeQuestStage) => {
@@ -5044,19 +5105,13 @@ export default function App() {
     if (!step) return;
 
     if (stepIdx + 1 < currentSectorHunt.steps.length) {
-      playDiscoveryFanfare(muted);
-      vibrateUnlockCelebration(hapticsEnabled);
-      setHuntStepMap((prev) => ({
-        ...prev,
-        [currentSectorHunt.huntId]: stepIdx + 1,
-      }));
-      setCutIn({
-        id: `hunt_step_${currentSectorHunt.huntId}_${stepIdx}`,
-        kind: 'discovery',
-        kicker: `Piste au Trésor · Jalon ${stepIdx + 1}/${currentSectorHunt.steps.length} trouvé !`,
-        title: step.trueName,
-        subtitle: 'La strophe suivante du parchemin vient de se révéler !',
-        emblemSrc: CATEGORY_META[step.category].emblemSrc,
+      playProximityChimeSfx(muted);
+      showDiscoveryToast({
+        kicker: `Piste au Trésor · Jalon ${stepIdx + 1}/${currentSectorHunt.steps.length}`,
+        name: step.trueName,
+        category: step.category,
+        xpAwarded: 0,
+        subtitle: 'La strophe suivante du parchemin s’est révélée.',
       });
       return;
     }
@@ -5123,6 +5178,7 @@ export default function App() {
     user,
     cloudOnline,
     handleCloudSyncError,
+    showDiscoveryToast,
   ]);
 
   // Auto-advance active clue hunt step on physical arrival + tactile hot/cold pulses when tracking
@@ -7035,9 +7091,9 @@ export default function App() {
         <WalkRecapModal
           isOpen={showWalkRecapModal}
           onClose={() => setShowWalkRecapModal(false)}
-          sessionMeters={sessionMeters}
-          sessionElevGainM={sessionElevGainM}
-          sessionUnlockedPoiIds={sessionUnlockedPoiIds}
+          sessionMeters={simulationMode ? sessionSimulatedMeters : sessionMeters}
+          sessionElevGainM={simulationMode ? sessionSimulatedElevGainM : sessionElevGainM}
+          sessionUnlockedPoiIds={simulationMode ? [] : sessionUnlockedPoiIds}
           entries={entries}
           onOpenEntry={(poiId) => {
             openJournalEntry(poiId);
@@ -8097,14 +8153,7 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => {
-                  if (simulationMode) {
-                    setSimulationMode(false);
-                    requestGpsAuthorization();
-                  } else {
-                    setSimulationMode(true);
-                  }
-                }}
+                onClick={() => handleToggleSimulationMode()}
                 title={
                   simulationMode
                     ? 'Mode Planificateur de Balade actif (Préparation d’itinéraire, 0 XP) — Cliquez pour repasser en Balade Réelle GPS'
@@ -8182,10 +8231,7 @@ export default function App() {
             </div>
             <button
               type="button"
-              onClick={() => {
-                setSimulationMode(false);
-                requestGpsAuthorization();
-              }}
+              onClick={() => handleToggleSimulationMode(false)}
               className="min-h-[34px] px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs border-2 border-emerald-400 jrpg-shadow shrink-0 inline-flex items-center gap-1.5"
             >
               <PixelUiIcon name="radar" className="w-3.5 h-3.5" />
@@ -8306,17 +8352,25 @@ export default function App() {
                           </span>
                         </>
                       )}
-                      {sessionMeters >= 15 && (
+                      {(simulationMode ? sessionSimulatedMeters : sessionMeters) >= 15 && (
                         <>
                           <span>·</span>
                           <button
                             type="button"
                             onClick={() => setShowWalkRecapModal(true)}
                             className="text-emerald-900 font-bold hover:underline underline-offset-2 cursor-pointer"
-                            title="Consulter le récapitulatif de la promenade en cours"
+                            title={
+                              simulationMode
+                                ? 'Consulter le parcours planifié en cours'
+                                : 'Consulter le récapitulatif de la promenade en cours'
+                            }
                           >
-                            {sessionMeters} m
-                            {sessionElevGainM >= 2 ? ` (D+ ${sessionElevGainM} m)` : ''}
+                            {simulationMode
+                              ? `Planifié : ${sessionSimulatedMeters} m`
+                              : `${sessionMeters} m`}
+                            {(simulationMode ? sessionSimulatedElevGainM : sessionElevGainM) >= 2
+                              ? ` (D+ ${simulationMode ? sessionSimulatedElevGainM : sessionElevGainM} m)`
+                              : ''}
                           </button>
                         </>
                       )}
@@ -8552,17 +8606,25 @@ export default function App() {
                         <span className="font-mono tabular-nums text-emerald-900 font-bold">
                           Secteur {localExplorationPct}% exploré
                         </span>
-                        {sessionMeters >= 15 && (
+                        {(simulationMode ? sessionSimulatedMeters : sessionMeters) >= 15 && (
                           <>
                             <span aria-hidden="true">·</span>
                             <button
                               type="button"
                               onClick={() => setShowWalkRecapModal(true)}
                               className="font-mono tabular-nums text-amber-950 font-bold hover:underline underline-offset-2 cursor-pointer"
-                              title="Consulter le récapitulatif de la promenade en cours"
+                              title={
+                                simulationMode
+                                  ? 'Consulter le parcours planifié en cours'
+                                  : 'Consulter le récapitulatif de la promenade en cours'
+                              }
                             >
-                              {sessionMeters} m parcourus
-                              {sessionElevGainM >= 2 ? ` (D+ ${sessionElevGainM} m)` : ''}
+                              {simulationMode
+                                ? `${sessionSimulatedMeters} m planifiés (0 XP)`
+                                : `${sessionMeters} m parcourus`}
+                              {(simulationMode ? sessionSimulatedElevGainM : sessionElevGainM) >= 2
+                                ? ` (D+ ${simulationMode ? sessionSimulatedElevGainM : sessionElevGainM} m)`
+                                : ''}
                             </button>
                           </>
                         )}
@@ -10326,17 +10388,21 @@ export default function App() {
                         type="button"
                         onClick={() => setShowWalkRecapModal(true)}
                         className="w-full min-h-[40px] px-3.5 py-2 bg-[#28160d] text-amber-200 hover:bg-[#3d2214] border-2 border-[#d97706] jrpg-shadow text-xs font-bold inline-flex items-center justify-between transition-colors cursor-pointer"
-                        title="Consulter le récapitulatif de la promenade en cours"
+                        title={
+                          simulationMode
+                            ? 'Consulter le parcours planifié en cours'
+                            : 'Consulter le récapitulatif de la promenade en cours'
+                        }
                       >
                         <span className="inline-flex items-center gap-2">
-                          <PixelUiIcon name="boot" className="w-4 h-4 text-amber-300" />
-                          <span>Promenade en cours</span>
+                          <PixelUiIcon name={simulationMode ? 'map' : 'boot'} className="w-4 h-4 text-amber-300" />
+                          <span>{simulationMode ? 'Itinéraire planifié (0 XP)' : 'Promenade en cours'}</span>
                         </span>
                         <span className="font-mono text-amber-300 text-[11px] tabular-nums">
-                          {sessionMeters < 1000
-                            ? `${sessionMeters} m`
-                            : `${(sessionMeters / 1000).toFixed(2).replace('.', ',')} km`}
-                          {sessionUnlockedPoiIds.length > 0
+                          {(simulationMode ? sessionSimulatedMeters : sessionMeters) < 1000
+                            ? `${simulationMode ? sessionSimulatedMeters : sessionMeters} m`
+                            : `${((simulationMode ? sessionSimulatedMeters : sessionMeters) / 1000).toFixed(2).replace('.', ',')} km`}
+                          {!simulationMode && sessionUnlockedPoiIds.length > 0
                             ? ` (${sessionUnlockedPoiIds.length} découv.)`
                             : ''}
                           {' ▸'}
@@ -10706,30 +10772,6 @@ export default function App() {
                       ...prev,
                       [slot]: itemId,
                     }));
-                  }}
-                  onSimulateWalkStep={(addedMeters) => {
-                    setSessionMeters((m) => m + addedMeters);
-                    setProgress((p) => ({
-                      ...p,
-                      walkedMeters: (p.walkedMeters || 0) + addedMeters,
-                    }));
-                    setWalkingState((prevWs) => {
-                      const { nextState, newlyCompletedChallenges } = recordStepDistanceInState(
-                        prevWs,
-                        addedMeters
-                      );
-                      if (newlyCompletedChallenges.length > 0) {
-                        const first = newlyCompletedChallenges[0];
-                        setCutIn({
-                          id: `cutin_step_${first.id}_${Date.now()}`,
-                          kind: 'mission',
-                          kicker: 'Palier de Marche Franchi !',
-                          title: first.title,
-                          subtitle: `Objectif de ${formatDistanceKm(first.targetMeters)} atteint ! Réclamez votre récompense exclusive dans les Défis de Marche.`,
-                        });
-                      }
-                      return nextState;
-                    });
                   }}
                   isSimulatedLocation={simulationMode}
                 />
